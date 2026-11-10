@@ -1,11 +1,80 @@
 import { describe, expect, mock, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
+import { BoxRenderable } from "@opentui/core";
 import { act } from "react";
 import type { AppBootstrap, LayoutMode } from "../core/types";
 import { createTestVcsAppBootstrap } from "../../test/helpers/app-bootstrap";
 import { createTestDiffFile } from "../../test/helpers/diff-helpers";
 
 const { AppHost } = await import("./AppHost");
+
+test("workspace uses the base background while the adjoining tree and diff retain a resizable edge", async () => {
+  const setup = await testRender(<AppHost bootstrap={createBootstrap()} />, {
+    width: 280,
+    height: 24,
+  });
+  try {
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      await setup.mockInput.typeText("s");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    const workspace = setup.renderer.root.findDescendantById("workspace-pane");
+    const tree = setup.renderer.root.findDescendantById("file-tree-pane");
+    const diff = setup.renderer.root.findDescendantById("diff-pane");
+    const tasks = setup.renderer.root.findDescendantById("workspace-section-Tasks");
+    const reviews = setup.renderer.root.findDescendantById("workspace-section-Reviews");
+    if (
+      !(workspace instanceof BoxRenderable) ||
+      !(tree instanceof BoxRenderable) ||
+      !(diff instanceof BoxRenderable) ||
+      !(tasks instanceof BoxRenderable) ||
+      !(reviews instanceof BoxRenderable)
+    ) {
+      throw new Error("Missing review surface");
+    }
+    expect(tree.x - workspace.x - workspace.width).toBe(2);
+    expect(diff.x - tree.x - tree.width).toBe(0);
+    expect(reviews.y - tasks.y - tasks.height).toBe(1);
+    expect(tasks.backgroundColor).toEqual(workspace.backgroundColor);
+    expect(reviews.backgroundColor).toEqual(workspace.backgroundColor);
+    expect(tasks.backgroundColor).not.toEqual(tree.backgroundColor);
+    expect(setup.captureCharFrame()).not.toContain("│");
+    expect(setup.captureCharFrame()).not.toContain("───");
+    const initialTreeWidth = tree.width;
+    const initialDiffWidth = diff.width;
+    const gutterX = tree.x + tree.width;
+    await act(async () => {
+      await setup.mockMouse.pressDown(gutterX, 5);
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      await setup.mockMouse.emitMouseEvent("drag", gutterX + 6, 5);
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      await setup.mockMouse.release(gutterX + 6, 5);
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    expect(tree.width).toBe(initialTreeWidth + 6);
+    expect(diff.width).toBe(initialDiffWidth - 6);
+    expect(diff.x - tree.x - tree.width).toBe(0);
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
 
 test("workspace yields space on narrow terminals and stays out of pager mode", async () => {
   expect(await captureFrameForBootstrap(createBootstrap(), 280)).toContain("Tasks");
@@ -120,6 +189,12 @@ async function captureResponsiveFrames() {
     await act(async () => {
       await setup.renderOnce();
     });
+    await act(async () => {
+      await setup.mockInput.typeText("s");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
     const ultraWide = setup.captureCharFrame();
 
     await act(async () => {
@@ -206,7 +281,7 @@ describe("responsive app", () => {
     expect(forcedSplit).not.toContain("Changeset summary");
     expect(forcedSplit).toMatch(/▌.*▌/);
 
-    expect((forcedStack.match(/alpha\.ts/g) ?? []).length).toBe(2);
+    expect((forcedStack.match(/alpha\.ts/g) ?? []).length).toBe(1);
     expect(forcedStack).not.toContain("Changeset summary");
     expect(forcedStack).not.toMatch(/▌.*▌/);
   });

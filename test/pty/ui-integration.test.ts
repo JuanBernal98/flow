@@ -16,6 +16,41 @@ afterEach(() => {
 });
 
 ptyDescribe("live UI integration", () => {
+  test("the borderless pane edge keeps resizing available in a real PTY", async () => {
+    const fixture = harness.createTwoFileRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff"],
+      cwd: fixture.dir,
+      cols: 240,
+      rows: 24,
+    });
+    try {
+      await session.waitForText(/Press \? for help/);
+      await session.press("s");
+      const initial = await session.waitForText(/alpha\.ts/);
+      const headerLine = initial.split("\n").find((line) => line.includes("alpha.ts"));
+      if (!headerLine) throw new Error("Missing pinned file header");
+      const initialColumn = headerLine.indexOf("alpha.ts");
+      const startColumn = initialColumn - 1;
+      session.writeRaw(`\x1b[<0;${startColumn};6M`);
+      await session.waitIdle();
+      session.writeRaw(`\x1b[<32;${startColumn + 8};6M`);
+      await session.waitIdle();
+      session.writeRaw(`\x1b[<0;${startColumn + 8};6m`);
+      const resized = await harness.waitForSnapshot(session, (text) => {
+        const line = text.split("\n").find((row) => row.includes("alpha.ts"));
+        return line?.indexOf("alpha.ts") === initialColumn + 8;
+      });
+      expect(resized).toContain("beta.ts");
+      expect(resized).not.toContain("│");
+      session.resize({ cols: 100, rows: 24 });
+      const narrow = await harness.waitForSnapshot(session, (text) => !text.includes("Tasks"));
+      expect(narrow).toContain("alpha.ts");
+    } finally {
+      session.close();
+    }
+  });
+
   test("nested file tree folders fold independently of the review stream", async () => {
     const fixture = harness.createTreeRepoFixture();
     const session = await harness.launchHunk({
@@ -25,8 +60,9 @@ ptyDescribe("live UI integration", () => {
       rows: 24,
     });
     try {
-      await session.waitForText(/▾ src\//);
+      await session.waitForText(/Press \? for help/);
       await session.press(["shift", "f"]);
+      await session.waitForText(/▾ src\//);
       await session.press("home");
       await session.press("enter");
       const folded = await session.waitForText(/▸ src\//);
@@ -365,9 +401,11 @@ ptyDescribe("live UI integration", () => {
     });
 
     try {
-      const wide = await session.waitForText(/Press \? for help/, {
+      await session.waitForText(/Press \? for help/, {
         timeout: ptyTimeouts.waitForText,
       });
+      await session.press("s");
+      const wide = await session.text();
 
       expect(harness.countMatches(wide, /alpha\.ts/g)).toBeGreaterThanOrEqual(2);
       expect(wide).toMatch(/▌.*▌/);
@@ -398,9 +436,11 @@ ptyDescribe("live UI integration", () => {
     });
 
     try {
-      const initial = await session.waitForText(/Press \? for help/, {
+      await session.waitForText(/Press \? for help/, {
         timeout: ptyTimeouts.waitForText,
       });
+      await session.press("s");
+      const initial = await session.text();
 
       expect(initial).toContain("alphaOnly = true");
       expect(initial).toContain("betaValue = 2");
@@ -432,9 +472,11 @@ ptyDescribe("live UI integration", () => {
     });
 
     try {
-      const initial = await session.waitForText(/Press \? for help/, {
+      await session.waitForText(/Press \? for help/, {
         timeout: ptyTimeouts.waitForText,
       });
+      await session.press("s");
+      const initial = await session.text();
 
       expect(initial).toContain("first.ts");
       expect(initial).toContain("second.ts");

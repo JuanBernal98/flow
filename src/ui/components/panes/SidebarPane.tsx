@@ -102,6 +102,7 @@ export function SidebarPane({
 
   return (
     <box
+      id="file-tree-pane"
       style={{
         width,
         backgroundColor: theme.panel,
@@ -118,8 +119,6 @@ export function SidebarPane({
         paddingX={1}
         flexDirection="row"
         justifyContent="space-between"
-        border={["bottom"]}
-        borderColor={theme.panelAlt}
       >
         <text fg={theme.muted}>{`${fileEntries.length} Changes`}</text>
         <text>

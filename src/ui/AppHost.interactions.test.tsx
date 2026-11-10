@@ -29,12 +29,13 @@ test("nested file tree folds with keyboard and mouse while preserving the full r
   });
   try {
     await flush(setup);
-    expect(setup.captureCharFrame()).toContain("▾ src/");
-    expect(setup.captureCharFrame()).toContain("▾ ui/");
+    expect(setup.renderer.root.findDescendantById("file-tree-pane")).toBeUndefined();
     await act(async () => {
       await setup.mockInput.typeText("F");
     });
     await flush(setup);
+    expect(setup.captureCharFrame()).toContain("▾ src/");
+    expect(setup.captureCharFrame()).toContain("▾ ui/");
     await act(async () => {
       await setup.mockInput.pressKey("HOME");
     });
@@ -45,13 +46,14 @@ test("nested file tree folds with keyboard and mouse while preserving the full r
     await flush(setup);
     let frame = setup.captureCharFrame();
     expect(frame).toContain("2 Changes");
+    expect(frame.match(/2 Changes/g)).toHaveLength(1);
     expect(frame).toContain("▸ src/");
     expect(frame).toContain("+2 −2");
     expect(frame).not.toContain("▾ ui/");
     expect(frame).toContain("const alpha = 2;");
     expect(frame).toContain("const beta = 2;");
     await act(async () => {
-      await setup.mockMouse.click(36, 3);
+      await setup.mockMouse.click(38, 3);
     });
     await flush(setup);
     expect(setup.captureCharFrame()).toContain("▾ ui/");
@@ -462,7 +464,7 @@ function firstCrossFileHunkNavigationHeader(frame: string) {
   return (
     frame
       .split("\n")
-      .map((line) => line.slice(32).trim())
+      .map((line) => line.slice(34).trim())
       .find((line) => line.includes("long-file.txt") || line.includes("short-file.ts")) ?? ""
   );
 }
@@ -576,7 +578,7 @@ describe("App interactions", () => {
 
   test("keyboard shortcut can wrap long lines in the app", async () => {
     const setup = await testRender(<AppHost bootstrap={createWrapBootstrap()} />, {
-      width: 172,
+      width: 174,
       height: 20,
     });
 
@@ -1176,7 +1178,7 @@ describe("App interactions", () => {
   test("the first down-arrow step still advances content under the always-pinned file header above a collapsed gap", async () => {
     const setup = await testRender(<AppHost bootstrap={createCollapsedTopBootstrap()} />, {
       width: 220,
-      height: 9,
+      height: 8,
     });
 
     try {
@@ -1687,7 +1689,7 @@ describe("App interactions", () => {
     }
   });
 
-  test("sidebar visibility can toggle off and back on", async () => {
+  test("sidebar starts closed and can toggle on and back off", async () => {
     const setup = await testRender(<AppHost bootstrap={createSidebarBootstrap()} />, {
       width: 240,
       height: 24,
@@ -1697,14 +1699,6 @@ describe("App interactions", () => {
       await flush(setup);
 
       let frame = setup.captureCharFrame();
-      expect((frame.match(/alpha\.ts/g) ?? []).length).toBe(2);
-
-      await act(async () => {
-        await setup.mockInput.typeText("s");
-      });
-      await flush(setup);
-
-      frame = setup.captureCharFrame();
       expect((frame.match(/alpha\.ts/g) ?? []).length).toBe(1);
 
       await act(async () => {
@@ -1714,6 +1708,14 @@ describe("App interactions", () => {
 
       frame = setup.captureCharFrame();
       expect((frame.match(/alpha\.ts/g) ?? []).length).toBe(2);
+
+      await act(async () => {
+        await setup.mockInput.typeText("s");
+      });
+      await flush(setup);
+
+      frame = setup.captureCharFrame();
+      expect((frame.match(/alpha\.ts/g) ?? []).length).toBe(1);
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -1798,6 +1800,10 @@ describe("App interactions", () => {
     });
 
     try {
+      await flush(setup);
+      await act(async () => {
+        await setup.mockInput.typeText("s");
+      });
       await flush(setup);
 
       for (let index = 0; index < 10; index += 1) {
@@ -1906,6 +1912,10 @@ describe("App interactions", () => {
 
     try {
       await flush(setup);
+      await act(async () => {
+        await setup.mockInput.typeText("s");
+      });
+      await flush(setup);
 
       // Move partway into the first file so ownership can visibly change on sidebar selection.
       for (let index = 0; index < 8; index += 1) {
@@ -1917,7 +1927,7 @@ describe("App interactions", () => {
 
       await act(async () => {
         // Click inside the second file row in the left sidebar.
-        await setup.mockMouse.click(38, 4);
+        await setup.mockMouse.click(40, 4);
       });
       await flush(setup);
 

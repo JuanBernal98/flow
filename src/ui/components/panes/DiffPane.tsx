@@ -138,7 +138,6 @@ export function DiffPane({
   scrollToNote = false,
   separatorWidth,
   pagerMode = false,
-  showChangesHeader = false,
   showLineNumbers,
   showHunkHeaders,
   wrapLines,
@@ -173,7 +172,6 @@ export function DiffPane({
   scrollToNote?: boolean;
   separatorWidth: number;
   pagerMode?: boolean;
-  showChangesHeader?: boolean;
   showLineNumbers: boolean;
   showHunkHeaders: boolean;
   wrapLines: boolean;
@@ -1220,6 +1218,7 @@ export function DiffPane({
 
   return (
     <box
+      id="diff-pane"
       style={{
         width,
         backgroundColor: theme.panel,
@@ -1229,11 +1228,6 @@ export function DiffPane({
         flexDirection: "column",
       }}
     >
-      {showChangesHeader ? (
-        <box height={1} flexShrink={0} paddingLeft={1}>
-          <text fg={theme.muted}>{`${files.length} Changes`}</text>
-        </box>
-      ) : null}
       {files.length > 0 ? (
         <box style={{ width: "100%", height: "100%", flexGrow: 1, flexDirection: "column" }}>
           {/* Always pin the current file header in a dedicated top row. */}

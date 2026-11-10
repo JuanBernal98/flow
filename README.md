@@ -164,7 +164,7 @@ Example:
 
 ```toml
 theme = "zed"        # zed (default), graphite, midnight, paper, ember
-mode = "auto"        # auto, split, stack
+mode = "stack"       # stack (default), auto, split
 watch = false        # reload as code and comments change (same as --watch)
 exclude_untracked = false
 line_numbers = false

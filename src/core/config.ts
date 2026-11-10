@@ -5,7 +5,7 @@ import { resolveGlobalConfigPath } from "./paths";
 import type { CliInput, CommonOptions, LayoutMode, PersistedViewPreferences } from "./types";
 
 export const DEFAULT_VIEW_PREFERENCES: PersistedViewPreferences = {
-  mode: "auto",
+  mode: "stack",
   showLineNumbers: false,
   wrapLines: true,
   showHunkHeaders: true,

@@ -12,13 +12,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Added the `zed` theme, adapted from Zed's official One Dark palette. Select it with `--theme zed`, config, or the theme cycle shortcut.
 
-- Show the visible file count above the review stream as `N Changes`, updating with the file filter.
-
 - Nested, collapsible file tree folders with mouse toggles and keyboard navigation (`F` to focus, arrows to navigate and fold, Enter to open, Escape to return to review).
 
 - Workspace beside the file tree, open by default, with mock Tasks and Reviews, minimal section headings with counts, status symbols, task line-change counts, mouse selection, and keyboard navigation (`S` to toggle). Hides automatically on narrow terminals.
 
 ### Changed
+
+- Start with the file tree closed; `s` toggles it and `F` opens it for keyboard navigation.
+
+- Start in stack layout by default; config, CLI, and layout shortcuts still override it.
+
+- Keep Tasks and Reviews on the main background, separated from navigation by an empty gutter. The file tree meets the diff directly without a border, while its edge still supports drag resizing.
 
 - Refined diff presentation with emphasized filenames, muted directory paths, tighter header stats, neutral line numbers, and quieter file separators.
 

@@ -76,10 +76,10 @@ function DiffSectionComponent({
             height: 1,
             paddingLeft: 1,
             paddingRight: 1,
-            backgroundColor: theme.panel,
+            backgroundColor: theme.background,
           }}
         >
-          <text fg={theme.panelAlt}>{fitText("─".repeat(separatorWidth), separatorWidth)}</text>
+          <text bg={theme.background}>{fitText(" ".repeat(separatorWidth), separatorWidth)}</text>
         </box>
       ) : null}
 

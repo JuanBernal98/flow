@@ -289,7 +289,7 @@ export const THEMES: AppTheme[] = [
       id: "zed",
       label: "Zed One Dark",
       appearance: "dark",
-      background: "#282c33",
+      background: "#21252b",
       panel: "#2f343e",
       panelAlt: "#363c46",
       border: "#464b57",

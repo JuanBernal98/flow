@@ -96,6 +96,7 @@ describe("config resolution", () => {
 
     expect(resolved.repoConfigPath).toBeUndefined();
     expect(resolved.input.options.theme).toBe("zed");
+    expect(resolved.input.options.mode).toBe("stack");
     expect(resolved.input.options.lineNumbers).toBe(false);
   });
 
@@ -227,7 +228,7 @@ describe("config resolution", () => {
     );
     const bootstrap = await loadAppBootstrap(resolved.input);
 
-    expect(bootstrap.initialMode).toBe("auto");
+    expect(bootstrap.initialMode).toBe("stack");
     expect(bootstrap.initialTheme).toBe("paper");
     expect(bootstrap.initialShowLineNumbers).toBe(false);
     expect(bootstrap.initialWrapLines).toBe(true);

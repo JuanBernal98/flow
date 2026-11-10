@@ -703,10 +703,14 @@ describe("UI components", () => {
 
       frame = await waitForFrame(
         setup,
-        (nextFrame) => nextFrame.includes("first.ts") && nextFrame.includes("────"),
+        (nextFrame) =>
+          nextFrame.includes("first.ts") &&
+          nextFrame.includes("second.ts") &&
+          nextFrame.split("\n")[1]?.trim() === "",
       );
       expect(frame).toContain("first.ts");
-      expect(frame).toContain("────");
+      expect(frame.split("\n")[1]?.trim()).toBe("");
+      expect(frame).not.toContain("────");
       expect(scrollRef.current?.viewport.height ?? 0).toBe(stickyViewportHeight);
 
       await act(async () => {

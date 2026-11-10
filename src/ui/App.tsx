@@ -102,7 +102,7 @@ export function App({
   const SIDEBAR_MIN_WIDTH = 22;
   const DIFF_MIN_WIDTH = 48;
   const BODY_PADDING = 2;
-  const DIVIDER_WIDTH = 1;
+  const WORKSPACE_GAP = 2;
   const DIVIDER_HIT_WIDTH = 5;
 
   const pagerMode = Boolean(bootstrap.input.options.pager);
@@ -124,7 +124,7 @@ export function App({
   const [wrapLines, setWrapLines] = useState(bootstrap.initialWrapLines ?? false);
   const [codeHorizontalOffset, setCodeHorizontalOffset] = useState(0);
   const [showHunkHeaders, setShowHunkHeaders] = useState(bootstrap.initialShowHunkHeaders ?? true);
-  const [sidebarVisible, setSidebarVisible] = useState(() => !pagerMode);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
   const [workspaceVisible, setWorkspaceVisible] = useState(true);
   const [workspaceIndex, setWorkspaceIndex] = useState(0);
   const [forceSidebarOpen, setForceSidebarOpen] = useState(false);
@@ -231,15 +231,14 @@ export function App({
   const bodyWidth = Math.max(0, terminal.width - bodyPadding);
   const workspaceWidth = pagerMode ? 0 : resolveWorkspaceWidth(terminal.width, workspaceVisible);
   const workspaceExpanded = workspaceWidth > 0;
-  const centerWidth = Math.max(0, bodyWidth - workspaceWidth);
+  const workspaceGap = workspaceExpanded ? WORKSPACE_GAP : 0;
+  const centerWidth = Math.max(0, bodyWidth - workspaceWidth - workspaceGap);
   const responsiveLayout = resolveResponsiveLayout(layoutMode, terminal.width);
-  const canForceShowSidebar = centerWidth >= SIDEBAR_MIN_WIDTH + DIVIDER_WIDTH + DIFF_MIN_WIDTH;
+  const canForceShowSidebar = centerWidth >= SIDEBAR_MIN_WIDTH + DIFF_MIN_WIDTH;
   const renderSidebar =
     sidebarVisible && (responsiveLayout.showSidebar || (forceSidebarOpen && canForceShowSidebar));
   const resolvedLayout = responsiveLayout.layout;
-  const availableCenterWidth = renderSidebar
-    ? Math.max(0, centerWidth - DIVIDER_WIDTH)
-    : Math.max(0, centerWidth);
+  const availableCenterWidth = centerWidth;
   const maxSidebarWidth = renderSidebar
     ? Math.max(SIDEBAR_MIN_WIDTH, availableCenterWidth - DIFF_MIN_WIDTH)
     : SIDEBAR_MIN_WIDTH;
@@ -272,7 +271,7 @@ export function App({
   const isResizingSidebar = resizeDragOriginX !== null && resizeStartWidth !== null;
   const dividerHitLeft = Math.max(
     1,
-    1 + workspaceWidth + clampedSidebarWidth - Math.floor((DIVIDER_HIT_WIDTH - DIVIDER_WIDTH) / 2),
+    1 + workspaceWidth + workspaceGap + clampedSidebarWidth - Math.floor(DIVIDER_HIT_WIDTH / 2),
   );
 
   useEffect(() => {
@@ -1135,6 +1134,9 @@ export function App({
             }}
           />
         ) : null}
+        {workspaceGap > 0 ? (
+          <box width={workspaceGap} flexShrink={0} backgroundColor={activeTheme.background} />
+        ) : null}
         {renderSidebar ? (
           <>
             <SidebarPane
@@ -1162,8 +1164,6 @@ export function App({
             <PaneDivider
               dividerHitLeft={dividerHitLeft}
               dividerHitWidth={DIVIDER_HIT_WIDTH}
-              isResizing={isResizingSidebar}
-              theme={activeTheme}
               onMouseDown={beginSidebarResize}
               onMouseDrag={updateSidebarResize}
               onMouseDragEnd={endSidebarResize}
@@ -1173,7 +1173,6 @@ export function App({
         ) : null}
 
         <DiffPane
-          showChangesHeader={!pagerMode}
           codeHorizontalOffset={codeHorizontalOffset}
           diffContentWidth={diffContentWidth}
           files={filteredFiles}
