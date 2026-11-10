@@ -424,17 +424,17 @@ describe("UI components", () => {
         entries={buildSidebarEntries(files)}
         scrollRef={createRef()}
         selectedFileId="app"
-        textWidth={28}
         theme={theme}
-        width={32}
+        width={42}
         onSelectFile={() => {}}
       />,
-      36,
-      10,
+      46,
+      16,
     );
 
-    expect(frame).toContain("src/ui/");
-    expect(frame).toContain("src/core/");
+    expect(frame).toContain("▾ src/");
+    expect(frame).toContain("▾ ui/");
+    expect(frame).toContain("▾ core/");
     expect(frame).toContain(" App.tsx");
     expect(frame).toContain(" MenuDropdown.tsx");
     expect(frame).toContain(" watch.ts");
@@ -1391,13 +1391,13 @@ describe("UI components", () => {
     const frame = await captureFrame(
       <HelpDialog
         canRefresh={true}
-        terminalHeight={40}
+        terminalHeight={48}
         terminalWidth={76}
         theme={theme}
         onClose={() => {}}
       />,
       76,
-      40,
+      48,
     );
 
     const expectedRows = [

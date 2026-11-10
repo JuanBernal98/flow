@@ -26,7 +26,7 @@ export function PaneDivider({
       <box
         style={{
           width: 1,
-          border: ["top", "left"],
+          border: ["left"],
           borderColor: isResizing ? theme.accent : theme.border,
           backgroundColor: isResizing ? theme.accentMuted : theme.panel,
         }}

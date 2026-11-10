@@ -45,6 +45,8 @@ export function HelpDialog({
       items: [
         ["/", "focus file filter"],
         ["Tab", "toggle files/filter focus"],
+        ["F", "focus file tree; Esc returns to review"],
+        ["Tree: arrows", "navigate / fold folders; Enter opens"],
         [canRefresh ? "r / q" : "q", canRefresh ? "reload / quit" : "quit"],
       ],
     },
@@ -53,6 +55,8 @@ export function HelpDialog({
       items: [
         ["1 / 2 / 0", "split / stack / auto"],
         ["s / t", "sidebar / theme"],
+        ["S", "toggle workspace (mock data)"],
+        ["Workspace: j/k", "select item; Enter/Esc returns to review"],
         ["l / w / m", "lines / wrap / metadata"],
       ],
     },

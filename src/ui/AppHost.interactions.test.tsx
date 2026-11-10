@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 import { testRender } from "@opentui/react/test-utils";
+import { BoxRenderable } from "@opentui/core";
 import { act } from "react";
 import type { AppBootstrap, LayoutMode } from "../core/types";
 import { createTestVcsAppBootstrap } from "../../test/helpers/app-bootstrap";
@@ -12,6 +13,136 @@ const { loadAppBootstrap } = await import("../core/loaders");
 const { AppHost } = await import("./AppHost");
 
 const PAGE_UP_SEQUENCE = "\x1B[5~";
+
+test("nested file tree folds with keyboard and mouse while preserving the full review", async () => {
+  const onQuit = mock(() => {});
+  const bootstrap = createTestVcsAppBootstrap({
+    changesetId: "changeset:tree",
+    files: [
+      createTestDiffFile("alpha", "src/ui/alpha.ts", "const alpha = 1;\n", "const alpha = 2;\n"),
+      createTestDiffFile("beta", "src/core/beta.ts", "const beta = 1;\n", "const beta = 2;\n"),
+    ],
+  });
+  const setup = await testRender(<AppHost bootstrap={bootstrap} onQuit={onQuit} />, {
+    width: 240,
+    height: 24,
+  });
+  try {
+    await flush(setup);
+    expect(setup.captureCharFrame()).toContain("▾ src/");
+    expect(setup.captureCharFrame()).toContain("▾ ui/");
+    await act(async () => {
+      await setup.mockInput.typeText("F");
+    });
+    await flush(setup);
+    await act(async () => {
+      await setup.mockInput.pressKey("HOME");
+    });
+    await flush(setup);
+    await act(async () => {
+      await setup.mockInput.pressEnter();
+    });
+    await flush(setup);
+    let frame = setup.captureCharFrame();
+    expect(frame).toContain("2 Changes");
+    expect(frame).toContain("▸ src/");
+    expect(frame).not.toContain("▾ ui/");
+    expect(frame).toContain("const alpha = 2;");
+    expect(frame).toContain("const beta = 2;");
+    await act(async () => {
+      await setup.mockMouse.click(36, 1);
+    });
+    await flush(setup);
+    expect(setup.captureCharFrame()).toContain("▾ ui/");
+    await act(async () => {
+      await setup.mockInput.pressArrow("right");
+    });
+    await flush(setup);
+    await act(async () => {
+      await setup.mockInput.pressArrow("left");
+    });
+    await flush(setup);
+    expect(setup.captureCharFrame()).toContain("▸ ui/");
+    await act(async () => {
+      await setup.mockInput.pressEscape();
+      await Bun.sleep(40);
+    });
+    await flush(setup);
+    expect(onQuit).not.toHaveBeenCalled();
+    await act(async () => {
+      await setup.mockInput.typeText("/");
+    });
+    await flush(setup);
+    await act(async () => {
+      await setup.mockInput.typeText("alpha");
+    });
+    await flush(setup);
+    frame = setup.captureCharFrame();
+    expect(frame).toContain("▾ ui/");
+    expect(frame).toContain("1 Changes");
+    expect(frame).not.toContain("const beta = 2;");
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("workspace mouse and keyboard selection preserve the active review", async () => {
+  const setup = await testRender(<AppHost bootstrap={createSidebarBootstrap()} />, {
+    width: 160,
+    height: 24,
+  });
+  try {
+    await flush(setup);
+    expect(setup.captureCharFrame()).toContain("+48 −12");
+    expect(setup.captureCharFrame()).toContain("◐ Workspace sidebar");
+    expect(setup.captureCharFrame()).toContain("○ Review navigation");
+    expect(setup.captureCharFrame()).toContain("◇ Simplify diff");
+    expect(setup.captureCharFrame()).toContain("✓ Stable comment");
+    expect(setup.renderer.root.findDescendantById("workspace-heading-Tasks")?.height).toBe(3);
+    expect(setup.renderer.root.findDescendantById("workspace-heading-Reviews")?.height).toBe(3);
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await flush(setup);
+    expect(setup.captureCharFrame()).not.toContain("Tasks");
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await flush(setup);
+    const firstItem = setup.renderer.root.findDescendantById("workspace-row-0");
+    if (!(firstItem instanceof BoxRenderable)) throw new Error("Missing workspace item");
+    const selectedColor = firstItem.backgroundColor;
+    await act(async () => {
+      await setup.mockInput.typeText("j");
+    });
+    await flush(setup);
+    expect(firstItem.backgroundColor).not.toEqual(selectedColor);
+    await act(async () => {
+      await setup.mockMouse.click(8, 4);
+    });
+    await flush(setup);
+    expect(firstItem.backgroundColor).toEqual(selectedColor);
+    expect(setup.captureCharFrame()).toContain("alpha.ts");
+    expect(setup.captureCharFrame()).toContain("beta.ts");
+    await act(async () => {
+      await setup.mockInput.pressEnter();
+      await setup.mockInput.typeText("S");
+    });
+    await flush(setup);
+    expect(setup.captureCharFrame()).not.toContain("Tasks");
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await flush(setup);
+    expect(setup.captureCharFrame()).toContain("Tasks");
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
 
 function createTestDiffFile(
   id: string,
@@ -330,8 +461,8 @@ function firstCrossFileHunkNavigationHeader(frame: string) {
   return (
     frame
       .split("\n")
-      .map((line) => line.trim())
-      .find((line) => line.startsWith("long-file.txt") || line.startsWith("short-file.ts")) ?? ""
+      .map((line) => line.slice(32).trim())
+      .find((line) => line.includes("long-file.txt") || line.includes("short-file.ts")) ?? ""
   );
 }
 
@@ -444,7 +575,7 @@ describe("App interactions", () => {
 
   test("keyboard shortcut can wrap long lines in the app", async () => {
     const setup = await testRender(<AppHost bootstrap={createWrapBootstrap()} />, {
-      width: 140,
+      width: 172,
       height: 20,
     });
 
@@ -1044,7 +1175,7 @@ describe("App interactions", () => {
   test("the first down-arrow step still advances content under the always-pinned file header above a collapsed gap", async () => {
     const setup = await testRender(<AppHost bootstrap={createCollapsedTopBootstrap()} />, {
       width: 220,
-      height: 8,
+      height: 9,
     });
 
     try {
@@ -1785,7 +1916,7 @@ describe("App interactions", () => {
 
       await act(async () => {
         // Click inside the second file row in the left sidebar.
-        await setup.mockMouse.click(6, 3);
+        await setup.mockMouse.click(38, 2);
       });
       await flush(setup);
 

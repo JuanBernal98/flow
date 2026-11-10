@@ -163,7 +163,7 @@ base = "origin/main"
 Example:
 
 ```toml
-theme = "graphite"   # graphite, midnight, paper, ember
+theme = "graphite"   # graphite, midnight, paper, ember, zed
 mode = "auto"        # auto, split, stack
 watch = false        # reload as code and comments change (same as --watch)
 exclude_untracked = false
@@ -173,6 +173,8 @@ selection_auto_copy = true
 ```
 
 `exclude_untracked` only affects `dunk diff` working-tree sessions. `--watch` on the command line overrides `watch` in config.
+
+The `zed` theme adapts [Zed's official One Dark palette](https://github.com/zed-industries/zed/blob/main/assets/themes/one/one.json) to terminal rendering, with opaque diff backgrounds and syntax colors that keep additions and deletions distinct. Try `bun run src/main.tsx -- diff --theme zed`, or press `t` to cycle themes.
 
 ## Examples
 

@@ -16,6 +16,70 @@ afterEach(() => {
 });
 
 ptyDescribe("live UI integration", () => {
+  test("nested file tree folders fold independently of the review stream", async () => {
+    const fixture = harness.createTreeRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff"],
+      cwd: fixture.dir,
+      cols: 240,
+      rows: 24,
+    });
+    try {
+      await session.waitForText(/▾ src\//);
+      await session.press(["shift", "f"]);
+      await session.press("home");
+      await session.press("enter");
+      const folded = await session.waitForText(/▸ src\//);
+      expect(folded).toContain("2 Changes");
+      expect(folded).toContain("const alpha = 2;");
+      expect(folded).toContain("const beta = 2;");
+      await session.click(/▸ src\//);
+      await session.waitForText(/▾ ui\//);
+      await session.press("right");
+      await session.press("left");
+      await session.waitForText(/▸ core\//);
+      await session.press("escape");
+      await session.press(".");
+      await session.waitForText(/▾ ui\//);
+    } finally {
+      session.close();
+    }
+  });
+
+  test("workspace toggles and selects mock items with the zed theme without replacing the diff", async () => {
+    const fixture = harness.createLongWrapFilePair();
+    const session = await harness.launchHunk({
+      args: ["diff", fixture.before, fixture.after, "--theme", "zed"],
+      cols: 160,
+      rows: 24,
+    });
+    try {
+      await session.waitForText(/Press \? for help/);
+      await session.press(["shift", "s"]);
+      await session.press(["shift", "s"]);
+      await session.waitForText(/Tasks/);
+      await session.press("j");
+      const selected = await session.waitForText(/FLOW-102/);
+      expect(selected).toContain("after.ts");
+      session.resize({ cols: 100, rows: 24 });
+      await harness.waitForSnapshot(
+        session,
+        (text) => !text.includes("Tasks"),
+        ptyTimeouts.waitForSnapshot,
+      );
+      session.resize({ cols: 160, rows: 24 });
+      await session.waitForText(/Tasks/);
+      await session.press(["shift", "s"]);
+      await harness.waitForSnapshot(
+        session,
+        (text) => !text.includes("Tasks"),
+        ptyTimeouts.waitForSnapshot,
+      );
+    } finally {
+      session.close();
+    }
+  });
+
   test("real PTY sessions can toggle wrapped lines on and off", async () => {
     const fixture = harness.createLongWrapFilePair();
     const session = await harness.launchHunk({

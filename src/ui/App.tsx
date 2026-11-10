@@ -26,6 +26,7 @@ import { DriftedCommentsBanner } from "./components/chrome/DriftedCommentsBanner
 import { StatusBar } from "./components/chrome/StatusBar";
 import { DiffPane } from "./components/panes/DiffPane";
 import { SidebarPane } from "./components/panes/SidebarPane";
+import { WorkspaceSidebar, WORKSPACE_ITEMS } from "./components/panes/WorkspaceSidebar";
 import { PaneDivider } from "./components/panes/PaneDivider";
 import {
   findMaxLineNumber,
@@ -36,11 +37,11 @@ import { useAppKeyboardShortcuts } from "./hooks/useAppKeyboardShortcuts";
 import { useReviewController } from "./hooks/useReviewController";
 import { useStartupUpdateNotice } from "./hooks/useStartupUpdateNotice";
 import { fileRowId } from "./lib/ids";
-import { resolveResponsiveLayout } from "./lib/responsive";
+import { resolveResponsiveLayout, resolveWorkspaceWidth } from "./lib/responsive";
 import { resizeSidebarWidth } from "./lib/sidebar";
 import { resolveTheme, THEMES } from "./themes";
 
-type FocusArea = "files" | "filter";
+type FocusArea = "files" | "filter" | "workspace" | "tree";
 
 const FAST_CODE_HORIZONTAL_SCROLL_COLUMNS = 8;
 
@@ -124,6 +125,8 @@ export function App({
   const [codeHorizontalOffset, setCodeHorizontalOffset] = useState(0);
   const [showHunkHeaders, setShowHunkHeaders] = useState(bootstrap.initialShowHunkHeaders ?? true);
   const [sidebarVisible, setSidebarVisible] = useState(() => !pagerMode);
+  const [workspaceVisible, setWorkspaceVisible] = useState(true);
+  const [workspaceIndex, setWorkspaceIndex] = useState(0);
   const [forceSidebarOpen, setForceSidebarOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   // When non-null, hunk navigation (J/K) and the `d` delete key target the
@@ -226,11 +229,13 @@ export function App({
 
   const bodyPadding = pagerMode ? 0 : BODY_PADDING;
   const bodyWidth = Math.max(0, terminal.width - bodyPadding);
+  const workspaceWidth = pagerMode ? 0 : resolveWorkspaceWidth(terminal.width, workspaceVisible);
+  const workspaceExpanded = workspaceWidth > 0;
+  const centerWidth = Math.max(0, bodyWidth - workspaceWidth);
   const responsiveLayout = resolveResponsiveLayout(layoutMode, terminal.width);
-  const canForceShowSidebar = bodyWidth >= SIDEBAR_MIN_WIDTH + DIVIDER_WIDTH + DIFF_MIN_WIDTH;
+  const canForceShowSidebar = centerWidth >= SIDEBAR_MIN_WIDTH + DIVIDER_WIDTH + DIFF_MIN_WIDTH;
   const renderSidebar =
     sidebarVisible && (responsiveLayout.showSidebar || (forceSidebarOpen && canForceShowSidebar));
-  const centerWidth = bodyWidth;
   const resolvedLayout = responsiveLayout.layout;
   const availableCenterWidth = renderSidebar
     ? Math.max(0, centerWidth - DIVIDER_WIDTH)
@@ -267,8 +272,16 @@ export function App({
   const isResizingSidebar = resizeDragOriginX !== null && resizeStartWidth !== null;
   const dividerHitLeft = Math.max(
     1,
-    1 + clampedSidebarWidth - Math.floor((DIVIDER_HIT_WIDTH - DIVIDER_WIDTH) / 2),
+    1 + workspaceWidth + clampedSidebarWidth - Math.floor((DIVIDER_HIT_WIDTH - DIVIDER_WIDTH) / 2),
   );
+
+  useEffect(() => {
+    if (!workspaceExpanded && focusArea === "workspace") setFocusArea("files");
+  }, [workspaceExpanded, focusArea]);
+
+  useEffect(() => {
+    if (!renderSidebar && focusArea === "tree") setFocusArea("files");
+  }, [renderSidebar, focusArea]);
 
   useEffect(() => {
     if (!renderSidebar) {
@@ -976,7 +989,25 @@ export function App({
     setThemeId(THEMES[nextIndex]!.id);
   }, [activeTheme.id]);
 
+  /** Toggle workspace visibility and return focus when it collapses. */
+  const toggleWorkspace = () => {
+    setWorkspaceVisible(!workspaceExpanded);
+    setFocusArea(!workspaceExpanded && terminal.width >= 110 ? "workspace" : "files");
+  };
+
   useAppKeyboardShortcuts({
+    focusTree: () => {
+      if (renderSidebar) setFocusArea("tree");
+      else {
+        setSidebarVisible(true);
+        setForceSidebarOpen(true);
+        if (canForceShowSidebar) setFocusArea("tree");
+      }
+    },
+    toggleWorkspace,
+    leaveWorkspace: focusFiles,
+    moveWorkspace: (delta) =>
+      setWorkspaceIndex((index) => clamp(index + delta, 0, WORKSPACE_ITEMS.length - 1)),
     canRefreshCurrentInput,
     closeHelp,
     commentEditorActive: Boolean(commentEditorTarget),
@@ -1051,7 +1082,6 @@ export function App({
     event?.stopPropagation();
   };
 
-  const sidebarTextWidth = Math.max(8, clampedSidebarWidth - 2);
   const diffHeaderStatsWidth = Math.min(24, Math.max(16, Math.floor(diffContentWidth / 3)));
   const diffHeaderLabelWidth = Math.max(8, diffContentWidth - diffHeaderStatsWidth - 1);
   const diffSeparatorWidth = Math.max(4, diffContentWidth - 2);
@@ -1092,13 +1122,35 @@ export function App({
           endSidebarResize(event);
         }}
       >
+        {workspaceWidth > 0 ? (
+          <WorkspaceSidebar
+            width={workspaceWidth}
+            expanded={workspaceExpanded}
+            focused={focusArea === "workspace"}
+            selectedIndex={workspaceIndex}
+            theme={activeTheme}
+            onSelect={(index) => {
+              setWorkspaceIndex(index);
+              setFocusArea("workspace");
+            }}
+          />
+        ) : null}
         {renderSidebar ? (
           <>
             <SidebarPane
               entries={review.sidebarEntries}
+              keyboardActive={
+                !pagerMode &&
+                focusArea === "tree" &&
+                !showHelp &&
+                !commentEditorTarget &&
+                !confirmPrompt
+              }
+              onFocusTree={() => {
+                if (!pagerMode) setFocusArea("tree");
+              }}
               scrollRef={sidebarScrollRef}
               selectedFileId={selectedFile?.id}
-              textWidth={sidebarTextWidth}
               theme={activeTheme}
               width={clampedSidebarWidth}
               onSelectFile={(fileId) => {
@@ -1121,6 +1173,7 @@ export function App({
         ) : null}
 
         <DiffPane
+          showChangesHeader={!pagerMode}
           codeHorizontalOffset={codeHorizontalOffset}
           diffContentWidth={diffContentWidth}
           files={filteredFiles}

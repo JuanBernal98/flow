@@ -27,23 +27,38 @@ function getFileStateIcon(entry: FileListEntry, theme: AppTheme): { icon: string
 /** Render one folder header in the navigation sidebar. */
 export function FileGroupHeader({
   entry,
+  collapsed = false,
+  selected = false,
+  onToggle,
   textWidth,
   theme,
 }: {
   entry: FileGroupEntry;
+  collapsed?: boolean;
+  selected?: boolean;
+  onToggle?: () => void;
   textWidth: number;
   theme: AppTheme;
 }) {
+  const indent = Math.min(entry.depth * 2, Math.max(0, textWidth - 5));
+  const rowBackground = selected ? theme.panelAlt : theme.panel;
   return (
     <box
+      id={fileRowId(entry.id)}
       style={{
         width: "100%",
         height: 1,
-        paddingLeft: 1,
-        backgroundColor: theme.panel,
+        flexShrink: 0,
+        paddingLeft: 1 + indent,
+        paddingRight: 1,
+        backgroundColor: rowBackground,
       }}
+      onMouseUp={onToggle}
     >
-      <text fg={theme.muted}>{fitText(entry.label, Math.max(1, textWidth))}</text>
+      <text fg={selected ? theme.text : theme.muted} bg={rowBackground}>
+        {collapsed ? "▸ " : "▾ "}
+        {fitText(entry.label, Math.max(1, textWidth - indent - 2))}
+      </text>
     </box>
   );
 }
@@ -69,7 +84,11 @@ export function FileListItem({
   const { icon, color } = getFileStateIcon(entry, theme);
   const iconWidth = icon ? 2 : 0; // icon + space
   const statsSectionWidth = statsWidth > 0 ? statsWidth + 1 : 0;
-  const nameWidth = Math.max(1, textWidth - 1 - iconWidth - statsSectionWidth);
+  const indent = Math.min(
+    entry.depth * 2,
+    Math.max(0, textWidth - iconWidth - statsSectionWidth - 7),
+  );
+  const nameWidth = Math.max(1, textWidth - 2 - indent - iconWidth - statsSectionWidth);
 
   return (
     <box
@@ -77,33 +96,37 @@ export function FileListItem({
       style={{
         width: "100%",
         height: 1,
+        flexShrink: 0,
+        paddingRight: 1,
         backgroundColor: rowBackground,
         flexDirection: "row",
       }}
       onMouseUp={onSelect}
     >
       <box
-        style={{
-          width: 1,
-          height: 1,
-          backgroundColor: selected ? theme.accent : rowBackground,
-        }}
+        width={1}
+        height={1}
+        flexShrink={0}
+        backgroundColor={selected ? theme.accent : rowBackground}
       />
       <box
         style={{
           flexGrow: 1,
           height: 1,
-          paddingLeft: 1,
+          paddingLeft: 2 + indent,
           flexDirection: "row",
           backgroundColor: rowBackground,
         }}
       >
         {icon && <text fg={color}>{icon} </text>}
-        <text fg={theme.text}>{padText(fitText(entry.name, nameWidth), nameWidth)}</text>
+        <text width={nameWidth} flexShrink={0} fg={theme.text}>
+          {padText(fitText(entry.name, nameWidth), nameWidth)}
+        </text>
         {statsSectionWidth > 0 && (
           <box
             style={{
               width: statsSectionWidth,
+              flexShrink: 0,
               height: 1,
               flexDirection: "row",
               justifyContent: "flex-end",

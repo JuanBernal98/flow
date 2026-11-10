@@ -13,12 +13,16 @@ import {
   isStepUpKey,
 } from "../lib/keyboard";
 
-type FocusArea = "files" | "filter";
+type FocusArea = "files" | "filter" | "workspace" | "tree";
 type ScrollUnit = "step" | "viewport" | "content" | "half";
 
 const FAST_CODE_HORIZONTAL_SCROLL_COLUMNS = 8;
 
 export interface UseAppKeyboardShortcutsOptions {
+  focusTree: () => void;
+  toggleWorkspace: () => void;
+  leaveWorkspace: () => void;
+  moveWorkspace: (delta: number) => void;
   canRefreshCurrentInput: boolean;
   closeHelp: () => void;
   commentEditorActive: boolean;
@@ -52,6 +56,10 @@ export interface UseAppKeyboardShortcutsOptions {
 
 /** Register the app's scoped keyboard handling while keeping mode precedence explicit. */
 export function useAppKeyboardShortcuts({
+  focusTree,
+  toggleWorkspace,
+  leaveWorkspace,
+  moveWorkspace,
   canRefreshCurrentInput,
   closeHelp,
   commentEditorActive,
@@ -393,6 +401,43 @@ export function useAppKeyboardShortcuts({
 
     if (handleFilterShortcut(key)) {
       return;
+    }
+
+    if (key.sequence === "S") {
+      toggleWorkspace();
+      return;
+    }
+    if (key.sequence === "F") {
+      if (focusAreaRef.current === "tree") leaveWorkspace();
+      else focusTree();
+      return;
+    }
+    if (focusAreaRef.current === "tree") {
+      if (isEscapeKey(key) || key.name === "tab") {
+        leaveWorkspace();
+        return;
+      }
+      if (
+        isStepDownKey(key) ||
+        isStepUpKey(key) ||
+        ["left", "right", "home", "end", "return", "space"].includes(key.name) ||
+        key.sequence === " "
+      )
+        return;
+    }
+    if (focusAreaRef.current === "workspace") {
+      if (isEscapeKey(key) || key.name === "return" || key.name === "tab") {
+        leaveWorkspace();
+        return;
+      }
+      if (isStepDownKey(key)) {
+        moveWorkspace(1);
+        return;
+      }
+      if (isStepUpKey(key)) {
+        moveWorkspace(-1);
+        return;
+      }
     }
 
     handleAppShortcut(key);

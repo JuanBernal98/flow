@@ -262,6 +262,14 @@ export function createPtyHarness() {
     ]);
   }
 
+  /** Build sibling directories for live accordion navigation coverage. */
+  function createTreeRepoFixture() {
+    return createGitRepoFixture([
+      { path: "src/ui/alpha.ts", before: "const alpha = 1;\n", after: "const alpha = 2;\n" },
+      { path: "src/core/beta.ts", before: "const beta = 1;\n", after: "const beta = 2;\n" },
+    ]);
+  }
+
   function createSidebarJumpRepoFixture() {
     return createGitRepoFixture([
       {
@@ -519,6 +527,7 @@ export function createPtyHarness() {
     createScrollableFilePair,
     createSidebarJumpRepoFixture,
     createTwoFileRepoFixture,
+    createTreeRepoFixture,
     launchHunk,
     launchHunkWithFileBackedStdin,
     launchShellCommand,

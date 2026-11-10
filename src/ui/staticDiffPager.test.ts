@@ -35,17 +35,20 @@ describe("renderStaticDiffPager", () => {
     expect(output).toContain("alpha = 1;"); // removed side
   });
 
-  test("colors come from the resolved theme, not hardcoded values", () => {
-    const file = createTestDiffFile({ context: 0 });
-    const output = renderStaticDiffPager(bootstrapFor([file]));
-    const theme = resolveTheme("graphite", null);
+  test.each(["graphite", "zed"])(
+    "colors come from the resolved %s theme, not hardcoded values",
+    (themeId) => {
+      const file = createTestDiffFile({ context: 0 });
+      const output = renderStaticDiffPager(bootstrapFor([file], { initialTheme: themeId }));
+      const theme = resolveTheme(themeId, null);
 
-    // An added line must carry the theme's addition background, proving the
-    // static mapping reads the same AppTheme fields as the interactive
-    // renderer's stackCellPalette rather than inventing its own palette.
-    expect(output).toContain(ansiBg(theme.addedBg));
-    expect(output).toContain(ansiBg(theme.removedBg));
-  });
+      // An added line must carry the theme's addition background, proving the
+      // static mapping reads the same AppTheme fields as the interactive
+      // renderer's stackCellPalette rather than inventing its own palette.
+      expect(output).toContain(ansiBg(theme.addedBg));
+      expect(output).toContain(ansiBg(theme.removedBg));
+    },
+  );
 
   test("omits hunk headers when disabled", () => {
     const file = createTestDiffFile({ context: 0 });

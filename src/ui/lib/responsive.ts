@@ -2,6 +2,12 @@ import type { LayoutMode } from "../../core/types";
 
 type ResponsiveViewport = "full" | "medium" | "tight";
 
+/** Reserve workspace space only when the review retains a usable width. */
+export function resolveWorkspaceWidth(viewportWidth: number, expanded: boolean): number {
+  if (expanded && viewportWidth >= 110) return 32;
+  return 0;
+}
+
 const SPLIT_VIEWPORT_MIN_WIDTH = 160;
 const FULL_VIEWPORT_MIN_WIDTH = 220;
 

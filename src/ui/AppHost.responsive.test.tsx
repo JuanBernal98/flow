@@ -7,6 +7,68 @@ import { createTestDiffFile } from "../../test/helpers/diff-helpers";
 
 const { AppHost } = await import("./AppHost");
 
+test("workspace yields space on narrow terminals and stays out of pager mode", async () => {
+  expect(await captureFrameForBootstrap(createBootstrap(), 280)).toContain("Tasks");
+  expect(await captureFrameForBootstrap(createBootstrap(), 100)).not.toContain("Tasks");
+  expect(await captureFrameForBootstrap(createBootstrap("auto", true), 280)).not.toContain("Tasks");
+});
+
+test("workspace starts open and hidden workspace releases keyboard focus", async () => {
+  const setup = await testRender(<AppHost bootstrap={createBootstrap()} />, {
+    width: 160,
+    height: 24,
+  });
+  try {
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    expect(setup.captureCharFrame()).not.toContain("Tasks");
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    expect(setup.captureCharFrame()).toContain("Tasks");
+    await act(async () => {
+      setup.resize(79, 24);
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    expect(setup.captureCharFrame()).not.toContain("Tasks");
+    await act(async () => {
+      await setup.mockInput.pressTab();
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    await act(async () => {
+      await setup.mockInput.typeText("beta");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    expect(setup.captureCharFrame()).not.toContain("alpha.ts");
+    await act(async () => {
+      setup.resize(280, 24);
+      await setup.renderOnce();
+    });
+    expect(setup.captureCharFrame()).toContain("Tasks");
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
 function createBootstrap(initialMode: LayoutMode = "auto", pager = false): AppBootstrap {
   return createTestVcsAppBootstrap({
     changesetId: "changeset:responsive",

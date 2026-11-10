@@ -8,6 +8,24 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Added the `zed` theme, adapted from Zed's official One Dark palette. Select it with `--theme zed`, config, or the theme cycle shortcut.
+
+- Show the visible file count above the review stream as `N Changes`, updating with the file filter.
+
+- Nested, collapsible file tree folders with mouse toggles and keyboard navigation (`F` to focus, arrows to navigate and fold, Enter to open, Escape to return to review).
+
+- Workspace beside the file tree, open by default, with mock Tasks and Reviews, minimal section headings with counts, status symbols, task line-change counts, mouse selection, and keyboard navigation (`S` to toggle). Hides automatically on narrow terminals.
+
+### Changed
+
+- Restyled the file tree with plain directory headings, uniform row spacing, indented single-line file rows, inline change counts, and a subtle selection rail.
+
+### Fixed
+
+- Keep file tree rows at a consistent height and calculate filename space from the pane width without stacking padding deductions.
+
 ## [0.16.0] - 2026-11-10
 
 ### Changed

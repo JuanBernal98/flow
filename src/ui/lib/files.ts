@@ -7,6 +7,8 @@ export interface FileListEntry {
   kind: "file";
   id: string;
   name: string;
+  depth: number;
+  parentPath: string;
   agentCommentsText: string | null;
   additionsText: string | null;
   deletionsText: string | null;
@@ -18,6 +20,9 @@ export interface FileGroupEntry {
   kind: "group";
   id: string;
   label: string;
+  path: string;
+  parentPath: string;
+  depth: number;
 }
 
 export type SidebarEntry = FileListEntry | FileGroupEntry;
@@ -93,23 +98,28 @@ export function filterReviewFiles(files: DiffFile[], query: string): DiffFile[] 
 /** Build the grouped sidebar entries while preserving the review stream order. */
 export function buildSidebarEntries(files: DiffFile[]): SidebarEntry[] {
   const entries: SidebarEntry[] = [];
-  let activeGroup: string | null = null;
+  let activeParts: string[] = [];
 
   files.forEach((file, index) => {
     const path = normalizeDiffPath(file.path) ?? file.path;
     const group = dirname(path);
-    const nextGroup = group === "." ? null : group;
-
-    if (nextGroup !== activeGroup) {
-      activeGroup = nextGroup;
-      if (activeGroup) {
-        entries.push({
-          kind: "group",
-          id: `group:${activeGroup}:${index}`,
-          label: `${activeGroup}/`,
-        });
-      }
+    const parts = group === "." ? [] : group.split("/");
+    let sharedDepth = 0;
+    while (sharedDepth < parts.length && activeParts[sharedDepth] === parts[sharedDepth]) {
+      sharedDepth += 1;
     }
+    for (let depth = sharedDepth; depth < parts.length; depth += 1) {
+      const directoryPath = parts.slice(0, depth + 1).join("/");
+      entries.push({
+        kind: "group",
+        id: `group:${directoryPath}:${index}`,
+        label: `${parts[depth]}/`,
+        path: directoryPath,
+        parentPath: parts.slice(0, depth).join("/"),
+        depth,
+      });
+    }
+    activeParts = parts;
 
     const agentCommentCount = file.annotations.length;
 
@@ -117,6 +127,8 @@ export function buildSidebarEntries(files: DiffFile[]): SidebarEntry[] {
       kind: "file",
       id: file.id,
       name: sidebarFileName(file),
+      depth: parts.length,
+      parentPath: parts.join("/"),
       agentCommentsText: agentCommentCount > 0 ? `*${agentCommentCount}` : null,
       additionsText: formatSidebarStat("+", file.stats.additions, file.statsTruncated),
       deletionsText: formatSidebarStat("-", file.stats.deletions),
@@ -126,6 +138,22 @@ export function buildSidebarEntries(files: DiffFile[]): SidebarEntry[] {
   });
 
   return entries;
+}
+
+/** List directory ancestors from the root to the entry's immediate parent. */
+export function sidebarAncestorPaths(entry: SidebarEntry): string[] {
+  const parts = entry.parentPath ? entry.parentPath.split("/") : [];
+  return parts.map((_, index) => parts.slice(0, index + 1).join("/"));
+}
+
+/** Fold navigation rows without changing the files in the review stream. */
+export function visibleSidebarEntries(
+  entries: SidebarEntry[],
+  collapsedPaths: ReadonlySet<string>,
+): SidebarEntry[] {
+  return entries.filter(
+    (entry) => !sidebarAncestorPaths(entry).some((path) => collapsedPaths.has(path)),
+  );
 }
 
 /** Split file label into filename and state label for styled rendering. */

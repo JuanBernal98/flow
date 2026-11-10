@@ -1,6 +1,34 @@
 import { describe, expect, test } from "bun:test";
 import { createTestDiffFile, lines } from "../../../test/helpers/diff-helpers";
-import { buildSidebarEntries, fileLabelParts } from "./files";
+import { buildSidebarEntries, fileLabelParts, visibleSidebarEntries } from "./files";
+
+test("nested sidebar folders fold descendants without reordering files", () => {
+  const paths = ["src/ui/alpha.ts", "src/core/beta.ts", "src/ui/gamma.ts", "README.md"];
+  const entries = buildSidebarEntries(
+    paths.map((path) =>
+      createTestDiffFile({
+        id: path,
+        path,
+        before: "const value = 1;\n",
+        after: "const value = 2;\n",
+      }),
+    ),
+  );
+  expect(entries.filter((entry) => entry.kind === "file").map((entry) => entry.id)).toEqual(paths);
+  expect(entries.slice(0, 3)).toMatchObject([
+    { kind: "group", path: "src", parentPath: "", depth: 0 },
+    { kind: "group", path: "src/ui", parentPath: "src", depth: 1 },
+    { kind: "file", parentPath: "src/ui", depth: 2 },
+  ]);
+  const collapsed = visibleSidebarEntries(entries, new Set(["src"]));
+  expect(collapsed.map((entry) => entry.id)).toEqual(["group:src:0", "README.md"]);
+  const nested = visibleSidebarEntries(entries, new Set(["src/ui"]));
+  expect(nested.filter((entry) => entry.kind === "file").map((entry) => entry.id)).toEqual([
+    "src/core/beta.ts",
+    "README.md",
+  ]);
+  expect(visibleSidebarEntries(entries, new Set())).toEqual(entries);
+});
 
 describe("files helpers", () => {
   test("buildSidebarEntries hides zero-value sidebar stats", () => {
