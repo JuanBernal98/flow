@@ -31,7 +31,7 @@ test("nested sidebar folders fold descendants without reordering files", () => {
 });
 
 describe("files helpers", () => {
-  test("buildSidebarEntries hides zero-value sidebar stats", () => {
+  test("buildSidebarEntries preserves numeric stats for global totals", () => {
     const onlyAdd = createTestDiffFile({
       id: "only-add",
       path: "src/ui/only-add.ts",
@@ -75,24 +75,21 @@ describe("files helpers", () => {
     expect(entries[0]).toMatchObject({
       name: "only-add.ts",
       agentCommentsText: null,
-      additionsText: "+5",
-      deletionsText: null,
+      stats: { additions: 5, deletions: 0 },
     });
     expect(entries[1]).toMatchObject({
       name: "only-remove.ts",
       agentCommentsText: null,
-      additionsText: null,
-      deletionsText: "-3",
+      stats: { additions: 0, deletions: 3 },
     });
     expect(entries[2]).toMatchObject({
       name: "Legacy.tsx -> Renamed.tsx",
       agentCommentsText: null,
-      additionsText: null,
-      deletionsText: null,
+      stats: { additions: 0, deletions: 0 },
     });
   });
 
-  test("buildSidebarEntries includes compact per-file comment counts before diff stats", () => {
+  test("buildSidebarEntries preserves compact per-file comment counts", () => {
     const withComments = createTestDiffFile({
       id: "with-comments",
       path: "src/ui/commented.ts",
@@ -110,8 +107,7 @@ describe("files helpers", () => {
     expect(entry).toMatchObject({
       name: "commented.ts",
       agentCommentsText: "*3",
-      additionsText: "+2",
-      deletionsText: "-2",
+      stats: { additions: 2, deletions: 2 },
     });
   });
 
@@ -134,8 +130,7 @@ describe("files helpers", () => {
     expect(entry).toMatchObject({
       name: "all-comments.ts",
       agentCommentsText: "*3",
-      additionsText: "+2",
-      deletionsText: "-2",
+      stats: { additions: 2, deletions: 2 },
     });
   });
 

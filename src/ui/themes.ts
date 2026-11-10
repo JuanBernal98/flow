@@ -342,5 +342,5 @@ export function resolveTheme(requested: string | undefined, _themeMode: ThemeMod
     return exact;
   }
 
-  return THEMES.find((theme) => theme.id === "graphite") ?? THEMES[0]!;
+  return THEMES.find((theme) => theme.id === "zed") ?? THEMES[0]!;
 }

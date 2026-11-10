@@ -46,11 +46,12 @@ test("nested file tree folds with keyboard and mouse while preserving the full r
     let frame = setup.captureCharFrame();
     expect(frame).toContain("2 Changes");
     expect(frame).toContain("▸ src/");
+    expect(frame).toContain("+2 −2");
     expect(frame).not.toContain("▾ ui/");
     expect(frame).toContain("const alpha = 2;");
     expect(frame).toContain("const beta = 2;");
     await act(async () => {
-      await setup.mockMouse.click(36, 1);
+      await setup.mockMouse.click(36, 3);
     });
     await flush(setup);
     expect(setup.captureCharFrame()).toContain("▾ ui/");
@@ -1916,7 +1917,7 @@ describe("App interactions", () => {
 
       await act(async () => {
         // Click inside the second file row in the left sidebar.
-        await setup.mockMouse.click(38, 2);
+        await setup.mockMouse.click(38, 4);
       });
       await flush(setup);
 

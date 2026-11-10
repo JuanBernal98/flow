@@ -20,6 +20,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Refined diff presentation with emphasized filenames, muted directory paths, tighter header stats, neutral line numbers, and quieter file separators.
+
+- Move per-file line-change counts into the file tree's `N Changes` heading to leave more room for filenames.
+
+- Use Zed One Dark as the default theme unless overridden by config or CLI.
+- Add a Changes heading and file count above the file tree, matching the workspace section headings.
+
 - Restyled the file tree with plain directory headings, uniform row spacing, indented single-line file rows, inline change counts, and a subtle selection rail.
 
 ### Fixed

@@ -141,7 +141,7 @@ export function resolveConfiguredCliInput(
     mode: DEFAULT_VIEW_PREFERENCES.mode,
     // Keep the built-in theme default explicit so stdin-backed startup paths do not depend on
     // renderer theme-mode detection for their initial palette.
-    theme: "graphite",
+    theme: "zed",
     pager: input.options.pager ?? false,
     watch: input.options.watch ?? false,
     excludeUntracked: false,

@@ -406,7 +406,7 @@ ptyDescribe("live UI integration", () => {
       expect(initial).toContain("betaValue = 2");
       expect(initial).not.toContain("deltaOnly = true");
 
-      await session.click(/M delta\.ts\s+\+2 -1/);
+      await session.click(/M delta\.ts/);
       const jumped = await harness.waitForSnapshot(
         session,
         (text) => text.includes("deltaOnly = true") && !text.includes("alphaOnly = true"),
@@ -451,7 +451,7 @@ ptyDescribe("live UI integration", () => {
 
       expect(scrolled).toContain("first.ts");
 
-      await session.click(/M second\.ts\s+\+16 -16/);
+      await session.click(/M second\.ts/);
       const pinned = await harness.waitForSnapshot(
         session,
         (text) =>

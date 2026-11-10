@@ -1,5 +1,5 @@
 import { fileRowId } from "../../lib/ids";
-import { sidebarEntryStats, type FileGroupEntry, type FileListEntry } from "../../lib/files";
+import type { FileGroupEntry, FileListEntry } from "../../lib/files";
 import { fitText, padText } from "../../lib/text";
 import type { AppTheme } from "../../themes";
 
@@ -67,28 +67,25 @@ export function FileGroupHeader({
 export function FileListItem({
   entry,
   selected,
-  statsWidth,
   textWidth,
   theme,
   onSelect,
 }: {
   entry: FileListEntry;
   selected: boolean;
-  statsWidth: number;
   textWidth: number;
   theme: AppTheme;
   onSelect: () => void;
 }) {
   const rowBackground = selected ? theme.panelAlt : theme.panel;
-  const stats = sidebarEntryStats(entry);
   const { icon, color } = getFileStateIcon(entry, theme);
   const iconWidth = icon ? 2 : 0; // icon + space
-  const statsSectionWidth = statsWidth > 0 ? statsWidth + 1 : 0;
+  const statsSectionWidth = entry.agentCommentsText ? entry.agentCommentsText.length + 1 : 0;
   const indent = Math.min(
     entry.depth * 2,
     Math.max(0, textWidth - iconWidth - statsSectionWidth - 7),
   );
-  const nameWidth = Math.max(1, textWidth - 2 - indent - iconWidth - statsSectionWidth);
+  const nameWidth = Math.max(1, textWidth - indent - iconWidth - statsSectionWidth);
 
   return (
     <box
@@ -113,7 +110,7 @@ export function FileListItem({
         style={{
           flexGrow: 1,
           height: 1,
-          paddingLeft: 2 + indent,
+          paddingLeft: indent,
           flexDirection: "row",
           backgroundColor: rowBackground,
         }}
@@ -133,25 +130,7 @@ export function FileListItem({
               backgroundColor: rowBackground,
             }}
           >
-            {stats.map((stat, index) => (
-              <box
-                key={`${entry.id}:${stat.kind}`}
-                style={{ height: 1, flexDirection: "row", backgroundColor: rowBackground }}
-              >
-                {index > 0 && <text fg={selected ? theme.text : theme.muted}> </text>}
-                <text
-                  fg={
-                    stat.kind === "agent-comment"
-                      ? theme.noteBorder
-                      : stat.kind === "addition"
-                        ? theme.badgeAdded
-                        : theme.badgeRemoved
-                  }
-                >
-                  {stat.text}
-                </text>
-              </box>
-            ))}
+            <text fg={theme.noteBorder}>{entry.agentCommentsText}</text>
           </box>
         )}
       </box>

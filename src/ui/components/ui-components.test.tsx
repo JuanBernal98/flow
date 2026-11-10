@@ -15,6 +15,7 @@ const { HelpDialog } = await import("./chrome/HelpDialog");
 const { SidebarPane } = await import("./panes/SidebarPane");
 const { CommentCard } = await import("./panes/CommentCard");
 const { DiffPane } = await import("./panes/DiffPane");
+const { DiffFileHeaderRow } = await import("./panes/DiffFileHeaderRow");
 const { StatusBar } = await import("./chrome/StatusBar");
 const { DiffSectionPlaceholder } = await import("./panes/DiffSectionPlaceholder");
 const { PierreDiffView } = await import("../diff/PierreDiffView");
@@ -374,7 +375,88 @@ function renderedWordDiffBackgroundDistance(
 }
 
 describe("UI components", () => {
-  test("SidebarPane renders grouped file rows with indented filenames and right-aligned stats", async () => {
+  test("diff file headers retain the basename when a long directory must be truncated", async () => {
+    const file = createTestDiffFile(
+      "header",
+      "src/very/long/directory/handler.ts",
+      "const value = 1;\n",
+      "const value = 2;\n",
+    );
+    const frame = await captureFrame(
+      <DiffFileHeaderRow
+        file={file}
+        headerLabelWidth={14}
+        headerStatsWidth={16}
+        theme={resolveTheme("zed", null)}
+      />,
+      32,
+      1,
+    );
+    expect(frame).toContain("handler.ts");
+    expect(frame).toContain("…");
+    expect(frame).toContain("+1 -1");
+  });
+
+  test.each([
+    { layout: "split", wrapLines: false },
+    { layout: "split", wrapLines: true },
+    { layout: "stack", wrapLines: false },
+    { layout: "stack", wrapLines: true },
+  ] as const)(
+    "diff gutters keep numbers neutral and signs semantic in $layout (wrap=$wrapLines)",
+    async ({ layout, wrapLines }) => {
+      const file = createTestDiffFile(
+        "gutters",
+        "gutters.ts",
+        `const message = 'previous ${"long content ".repeat(8)}';\n`,
+        `const message = 'updated ${"long content ".repeat(8)}';\n`,
+      );
+      const theme = resolveTheme("zed", null);
+      const setup = await testRender(
+        <PierreDiffView
+          file={file}
+          layout={layout}
+          wrapLines={wrapLines}
+          showLineNumbers={true}
+          showHunkHeaders={false}
+          theme={theme}
+          width={72}
+          selectedHunkIndex={0}
+          scrollable={false}
+        />,
+        { width: 76, height: 18 },
+      );
+      try {
+        await settleDiffPane(setup);
+        const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
+        expect(
+          spans.some(
+            (span) =>
+              span.text.includes("+") && capturedColorToHex(span.fg) === theme.addedSignColor,
+          ),
+        ).toBe(true);
+        expect(
+          spans.some(
+            (span) =>
+              span.text.includes("-") && capturedColorToHex(span.fg) === theme.removedSignColor,
+          ),
+        ).toBe(true);
+        expect(
+          spans.some(
+            (span) =>
+              /^\s*\d+(?:\s+\d+)?\s*$/.test(span.text) &&
+              capturedColorToHex(span.fg) === theme.lineNumberFg,
+          ),
+        ).toBe(true);
+      } finally {
+        await act(async () => {
+          setup.renderer.destroy();
+        });
+      }
+    },
+  );
+
+  test("SidebarPane renders indented filenames and global change totals in its heading", async () => {
     const theme = resolveTheme("midnight", null);
     const files = [
       createTestDiffFile(
@@ -438,11 +520,12 @@ describe("UI components", () => {
     expect(frame).toContain(" App.tsx");
     expect(frame).toContain(" MenuDropdown.tsx");
     expect(frame).toContain(" watch.ts");
-    expect(frame).toContain("*1 +2 -1");
-    expect(frame).toContain("+5");
-    expect(frame).toContain("-3");
+    expect(frame).toContain("4 Changes");
+    expect(frame).toContain("+7 −4");
+    expect(frame).toContain("*1");
+    expect(frame.split("\n").find((line) => line.includes("App.tsx"))).not.toContain("+2");
     expect(frame).not.toContain("+0");
-    expect(frame).not.toContain("-0");
+    expect(frame).not.toContain("−0");
     expect(frame).not.toContain("M +2 -1 AI");
   });
 

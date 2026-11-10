@@ -10,8 +10,8 @@ export interface FileListEntry {
   depth: number;
   parentPath: string;
   agentCommentsText: string | null;
-  additionsText: string | null;
-  deletionsText: string | null;
+  stats: DiffFile["stats"];
+  statsTruncated: boolean;
   changeType: FileDiffMetadata["type"];
   isUntracked: boolean;
 }
@@ -39,44 +39,6 @@ function sidebarFileName(file: DiffFile) {
   const previousName = basename(previousPath);
   const nextName = basename(path);
   return previousName === nextName ? nextName : `${previousName} -> ${nextName}`;
-}
-
-/** Hide zero-value file stats so the sidebar only shows real line deltas. */
-function formatSidebarStat(prefix: "+" | "-", value: number, truncated = false) {
-  return value > 0 ? `${prefix}${value}${truncated ? "+" : ""}` : null;
-}
-
-/** Build the visible stats badges for one sidebar row.
- * Keep the agent-note badge first so it reads as review context before line churn.
- */
-export function sidebarEntryStats(
-  entry: Pick<FileListEntry, "agentCommentsText" | "additionsText" | "deletionsText">,
-) {
-  const stats: Array<{ kind: "agent-comment" | "addition" | "deletion"; text: string }> = [];
-
-  if (entry.agentCommentsText) {
-    stats.push({ kind: "agent-comment", text: entry.agentCommentsText });
-  }
-
-  if (entry.additionsText) {
-    stats.push({ kind: "addition", text: entry.additionsText });
-  }
-
-  if (entry.deletionsText) {
-    stats.push({ kind: "deletion", text: entry.deletionsText });
-  }
-
-  return stats;
-}
-
-/** Measure the rendered sidebar stats width, including the space between badges. */
-export function sidebarEntryStatsWidth(
-  entry: Pick<FileListEntry, "agentCommentsText" | "additionsText" | "deletionsText">,
-) {
-  return sidebarEntryStats(entry).reduce(
-    (width, stat, index) => width + stat.text.length + (index > 0 ? 1 : 0),
-    0,
-  );
 }
 
 /** Apply the app's file filter query to the visible review stream. */
@@ -130,8 +92,8 @@ export function buildSidebarEntries(files: DiffFile[]): SidebarEntry[] {
       depth: parts.length,
       parentPath: parts.join("/"),
       agentCommentsText: agentCommentCount > 0 ? `*${agentCommentCount}` : null,
-      additionsText: formatSidebarStat("+", file.stats.additions, file.statsTruncated),
-      deletionsText: formatSidebarStat("-", file.stats.deletions),
+      stats: file.stats,
+      statsTruncated: file.statsTruncated ?? false,
       changeType: file.metadata.type,
       isUntracked: file.isUntracked ?? false,
     });

@@ -85,7 +85,7 @@ describe("config resolution", () => {
     });
   });
 
-  test("defaults unspecified themes to graphite, including piped pager-style patch input", () => {
+  test("defaults unspecified themes to zed, including piped pager-style patch input", () => {
     const home = createTempDir("hunk-config-home-");
     const cwd = createTempDir("hunk-config-cwd-");
 
@@ -95,7 +95,8 @@ describe("config resolution", () => {
     });
 
     expect(resolved.repoConfigPath).toBeUndefined();
-    expect(resolved.input.options.theme).toBe("graphite");
+    expect(resolved.input.options.theme).toBe("zed");
+    expect(resolved.input.options.lineNumbers).toBe(false);
   });
 
   test("command-specific config sections also apply to show mode", () => {
@@ -233,7 +234,7 @@ describe("config resolution", () => {
     expect(bootstrap.initialShowHunkHeaders).toBe(false);
   });
 
-  test("loadAppBootstrap exposes graphite when no theme is configured", async () => {
+  test("loadAppBootstrap exposes zed when no theme is configured", async () => {
     const home = createTempDir("hunk-config-home-");
     const repo = createTempDir("hunk-config-repo-");
     createRepo(repo);
@@ -254,6 +255,7 @@ describe("config resolution", () => {
     );
     const bootstrap = await loadAppBootstrap(resolved.input);
 
-    expect(bootstrap.initialTheme).toBe("graphite");
+    expect(bootstrap.initialTheme).toBe("zed");
+    expect(bootstrap.initialShowLineNumbers).toBe(false);
   });
 });

@@ -47,7 +47,7 @@ export function DiffSectionPlaceholder({
             backgroundColor: theme.panel,
           }}
         >
-          <text fg={theme.border}>{fitText("─".repeat(separatorWidth), separatorWidth)}</text>
+          <text fg={theme.panelAlt}>{fitText("─".repeat(separatorWidth), separatorWidth)}</text>
         </box>
       ) : null}
 

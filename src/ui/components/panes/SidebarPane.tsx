@@ -1,12 +1,7 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
 import { useEffect, useMemo, useState, type RefObject } from "react";
-import {
-  sidebarAncestorPaths,
-  sidebarEntryStatsWidth,
-  visibleSidebarEntries,
-  type SidebarEntry,
-} from "../../lib/files";
+import { sidebarAncestorPaths, visibleSidebarEntries, type SidebarEntry } from "../../lib/files";
 import { fileRowId } from "../../lib/ids";
 import { isStepDownKey, isStepUpKey } from "../../lib/keyboard";
 import type { AppTheme } from "../../themes";
@@ -100,7 +95,9 @@ export function SidebarPane({
     }
   });
   const fileEntries = entries.filter((entry) => entry.kind === "file");
-  const statsWidth = Math.max(0, ...fileEntries.map((entry) => sidebarEntryStatsWidth(entry)));
+  const additions = fileEntries.reduce((total, entry) => total + entry.stats.additions, 0);
+  const deletions = fileEntries.reduce((total, entry) => total + entry.stats.deletions, 0);
+  const additionsTruncated = fileEntries.some((entry) => entry.statsTruncated);
   const contentTextWidth = Math.max(4, width - 4);
 
   return (
@@ -108,11 +105,28 @@ export function SidebarPane({
       style={{
         width,
         backgroundColor: theme.panel,
-        paddingY: 1,
+        paddingBottom: 1,
         paddingX: 1,
         flexDirection: "column",
       }}
     >
+      <box
+        id="file-tree-heading"
+        height={3}
+        flexShrink={0}
+        paddingTop={1}
+        paddingX={1}
+        flexDirection="row"
+        justifyContent="space-between"
+        border={["bottom"]}
+        borderColor={theme.panelAlt}
+      >
+        <text fg={theme.muted}>{`${fileEntries.length} Changes`}</text>
+        <text>
+          <span fg={theme.badgeAdded}>{`+${additions}${additionsTruncated ? "+" : ""}`}</span>{" "}
+          <span fg={theme.badgeRemoved}>{`−${deletions}`}</span>
+        </text>
+      </box>
       <scrollbox
         ref={scrollRef}
         width="100%"
@@ -147,7 +161,6 @@ export function SidebarPane({
                 key={entry.id}
                 entry={entry}
                 selected={keyboardActive ? cursor?.id === entry.id : entry.id === selectedFileId}
-                statsWidth={statsWidth}
                 textWidth={contentTextWidth}
                 theme={theme}
                 onSelect={() => onSelectFile(entry.id)}

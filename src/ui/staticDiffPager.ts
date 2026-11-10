@@ -124,7 +124,7 @@ function renderStaticRow(
  * Reuses the normal parse/plan path; never throws past the caller's fallback.
  */
 export function renderStaticDiffPager(bootstrap: AppBootstrap): string {
-  const theme = resolveTheme(bootstrap.initialTheme ?? "graphite", null);
+  const theme = resolveTheme(bootstrap.initialTheme, null);
   const showLineNumbers = bootstrap.initialShowLineNumbers ?? false;
   const showHunkHeaders = bootstrap.initialShowHunkHeaders ?? true;
 

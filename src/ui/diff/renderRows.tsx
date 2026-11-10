@@ -126,7 +126,7 @@ function splitCellPalette(kind: SplitLineCell["kind"], theme: AppTheme) {
       gutterBg: theme.addedBg,
       contentBg: theme.addedBg,
       signColor: theme.addedSignColor,
-      numberColor: theme.addedSignColor,
+      numberColor: theme.lineNumberFg,
     };
   }
 
@@ -135,7 +135,7 @@ function splitCellPalette(kind: SplitLineCell["kind"], theme: AppTheme) {
       gutterBg: theme.removedBg,
       contentBg: theme.removedBg,
       signColor: theme.removedSignColor,
-      numberColor: theme.removedSignColor,
+      numberColor: theme.lineNumberFg,
     };
   }
 
@@ -163,7 +163,7 @@ function stackCellPalette(kind: StackLineCell["kind"], theme: AppTheme) {
       gutterBg: theme.addedBg,
       contentBg: theme.addedBg,
       signColor: theme.addedSignColor,
-      numberColor: theme.addedSignColor,
+      numberColor: theme.lineNumberFg,
     };
   }
 
@@ -172,7 +172,7 @@ function stackCellPalette(kind: StackLineCell["kind"], theme: AppTheme) {
       gutterBg: theme.removedBg,
       contentBg: theme.removedBg,
       signColor: theme.removedSignColor,
-      numberColor: theme.removedSignColor,
+      numberColor: theme.lineNumberFg,
     };
   }
 
@@ -182,6 +182,28 @@ function stackCellPalette(kind: StackLineCell["kind"], theme: AppTheme) {
     signColor: theme.muted,
     numberColor: theme.lineNumberFg,
   };
+}
+
+/** Keep line numbers neutral while preserving the semantic color of change signs. */
+function renderGutter(
+  text: string,
+  palette: ReturnType<typeof splitCellPalette>,
+  keyPrefix: string,
+) {
+  const signIndex = text.search(/[+-]/);
+  return (
+    <span key={`${keyPrefix}:gutter`} fg={palette.numberColor} bg={palette.gutterBg}>
+      {signIndex < 0 ? (
+        text
+      ) : (
+        <>
+          {text.slice(0, signIndex)}
+          <span fg={palette.signColor}>{text[signIndex]}</span>
+          {text.slice(signIndex + 1)}
+        </>
+      )}
+    </span>
+  );
 }
 
 /** Render a fixed-width inline span sequence for one diff cell. */
@@ -394,9 +416,7 @@ function renderSplitCell(
           {prefix.text}
         </span>
       ) : null}
-      <span key={`${keyPrefix}:gutter`} fg={palette.numberColor} bg={palette.gutterBg}>
-        {gutterText}
-      </span>
+      {renderGutter(gutterText, palette, keyPrefix)}
       {renderInlineSpans(
         cell.spans,
         contentWidth,
@@ -447,11 +467,13 @@ function renderStackCell(
           {prefix.text}
         </span>
       ) : null}
-      <span key={`${keyPrefix}:gutter`} fg={palette.numberColor} bg={palette.gutterBg}>
-        {(showLineNumbers ? `${oldNumber} ${newNumber} ${cell.sign}` : `${cell.sign} `).padEnd(
+      {renderGutter(
+        (showLineNumbers ? `${oldNumber} ${newNumber} ${cell.sign}` : `${cell.sign} `).padEnd(
           gutterWidth,
-        )}
-      </span>
+        ),
+        palette,
+        keyPrefix,
+      )}
       {renderInlineSpans(
         cell.spans,
         contentWidth,
@@ -482,9 +504,7 @@ function renderWrappedSplitCellLine(
       <span key={`${keyPrefix}:prefix`} fg={prefix.fg} bg={prefix.bg}>
         {prefix.text}
       </span>
-      <span key={`${keyPrefix}:gutter`} fg={palette.numberColor} bg={palette.gutterBg}>
-        {line.gutterText}
-      </span>
+      {renderGutter(line.gutterText, palette, keyPrefix)}
       {renderInlineSpans(
         line.spans,
         contentWidth,
@@ -514,9 +534,7 @@ function renderWrappedStackCellLine(
       <span key={`${keyPrefix}:prefix`} fg={prefix.fg} bg={prefix.bg}>
         {prefix.text}
       </span>
-      <span key={`${keyPrefix}:gutter`} fg={palette.numberColor} bg={palette.gutterBg}>
-        {line.gutterText}
-      </span>
+      {renderGutter(line.gutterText, palette, keyPrefix)}
       {renderInlineSpans(
         line.spans,
         contentWidth,
@@ -580,17 +598,17 @@ function renderHeaderRow(
       style={{
         width: "100%",
         height: 1,
-        backgroundColor: theme.panelAlt,
+        backgroundColor: theme.contextBg,
       }}
     >
       <text>
         <span
           fg={selected ? neutralRailColor(theme) : dimRailColor(neutralRailColor(theme), theme)}
-          bg={theme.panelAlt}
+          bg={theme.contextBg}
         >
           {marker()}
         </span>
-        <span fg={row.type === "collapsed" ? theme.muted : theme.badgeNeutral} bg={theme.panelAlt}>
+        <span fg={theme.muted} bg={theme.contextBg}>
           {label}
         </span>
       </text>

@@ -163,7 +163,7 @@ base = "origin/main"
 Example:
 
 ```toml
-theme = "graphite"   # graphite, midnight, paper, ember, zed
+theme = "zed"        # zed (default), graphite, midnight, paper, ember
 mode = "auto"        # auto, split, stack
 watch = false        # reload as code and comments change (same as --watch)
 exclude_untracked = false
