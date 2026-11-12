@@ -4,7 +4,7 @@
 
 **Everything you need to work, in one place.** Your tickets, your squad's reviews, the code, and Claude, side by side in one terminal: no more jumping between YouTrack, GitLab, Notion, and Slack.
 
-flow closes the context gap: Claude starts every ticket already knowing it, and everything around the code runs itself. What's left is the part that matters, a human–AI loop on the code:
+flow minimizes distractions and leaves only what matters: review, iteration, and judgment, in a human–AI loop. Claude starts every ticket already knowing it, and everything around the code runs itself:
 
 ```text
 full context  →  Claude writes  →  you review  →  Claude improves  →  shipped
