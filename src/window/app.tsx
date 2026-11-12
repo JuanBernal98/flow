@@ -179,13 +179,13 @@ function App() {
                   <section key={section.id} className={`section${open ? " open" : ""}`}>
                     <button
                       type="button"
-                      className="section-title"
+                      className="row section-title"
                       aria-expanded={open}
                       onClick={() => toggleSection(section.id)}
                     >
                       <ChevronIcon />
-                      <span className="section-name">{section.title}</span>
-                      <span className="section-count">{items.length}</span>
+                      <span className="row-label">{section.title}</span>
+                      <span className="row-meta">{items.length}</span>
                     </button>
                     <div className="section-body">
                       <div className="section-items">
@@ -545,17 +545,26 @@ const SidebarItem = memo(function SidebarItem({
   useEffect(() => {
     if (active) ref.current?.scrollIntoView({ block: "nearest" });
   }, [active]);
+  // One line like every sidebar row: status, title, then the ticket or MR id in the margin.
+  const id = item.ticketId ?? (item.mergeRequestIid ? `!${item.mergeRequestIid}` : "");
+  const tooltip = [
+    item.title,
+    item.ticketId,
+    item.mergeRequestIid ? `!${item.mergeRequestIid}` : "",
+    checkedOut ? "checked out" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
-    <div ref={ref} className={`item${active ? " selected" : ""}`} onClick={onSelect}>
+    <div
+      ref={ref}
+      className={`row item${active ? " selected" : ""}${checkedOut ? " checked-out" : ""}`}
+      title={tooltip}
+      onClick={onSelect}
+    >
       <span className={`dot ${item.status}`} />
-      <div style={{ minWidth: 0 }}>
-        <div className="item-title">{item.title}</div>
-        <div className="item-meta">
-          {item.ticketId ? <span>{item.ticketId}</span> : null}
-          {item.mergeRequestIid ? <span>!{item.mergeRequestIid}</span> : null}
-          {checkedOut ? <span className="checked-out">● checked out</span> : null}
-        </div>
-      </div>
+      <span className="row-label">{item.title}</span>
+      {id ? <span className="row-meta">{id}</span> : null}
     </div>
   );
 });

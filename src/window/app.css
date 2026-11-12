@@ -91,43 +91,6 @@ body {
   flex: 1;
 }
 
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  margin-top: 6px;
-  padding: 6px 10px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--muted);
-  font: inherit;
-  font-size: 11px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  text-align: left;
-}
-
-.section-title:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.section-name {
-  flex: 1;
-}
-
-.section-count {
-  min-width: 18px;
-  padding: 0 5px;
-  border-radius: 9px;
-  background: var(--chip);
-  font-variant-numeric: tabular-nums;
-  text-align: center;
-}
-
 .chevron {
   flex-shrink: 0;
   transition: transform 160ms ease;
@@ -153,28 +116,68 @@ body {
   min-height: 0;
 }
 
-.item {
-  display: grid;
-  grid-template-columns: 10px 1fr;
+/* Every sidebar row is the same height and type; items sit indented under their section. */
+.row {
+  display: flex;
+  align-items: center;
   gap: 8px;
-  padding: 7px 10px;
-  border-radius: 8px;
+  width: 100%;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
   cursor: default;
 }
 
-.item:hover {
+.row:hover {
   background: var(--hover);
 }
 
-.item.selected {
+.row.selected {
   background: var(--selected);
 }
 
+.row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-meta {
+  flex-shrink: 0;
+  color: var(--faint);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.section-title {
+  font-weight: 600;
+}
+
+.item {
+  padding-left: 28px;
+}
+
+.item.checked-out .row-label {
+  font-weight: 600;
+}
+
+.item.checked-out .dot {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
 .dot {
+  flex-shrink: 0;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  margin-top: 5px;
   border: 1.5px solid var(--faint);
 }
 
@@ -190,25 +193,6 @@ body {
 .dot.approved {
   border-color: #30d158;
   background: #30d158;
-}
-
-.item-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.item-meta {
-  display: flex;
-  gap: 6px;
-  color: var(--muted);
-  font-size: 11.5px;
-  margin-top: 1px;
-}
-
-.checked-out {
-  color: var(--accent);
-  font-weight: 600;
 }
 
 /* Overview */
