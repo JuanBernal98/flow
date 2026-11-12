@@ -809,29 +809,38 @@ function PaletteIcon() {
   );
 }
 
-// Mark a pane while it scrolls, so its scrollbar shows only then (see app.css).
-const scrollTimers = new WeakMap<Element, number>();
+// WebKit does not repaint a native scrollbar when its style changes, so panes hide theirs and
+// get an overlay thumb instead: shown while the pane scrolls, faded out shortly after it stops.
+const scrollThumbs = new WeakMap<Element, { thumb: HTMLDivElement; timer: number }>();
 
-/** Hide a pane's scrollbar again; WebKit only repaints it after the overflow is re-laid out. */
-function endScrolling(pane: HTMLElement) {
-  pane.classList.remove("is-scrolling");
-  const overflow = pane.style.overflow;
-  pane.style.overflow = "hidden";
-  void pane.offsetHeight;
-  pane.style.overflow = overflow;
+/** Place a pane's overlay thumb over its right edge, sized and offset by its scroll position. */
+function showScrollThumb(pane: HTMLElement) {
+  let entry = scrollThumbs.get(pane);
+  if (!entry) {
+    const thumb = document.createElement("div");
+    thumb.className = "scroll-thumb";
+    document.body.append(thumb);
+    entry = { thumb, timer: 0 };
+    scrollThumbs.set(pane, entry);
+  }
+  const { thumb } = entry;
+  const bounds = pane.getBoundingClientRect();
+  const visible = pane.clientHeight / pane.scrollHeight;
+  if (visible >= 1) return;
+  const height = Math.max(24, pane.clientHeight * visible);
+  const travel = pane.clientHeight - height;
+  const progress = pane.scrollTop / (pane.scrollHeight - pane.clientHeight);
+  thumb.style.height = `${height}px`;
+  thumb.style.transform = `translate(${bounds.right - 9}px, ${bounds.top + travel * progress}px)`;
+  thumb.classList.add("visible");
+  window.clearTimeout(entry.timer);
+  entry.timer = window.setTimeout(() => thumb.classList.remove("visible"), 700);
 }
 
 document.addEventListener(
   "scroll",
   (event) => {
-    if (!(event.target instanceof HTMLElement)) return;
-    const pane = event.target;
-    pane.classList.add("is-scrolling");
-    window.clearTimeout(scrollTimers.get(pane));
-    scrollTimers.set(
-      pane,
-      window.setTimeout(() => endScrolling(pane), 700),
-    );
+    if (event.target instanceof HTMLElement) showScrollThumb(event.target);
   },
   { capture: true, passive: true },
 );

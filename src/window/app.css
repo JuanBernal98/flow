@@ -499,24 +499,26 @@ kbd {
   outline: none;
 }
 
-/* Scrollbars stay hidden and show only while a pane scrolls, like macOS overlay scrollbars. */
+/* Native scrollbars are hidden; app.tsx draws an overlay thumb while a pane scrolls. */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-  background: transparent;
+  width: 0;
+  height: 0;
 }
 
-::-webkit-scrollbar-thumb {
-  border: 3px solid transparent;
-  border-radius: 10px;
-  background-clip: padding-box;
-  background-color: transparent;
+.scroll-thumb {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--faint) 60%, transparent);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 10;
+  transition: opacity 300ms ease;
 }
 
-.is-scrolling::-webkit-scrollbar-thumb {
-  background-color: color-mix(in srgb, var(--faint) 55%, transparent);
-}
-
-::-webkit-scrollbar-corner {
-  background: transparent;
+.scroll-thumb.visible {
+  opacity: 1;
+  transition-duration: 80ms;
 }
