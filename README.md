@@ -16,7 +16,7 @@ full context  →  Claude writes  →  you review  →  Claude improves  →  sh
 - **Overview.** See what Claude understood before it writes a line. The ticket and docs stay the source of truth.
 - **Ticket-vs-code review.** `R` checks the code against the ticket's acceptance criteria, not just for bugs.
 - **Inline loop.** Comment a hunk; Claude fixes it and replies in place.
-- **The whole ticket lifecycle on autopilot.** Your queue is always in view: what to build, what waits for approval, what's ready to merge, what to review. From there, one key each sets up the branch, writes the commits, opens the merge request, pings your squad on Slack, and moves the ticket, and merged tickets close themselves. You just approve.
+- **Everything in one place.** Your tickets, your squad's reviews, the code, and what Claude understood, side by side: no more jumping between YouTrack, GitLab, Notion, and Slack. Delivery happens there too: branch, commits, merge request, Slack ping, and ticket state, one key each, and merged tickets close themselves. You just approve.
 
 ## Quick start
 
