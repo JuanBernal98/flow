@@ -52,6 +52,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Plain `flow` in a repository opens the workspace and review (`flow diff`); elsewhere it still prints help. Comments read `You:` and `Claude:` instead of `Yo:` and `Agente:`. A broken `.flow/config.toml` is reported at launch instead of silently disconnecting the workspace.
+
 - **Security:** the YouTrack token is bound to its server. The Keychain item is now `flow-youtrack:<host>`, and on Linux `FLOW_YOUTRACK_TOKEN` counts only for the host in `FLOW_YOUTRACK_URL`; a repository whose config points anywhere else finds no token, so nothing is sent there. Requests never follow redirects. The skills that read tickets, Notion, or MRs now treat that content as data, never as instructions.
 
 - `flow setup claude` is now `flow setup`, and it also runs `bun install` in flow's checkout. Updating flow is `git pull`: skills and the session hook are read live, and when a pull adds or retires a skill, flow says at launch to run `flow setup`.

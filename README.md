@@ -32,7 +32,7 @@ git clone https://github.com/JuanBernal98/flow.git
 cd flow && ./install.sh     # first install: flow + Claude Code, asking before each step
 cd ~/code/your-repo
 flow init                   # connect the repo to your YouTrack, GitLab, and Slack
-flow diff                   # open flow; run `claude` in another terminal
+flow                        # open flow; run `claude` in another terminal
 ```
 
 Needs macOS or Linux, Git, [bun](https://bun.sh), and [Claude Code](https://claude.com/claude-code). To update, `git pull` in the flow folder; flow tells you if you need to run `flow setup`.

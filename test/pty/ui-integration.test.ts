@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { hasSplitDiffRowTest } from "../helpers/diff-frame";
 import { createPtyHarness, ptyTimeouts } from "./harness";
@@ -215,6 +216,24 @@ ptyDescribe("live UI integration", () => {
     } finally {
       session.close();
       youtrack.stop(true);
+    }
+  });
+
+  test("plain `flow` in a repository opens the review", async () => {
+    const fixture = harness.createSidebarJumpRepoFixture();
+    // The harness adds layout flags to `launchFlow`, so run the entrypoint with no arguments at all.
+    const entrypoint = join(import.meta.dir, "..", "..", "src", "main.tsx");
+    const session = await harness.launchShellCommand({
+      command: `bun run ${JSON.stringify(entrypoint)}`,
+      cwd: fixture.dir,
+      cols: 160,
+      rows: 20,
+    });
+    try {
+      const frame = await session.waitForText(/Press \? for help/);
+      expect(frame).not.toContain("Usage: flow");
+    } finally {
+      session.close();
     }
   });
 

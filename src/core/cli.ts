@@ -150,6 +150,7 @@ function renderCliHelp() {
     "Review diffs in a TUI, leave inline comments, and let a coding agent resolve them through .flow/comments.json.",
     "",
     "Commands:",
+    "  flow                                    in a repository: open the workspace and review (flow diff)",
     "  flow diff [target] [-- <pathspec...>]   review staged + unstaged changes or compare against a target",
     "  flow diff --staged [-- <pathspec...>]   review only staged changes",
     "  flow diff --unstaged [-- <pathspec...>] review only unstaged changes",
@@ -1209,6 +1210,13 @@ export async function parseCli(argv: string[]): Promise<ParsedCliInput> {
   const args = argv.slice(2);
   const [commandName, ...rest] = args;
 
+  // Plain `flow` in a repository, at a terminal, opens the workspace; anywhere else it explains itself.
+  if (!commandName && process.stdin.isTTY && process.stdout.isTTY) {
+    const { findRepoRoot } = await import("./config");
+    if (findRepoRoot(process.cwd())) {
+      return parseDiffCommand([], argv);
+    }
+  }
   if (!commandName || commandName === "help" || commandName === "--help" || commandName === "-h") {
     return { kind: "help", text: renderCliHelp() };
   }
