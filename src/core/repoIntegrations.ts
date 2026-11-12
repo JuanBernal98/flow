@@ -29,6 +29,8 @@ export interface RepoIntegrations {
   gitlab: boolean;
   /** Label that marks the squad's merge requests listed under Reviews. */
   reviewLabel?: string;
+  /** Why the config could not be used, when it exists but is broken; flow then connects to nothing. */
+  error?: string;
 }
 
 const NO_INTEGRATIONS: RepoIntegrations = { gitlab: false, projectKeys: [] };
@@ -51,7 +53,10 @@ const IntegrationsSchema = z.object({
   gitlab: z.object({ review_label: z.string().trim().min(1).optional() }).optional(),
 });
 
-/** Read a repository's integrations; a missing or malformed config connects to nothing. */
+/**
+ * Read a repository's integrations. A missing config connects to nothing; a broken one also does,
+ * but says why in `error`, so a typo never silently disconnects the workspace.
+ */
 export function readRepoIntegrations(repoRoot: string | null | undefined): RepoIntegrations {
   if (!repoRoot) {
     return NO_INTEGRATIONS;
@@ -63,7 +68,9 @@ export function readRepoIntegrations(repoRoot: string | null | undefined): RepoI
   try {
     const parsed = IntegrationsSchema.safeParse(Bun.TOML.parse(fs.readFileSync(path, "utf8")));
     if (!parsed.success) {
-      return NO_INTEGRATIONS;
+      const issue = parsed.error.issues[0];
+      const where = issue?.path.join(".") || "config";
+      return { ...NO_INTEGRATIONS, error: `${where}: ${issue?.message ?? "invalid value"}` };
     }
     return {
       youtrackUrl: parsed.data.youtrack?.url,
@@ -72,8 +79,11 @@ export function readRepoIntegrations(repoRoot: string | null | undefined): RepoI
       gitlab: parsed.data.gitlab !== undefined,
       reviewLabel: parsed.data.gitlab?.review_label,
     };
-  } catch {
-    return NO_INTEGRATIONS;
+  } catch (error) {
+    return {
+      ...NO_INTEGRATIONS,
+      error: error instanceof Error ? error.message : "not valid TOML",
+    };
   }
 }
 

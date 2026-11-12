@@ -64,6 +64,16 @@ describe("readRepoIntegrations", () => {
     ).toEqual([]);
   });
 
+  test("a broken config connects to nothing but says why", () => {
+    expect(readRepoIntegrations(createTestRepoRoot("[youtrack\nbroken")).error).toContain(
+      "TOML Parse error",
+    );
+    expect(
+      readRepoIntegrations(createTestRepoRoot('[youtrack]\nproject_keys = ["proj"]\n')).error,
+    ).toContain("youtrack.project_keys.0");
+    expect(readRepoIntegrations(createTestRepoRoot('theme = "zed"\n')).error).toBeUndefined();
+  });
+
   test("an empty [gitlab] section turns GitLab on without a review label", () => {
     expect(readRepoIntegrations(createTestRepoRoot("[gitlab]\n"))).toEqual({
       youtrackUrl: undefined,
@@ -79,7 +89,7 @@ describe("readRepoIntegrations", () => {
       expect(integrations).toEqual({ gitlab: false, projectKeys: [] });
       expect(hasWorkspaceIntegrations(integrations)).toBe(false);
     }
-    expect(readRepoIntegrations(createTestRepoRoot("[youtrack\nbroken"))).toEqual({
+    expect(readRepoIntegrations(createTestRepoRoot("[youtrack\nbroken"))).toMatchObject({
       gitlab: false,
       projectKeys: [],
     });

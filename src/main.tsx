@@ -137,9 +137,12 @@ async function main() {
     import("./core/claudeSetup"),
     import("./core/cli"),
   ]);
-  const startupNotice = claudeSetupIsStale(resolveClaudeDir(), BUNDLED_SKILLS)
-    ? "flow changed: run `flow setup` to refresh Claude Code"
-    : undefined;
+  // A broken repository config is the more urgent note: without it the workspace stays empty.
+  const startupNotice = integrations.error
+    ? `.flow/config.toml is broken, so flow ignored it: ${integrations.error}`
+    : claudeSetupIsStale(resolveClaudeDir(), BUNDLED_SKILLS)
+      ? "flow changed: run `flow setup` to refresh Claude Code"
+      : undefined;
   const youtrackUrl = integrations.youtrackUrl;
   const mergedState = integrations.mergedState;
 
