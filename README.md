@@ -1,4 +1,6 @@
-# flow
+<p align="center">
+  <img src="assets/flow-logo.png" alt="flow" width="380">
+</p>
 
 ![flow: your tickets and reviews, the agent's overview of the ticket, the live diff of your branch, and its file tree](assets/flow-screenshot.png)
 
