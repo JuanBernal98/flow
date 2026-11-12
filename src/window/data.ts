@@ -8,6 +8,7 @@ import {
   loadMyMergeRequests,
   loadSquadReviews,
 } from "../core/gitlab";
+import { resolveConfiguredCliInput } from "../core/config";
 import { readRepoIntegrations } from "../core/repoIntegrations";
 import { readTicketOverview } from "../core/ticketOverview";
 import { loadYouTrackTasks, youTrackIssueUrl } from "../core/youtrack";
@@ -23,6 +24,33 @@ export interface WindowWorkspace {
   branch: string | null;
   checkedOutId: string | null;
   notice?: string;
+}
+
+/** A terminal theme's colors, as the window paints them. */
+export interface WindowTheme {
+  id: string;
+  label: string;
+  appearance: "light" | "dark";
+  codeTheme: string;
+  colors: {
+    background: string;
+    panel: string;
+    panelAlt: string;
+    border: string;
+    accent: string;
+    accentMuted: string;
+    text: string;
+    muted: string;
+    faint: string;
+    added: string;
+    removed: string;
+  };
+}
+
+export interface WindowThemes {
+  themes: WindowTheme[];
+  /** The configured theme id; `claude` follows the system appearance. */
+  configured: string;
 }
 
 export interface WindowDiffFile {
@@ -140,4 +168,38 @@ export function loadWindowDiff(repoRoot: string): WindowDiffFile[] {
 /** A ticket's overview as the agent wrote it, or null when there is none. */
 export function loadWindowOverview(repoRoot: string, ticketId: string) {
   return readTicketOverview(repoRoot, ticketId);
+}
+
+/** The terminal's themes and the one the user and repository configs pick, layered the same way. */
+export async function loadWindowThemes(repoRoot: string): Promise<WindowThemes> {
+  const [{ THEMES }, { codeThemeName }] = await Promise.all([
+    import("../ui/themes"),
+    import("../ui/diff/pierre"),
+  ]);
+  const configured = resolveConfiguredCliInput(
+    { kind: "vcs", staged: false, options: {} },
+    { cwd: repoRoot },
+  ).input.options.theme;
+  return {
+    configured: configured ?? "zed",
+    themes: THEMES.map((theme) => ({
+      id: theme.id,
+      label: theme.label,
+      appearance: theme.appearance,
+      codeTheme: codeThemeName(theme),
+      colors: {
+        background: theme.background,
+        panel: theme.panel,
+        panelAlt: theme.panelAlt,
+        border: theme.border,
+        accent: theme.accent,
+        accentMuted: theme.accentMuted,
+        text: theme.text,
+        muted: theme.muted,
+        faint: theme.lineNumberFg,
+        added: theme.addedSignColor,
+        removed: theme.removedSignColor,
+      },
+    })),
+  };
 }

@@ -8,7 +8,7 @@ import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { findRepoRoot } from "../core/config";
 import { FlowUserError } from "../core/errors";
-import { loadWindowDiff, loadWindowOverview, loadWindowWorkspace } from "./data";
+import { loadWindowDiff, loadWindowOverview, loadWindowThemes, loadWindowWorkspace } from "./data";
 import page from "./index.html";
 
 /** Serve the window UI for one repository on a random localhost port; the URL carries the secret. */
@@ -25,6 +25,8 @@ export function startWindowServer(repoRoot: string) {
       "/": page,
       "/api/workspace": async (request) =>
         authorized(request) ? Response.json(await loadWindowWorkspace(repoRoot)) : forbidden(),
+      "/api/themes": async (request) =>
+        authorized(request) ? Response.json(await loadWindowThemes(repoRoot)) : forbidden(),
       "/api/diff": (request) =>
         authorized(request) ? Response.json(loadWindowDiff(repoRoot)) : forbidden(),
       "/api/overview/:id": (request) =>

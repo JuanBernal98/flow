@@ -62,7 +62,7 @@ body {
 
 .window {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 30px;
+  grid-template-rows: 28px minmax(0, 1fr) 26px;
   height: 100%;
 }
 
@@ -80,56 +80,9 @@ body {
   min-height: 0;
 }
 
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 18px 18px 10px;
-  font-weight: 650;
-  font-size: 15px;
-  letter-spacing: -0.01em;
-}
-
-.brand-mark {
-  display: grid;
-  gap: 3px;
-}
-
-.brand-mark span {
-  display: block;
-  height: 6px;
-  border-radius: 6px;
-}
-
-.brand-mark span:first-child {
-  width: 18px;
-  background: linear-gradient(90deg, #ff9a3d, #e62e8b);
-}
-
-.brand-mark span:last-child {
-  width: 11px;
-  background: linear-gradient(90deg, #8a2be2, #5b2cf5);
-}
-
-.filter {
-  margin: 4px 12px 8px;
-  padding: 6px 10px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  outline: none;
-}
-
-.filter:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--selected);
-}
-
 .sections {
   overflow-y: auto;
-  padding: 0 8px 16px;
+  padding: 4px 8px 16px;
   flex: 1;
 }
 
@@ -463,4 +416,65 @@ kbd {
   background: var(--bg);
   color: var(--text);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+/* Top bar: on macOS the traffic lights float over its left end. */
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--sidebar);
+  -webkit-user-select: none;
+}
+
+.native-mac .topbar {
+  padding-left: 76px;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: min(360px, 100%);
+  height: 18px;
+  color: var(--faint);
+  font-size: 12px;
+  border-bottom: 1px solid transparent;
+  transition: border-color 120ms;
+}
+
+.search:focus-within {
+  border-bottom-color: var(--accent);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: none;
+  color: var(--text);
+  font: inherit;
+}
+
+.search input::placeholder {
+  color: var(--faint);
+}
+
+.theme-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 6px;
+  color: var(--faint);
+}
+
+.theme-picker select {
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  outline: none;
 }

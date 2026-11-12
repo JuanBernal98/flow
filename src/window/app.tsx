@@ -8,9 +8,10 @@ import { PatchDiff } from "@pierre/diffs/react";
 import type React from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { registerClaudeCodeThemes } from "../ui/diff/claudeCodeThemes";
 import type { StoredTicketOverview } from "../core/ticketOverview";
 import type { WorkspaceItem, WorkspaceSectionId } from "../ui/lib/workspace";
-import type { WindowDiffFile, WindowWorkspace } from "./data";
+import type { WindowDiffFile, WindowTheme, WindowThemes, WindowWorkspace } from "./data";
 
 const SECTIONS: { id: WorkspaceSectionId; title: string }[] = [
   { id: "todo", title: "To do" },
@@ -18,6 +19,9 @@ const SECTIONS: { id: WorkspaceSectionId; title: string }[] = [
   { id: "readyToMerge", title: "Ready to merge" },
   { id: "reviews", title: "Reviews" },
 ];
+
+// The Claude Code themes highlight by name, so Pierre must know them before any diff renders.
+registerClaudeCodeThemes();
 
 const startedAt = performance.now();
 const secret = location.hash.slice(1);
@@ -38,6 +42,18 @@ function App() {
   const [overviewOpen, setOverviewOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(true);
   const [diffStyle, setDiffStyle] = useState<DiffStyle>("split");
+  const [themes, setThemes] = useState<WindowThemes | null>(null);
+  const [themeId, setThemeId] = useState<string | null>(null);
+  const systemAppearance = useSystemAppearance();
+  const theme = themes
+    ? resolveWindowTheme(themes.themes, themeId ?? themes.configured, systemAppearance)
+    : null;
+  useEffect(() => {
+    if (theme) applyTheme(theme);
+  }, [theme]);
+  useEffect(() => {
+    void api<WindowThemes>("/api/themes").then(setThemes);
+  }, []);
   const [filter, setFilter] = useState("");
   const [timing, setTiming] = useState<string>("");
   const filterRef = useRef<HTMLInputElement>(null);
@@ -99,9 +115,12 @@ function App() {
         setDiffStyle("unified");
       } else if (event.key === "/") {
         event.preventDefault();
+        setWorkspaceOpen(true);
         filterRef.current?.focus();
       } else if (event.key === "r") {
         reload();
+      } else if (event.key === "t" && themes) {
+        setThemeId((current) => nextThemeId(themes.themes, theme?.id ?? current));
       } else {
         return;
       }
@@ -109,33 +128,32 @@ function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [visibleItems, cursor, reload]);
+  }, [visibleItems, cursor, reload, themes, theme]);
 
   return (
     <div className="window">
+      <TopBar>
+        <label className="search">
+          <SearchIcon />
+          <input
+            ref={filterRef}
+            placeholder="Filter tickets and reviews"
+            value={filter}
+            onChange={(event) => {
+              setFilter(event.target.value);
+              setCursor(0);
+              setWorkspaceOpen(true);
+            }}
+          />
+          {filter ? null : <kbd>/</kbd>}
+        </label>
+      </TopBar>
       <div
         className="panes"
         style={{ gridTemplateColumns: paneColumns(workspaceOpen, overviewOpen, filesOpen) }}
       >
         {workspaceOpen ? (
           <aside className="sidebar">
-            <div className="brand">
-              <div className="brand-mark">
-                <span />
-                <span />
-              </div>
-              flow
-            </div>
-            <input
-              ref={filterRef}
-              className="filter"
-              placeholder="Filter  /"
-              value={filter}
-              onChange={(event) => {
-                setFilter(event.target.value);
-                setCursor(0);
-              }}
-            />
             <div className="sections">
               {workspace === null ? <div className="section-title">Loading…</div> : null}
               {SECTIONS.map((section) => {
@@ -168,7 +186,7 @@ function App() {
           </aside>
         ) : null}
         {overviewOpen ? <OverviewPane item={selected} /> : null}
-        <DiffPane files={diff} diffStyle={diffStyle} />
+        <DiffPane files={diff} diffStyle={diffStyle} theme={theme} />
         {filesOpen ? <FilesPane files={diff} /> : null}
       </div>
       <StatusBar
@@ -181,12 +199,56 @@ function App() {
         onToggleOverview={() => setOverviewOpen((open) => !open)}
         onToggleFiles={() => setFilesOpen((open) => !open)}
         onDiffStyle={setDiffStyle}
+        themes={themes?.themes ?? []}
+        themeId={theme?.id ?? null}
+        onTheme={setThemeId}
       />
     </div>
   );
 }
 
 type DiffStyle = "split" | "unified";
+
+declare global {
+  interface Window {
+    /** Bound by the native window on macOS: drag or zoom it from the page's own top bar. */
+    flowDragWindow?: () => Promise<void>;
+    flowZoomWindow?: () => Promise<void>;
+  }
+}
+
+/**
+ * The top bar, drawn under the macOS traffic lights. Pressing its empty space drags the window and
+ * a double click zooms it, like a native title bar; controls inside it keep their own clicks.
+ */
+function TopBar({ children }: { children: React.ReactNode }) {
+  const isBackground = (target: EventTarget) =>
+    target instanceof HTMLElement && target.closest("input, button, label") === null;
+  return (
+    <header
+      className="topbar"
+      onMouseDown={(event) => {
+        if (event.button === 0 && event.detail === 1 && isBackground(event.target)) {
+          void window.flowDragWindow?.();
+        }
+      }}
+      onDoubleClick={(event) => {
+        if (isBackground(event.target)) void window.flowZoomWindow?.();
+      }}
+    >
+      {children}
+    </header>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg {...ICON} width={13} height={13}>
+      <circle cx="7" cy="7" r="4.5" />
+      <path d="M10.5 10.5 14 14" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 /** Grid columns for the open panes; the diff always takes the rest. */
 function paneColumns(workspace: boolean, overview: boolean, files: boolean) {
@@ -206,6 +268,9 @@ function StatusBar({
   onToggleOverview,
   onToggleFiles,
   onDiffStyle,
+  themes,
+  themeId,
+  onTheme,
 }: {
   workspace: WindowWorkspace | null;
   files: WindowDiffFile[] | null;
@@ -216,6 +281,9 @@ function StatusBar({
   onToggleOverview: () => void;
   onToggleFiles: () => void;
   onDiffStyle: (style: DiffStyle) => void;
+  themes: WindowTheme[];
+  themeId: string | null;
+  onTheme: (id: string) => void;
 }) {
   const additions = files?.reduce((sum, file) => sum + file.additions, 0) ?? 0;
   const deletions = files?.reduce((sum, file) => sum + file.deletions, 0) ?? 0;
@@ -257,6 +325,18 @@ function StatusBar({
             {files.length} files <span className="add">+{additions}</span>{" "}
             <span className="del">-{deletions}</span>
           </span>
+        ) : null}
+        {themes.length > 0 ? (
+          <label className="theme-picker" title="Theme (t)">
+            <PaletteIcon />
+            <select value={themeId ?? ""} onChange={(event) => onTheme(event.target.value)}>
+              {themes.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
         ) : null}
         <div className="segmented" role="group" aria-label="Diff layout">
           <button
@@ -525,19 +605,30 @@ function Bullets({ title, items, ordered }: { title: string; items: string[]; or
   );
 }
 
-function DiffPane({ files, diffStyle }: { files: WindowDiffFile[] | null; diffStyle: DiffStyle }) {
+function DiffPane({
+  files,
+  diffStyle,
+  theme,
+}: {
+  files: WindowDiffFile[] | null;
+  diffStyle: DiffStyle;
+  theme: WindowTheme | null;
+}) {
+  const codeTheme = theme?.codeTheme;
+  const appearance = theme?.appearance;
   const options = useMemo(
     () =>
       ({
-        theme: { dark: "pierre-dark", light: "pierre-light" },
-        themeType: "system",
+        theme: codeTheme ?? { dark: "pierre-dark", light: "pierre-light" },
+        themeType: appearance ?? "system",
         diffStyle,
         overflow: "scroll",
         disableFileHeader: true,
       }) as const,
-    [diffStyle],
+    [diffStyle, codeTheme, appearance],
   );
-  if (files === null) {
+  // Wait for the theme so code is not highlighted twice on launch.
+  if (files === null || theme === null) {
     return <main className="diff" />;
   }
   return (
@@ -570,6 +661,66 @@ const DiffFile = memo(function DiffFile({
     </div>
   );
 });
+
+/** Follow macOS light and dark mode, for the `claude` theme that tracks it. */
+function useSystemAppearance() {
+  const query = useMemo(() => window.matchMedia("(prefers-color-scheme: dark)"), []);
+  const [dark, setDark] = useState(query.matches);
+  useEffect(() => {
+    const onChange = () => setDark(query.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, [query]);
+  return dark ? "dark" : "light";
+}
+
+/** The theme to paint: `claude` picks its light or dark variant like the terminal does. */
+function resolveWindowTheme(themes: WindowTheme[], id: string, system: "light" | "dark") {
+  const resolvedId = id === "claude" ? `claude-${system}` : id;
+  return (
+    themes.find((theme) => theme.id === resolvedId) ??
+    themes.find((theme) => theme.id === "zed") ??
+    themes[0] ??
+    null
+  );
+}
+
+function nextThemeId(themes: WindowTheme[], current: string | null) {
+  const index = themes.findIndex((theme) => theme.id === current);
+  return themes[(index + 1) % themes.length]?.id ?? current;
+}
+
+/** Paint the window chrome with a terminal theme's colors. */
+function applyTheme(theme: WindowTheme) {
+  const { colors } = theme;
+  const dark = theme.appearance === "dark";
+  const style = document.documentElement.style;
+  style.colorScheme = theme.appearance;
+  style.setProperty("--bg", colors.background);
+  style.setProperty("--sidebar", colors.panel);
+  style.setProperty("--panel", colors.panelAlt);
+  style.setProperty("--text", colors.text);
+  style.setProperty("--muted", colors.muted);
+  style.setProperty("--faint", colors.faint);
+  style.setProperty("--line", colors.border);
+  style.setProperty("--accent", colors.accent);
+  style.setProperty("--selected", `color-mix(in srgb, ${colors.accent} 18%, transparent)`);
+  style.setProperty("--hover", dark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)");
+  style.setProperty("--chip", dark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)");
+  style.setProperty("--add", colors.added);
+  style.setProperty("--del", colors.removed);
+}
+
+function PaletteIcon() {
+  return (
+    <svg {...ICON} width={13} height={13}>
+      <path d="M8 1.5a6.5 6.5 0 1 0 0 13c1 0 1.5-.6 1.5-1.3 0-1-.9-1.2-.9-2 0-.7.6-1.2 1.3-1.2h1.6a3 3 0 0 0 3-3C14.5 4 11.6 1.5 8 1.5Z" />
+      <circle cx="5" cy="7" r=".8" fill="currentColor" />
+      <circle cx="7.5" cy="4.6" r=".8" fill="currentColor" />
+      <circle cx="10.6" cy="5.4" r=".8" fill="currentColor" />
+    </svg>
+  );
+}
 
 const root = document.getElementById("root");
 if (root) createRoot(root).render(<App />);
