@@ -658,7 +658,9 @@ const DiffFile = memo(function DiffFile({
           <span className="del">-{file.deletions}</span>
         </span>
       </div>
-      <PatchDiff patch={file.patch} options={options} />
+      <div className="code-block">
+        <PatchDiff patch={file.patch} options={options} />
+      </div>
     </div>
   );
 });
@@ -712,14 +714,21 @@ function applyTheme(theme: WindowTheme) {
   style.setProperty("--add", colors.added);
   style.setProperty("--del", colors.removed);
   // Pierre reads these through its shadow DOM, so hunks use the terminal's diff colors.
-  style.setProperty("--diffs-bg-context-override", colors.background);
+  // Code sits in a slightly darker block; line numbers stay outside it, on the window background.
+  style.setProperty(
+    "--code-bg",
+    dark
+      ? `color-mix(in srgb, ${colors.background} 72%, black)`
+      : `color-mix(in srgb, ${colors.background} 96%, black)`,
+  );
+  style.setProperty("--diffs-bg-context-override", "var(--code-bg)");
   style.setProperty("--diffs-bg-context-gutter-override", colors.background);
   style.setProperty("--diffs-bg-addition-override", colors.addedLine);
   style.setProperty("--diffs-bg-deletion-override", colors.removedLine);
-  style.setProperty("--diffs-bg-addition-number-override", colors.addedGutter);
-  style.setProperty("--diffs-bg-deletion-number-override", colors.removedGutter);
+  style.setProperty("--diffs-bg-addition-number-override", colors.background);
+  style.setProperty("--diffs-bg-deletion-number-override", colors.background);
   style.setProperty("--diffs-bg-separator-override", colors.panel);
-  style.setProperty("--diffs-bg-buffer-override", colors.background);
+  style.setProperty("--diffs-bg-buffer-override", "var(--code-bg)");
   style.setProperty("--diffs-fg-number-override", colors.faint);
   style.setProperty("--diffs-addition-color-override", colors.added);
   style.setProperty("--diffs-deletion-color-override", colors.removed);
@@ -732,10 +741,14 @@ const DIFF_CSS = `
 :host,
 pre,
 code {
-  --diffs-bg: var(--bg);
+  --diffs-bg: var(--code-bg);
   background-color: var(--bg);
   --diffs-font-family: ui-monospace, "SF Mono", Menlo, monospace;
   --diffs-font-size: 12.5px;
+}
+/* Line numbers sit outside the code block, on the window background. */
+[data-column-number] {
+  --diffs-bg: var(--bg);
 }
 `;
 
