@@ -14,7 +14,7 @@ export interface Annotation {
   rationale?: string;
   /** Agent answers to a user comment, oldest first, shown under it. */
   replies?: string[];
-  /** Who wrote a review comment; the card labels it `Yo:` or `Agente:`. */
+  /** Who wrote a review comment; the card labels it `You:` or `Claude:`. */
   author?: "user" | "agent";
 }
 

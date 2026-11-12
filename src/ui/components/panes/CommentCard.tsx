@@ -40,8 +40,8 @@ interface InlineNoteLine {
 }
 
 // Chat-style speaker labels: the user's comment, then the agent's replies.
-const USER_LABEL = "Yo: ";
-const AGENT_LABEL = "Agente: ";
+const USER_LABEL = "You: ";
+const AGENT_LABEL = "Claude: ";
 
 /** Wrap one chat message under its speaker label, continuation lines aligned with the text. */
 function wrapChatMessage(label: string, text: string, width: number) {

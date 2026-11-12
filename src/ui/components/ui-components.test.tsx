@@ -1406,8 +1406,8 @@ describe("UI components", () => {
     );
 
     // Chat style: the user's comment, then the agent's reply, each under its speaker label.
-    expect(frame).toContain("Yo: rename this helper");
-    expect(frame).toContain("Agente: done, it is now formatGutterText");
+    expect(frame).toContain("You: rename this helper");
+    expect(frame).toContain("Claude: done, it is now formatGutterText");
     // Title + summary + reply + spacer.
     expect(measureCommentCardHeight({ annotation, width: 60 })).toBe(4);
 
@@ -1421,11 +1421,11 @@ describe("UI components", () => {
       64,
       6,
     );
-    expect(agentFrame).toContain("Agente: mira este bucle");
-    expect(agentFrame).not.toContain("Yo:");
+    expect(agentFrame).toContain("Claude: mira este bucle");
+    expect(agentFrame).not.toContain("You:");
   });
 
-  test("CommentCard renders #id metadata, a Yo: body, and the close affordance", async () => {
+  test("CommentCard renders #id metadata, a You: body, and the close affordance", async () => {
     const theme = resolveTheme("midnight", null);
     const frame = await captureFrame(
       <CommentCard
@@ -1448,7 +1448,7 @@ describe("UI components", () => {
     expect(frame).not.toContain("▎");
     expect(lines[0]).toContain("#42");
     expect(lines[0]).toContain("[x]");
-    expect(lines[1]).toContain("Yo: Summary line");
+    expect(lines[1]).toContain("You: Summary line");
     expect(lines[2]).toContain("Rationale line.");
   });
 
@@ -1525,10 +1525,10 @@ describe("UI components", () => {
     );
 
     const lines = frame.split("\n");
-    // The card sits at the hunk bottom: its `Yo:` comment row comes after the last hunk row.
+    // The card sits at the hunk bottom: its `You:` comment row comes after the last hunk row.
     const lastHunkRowIndex = lines.findIndex((line) => line.includes("export const add = true;"));
     const cardRowIndex = lines.findIndex(
-      (line, idx) => idx > lastHunkRowIndex && line.includes("Yo: "),
+      (line, idx) => idx > lastHunkRowIndex && line.includes("You: "),
     );
     expect(lastHunkRowIndex).toBeGreaterThanOrEqual(0);
     expect(cardRowIndex).toBeGreaterThan(lastHunkRowIndex);
@@ -1581,12 +1581,12 @@ describe("UI components", () => {
 
     expect(frame).toContain("First rationale.");
     expect(frame).toContain("Second rationale.");
-    // Two distinct cards mean two `Yo:` comment rows below the hunk.
+    // Two distinct cards mean two `You:` comment rows below the hunk.
     const lines = frame.split("\n");
     const lastHunkRowIndex = lines.findIndex((line) => line.includes("export const alpha = 2;"));
     const cardRowsBelowHunk = lines
       .slice(lastHunkRowIndex + 1)
-      .filter((line) => line.includes("Yo: ")).length;
+      .filter((line) => line.includes("You: ")).length;
     expect(cardRowsBelowHunk).toBeGreaterThanOrEqual(2);
   });
 

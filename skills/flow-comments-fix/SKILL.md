@@ -45,7 +45,7 @@ When the user asks to commit, they prefer fixes in the commit where the code bel
 
 ## Rules
 
-- Don't renumber or edit comments, and never touch the user's text. Besides fixes, your writes are replies and, to flag something in the review, your own comments: `flow comments add <file> <start-end> "<text>"` (anchored for you; shows as `Agente:`). Keep those for points worth reading beside the code; everything else goes in chat.
+- Don't renumber or edit comments, and never touch the user's text. Besides fixes, your writes are replies and, to flag something in the review, your own comments: `flow comments add <file> <start-end> "<text>"` (anchored for you; shows as `Claude:`). Keep those for points worth reading beside the code; everything else goes in chat.
 - A `drifted: ...` comment is still real (the anchor no longer matches: file removed, line out of range, or content moved). Re-read the surrounding code, address the intent, then resolve. Don't resolve just to make it disappear.
 - `resolve` (only when asked) is all-or-nothing across the ids passed.
 - No raw snippets in messages back to the user; cite `file:line`.

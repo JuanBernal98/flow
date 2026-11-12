@@ -293,7 +293,7 @@ export function runCommentsResolve(ids: number[], options: CommentsListOptions =
 /**
  * `flow comments add <file> <start-end> <text>` — leave a comment as the agent, anchored to the
  * file's current content like a comment added in the TUI. Use it to flag something for the user
- * in the review; it shows as `Agente:` and the watcher does not echo it back to the agent.
+ * in the review; it shows as `Claude:` and the watcher does not echo it back to the agent.
  */
 export function runCommentsAdd(
   filePath: string,
