@@ -1,6 +1,6 @@
 # flow
 
-![flow: your tickets and reviews, the agent's overview of the ticket, and the live diff of your branch](assets/flow-screenshot.png)
+![flow: your tickets and reviews, the agent's overview of the ticket, the live diff of your branch, and its file tree](assets/flow-screenshot.png)
 
 Work your tickets with a coding agent from one terminal: your YouTrack tickets and your squad's GitLab reviews beside a live diff of your branch, what the agent understood about each ticket, and Claude Code skills that load a ticket's context, review code against the ticket, fix your review comments, and open the merge request.
 
