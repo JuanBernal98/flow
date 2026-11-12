@@ -796,8 +796,11 @@ function applyTheme(theme: WindowTheme) {
   );
   style.setProperty("--diffs-bg-context-override", "var(--code-bg)");
   style.setProperty("--diffs-bg-context-gutter-override", colors.background);
-  style.setProperty("--diffs-bg-addition-override", colors.addedLine);
-  style.setProperty("--diffs-bg-deletion-override", colors.removedLine);
+  // Same scheme as the terminal: rows get the faint tint, changed words the stronger one.
+  style.setProperty("--diffs-bg-addition-override", colors.addedRow);
+  style.setProperty("--diffs-bg-deletion-override", colors.removedRow);
+  style.setProperty("--diffs-bg-addition-emphasis-override", colors.addedWord);
+  style.setProperty("--diffs-bg-deletion-emphasis-override", colors.removedWord);
   style.setProperty("--diffs-bg-addition-number-override", colors.background);
   style.setProperty("--diffs-bg-deletion-number-override", colors.background);
   style.setProperty("--diffs-bg-separator-override", colors.panel);
@@ -865,10 +868,15 @@ pre,
   text-align: right;
   color: var(--faint);
 }
-/* Breathing room inside the box; the gutter gets the same, so numbers stay on their lines. */
-[data-gutter],
-[data-content] {
-  padding-block: 6px;
+/* Breathing room inside the box: the first and last rows grow, so the room takes their color (green
+   on a new line) and the gutter rows grow alike, keeping numbers on their lines. */
+[data-content] > :first-child,
+[data-gutter] > :first-child {
+  padding-top: 6px;
+}
+[data-content] > :last-child,
+[data-gutter] > :last-child {
+  padding-bottom: 6px;
 }
 [data-column-number] {
   border-right: 0;

@@ -44,12 +44,11 @@ export interface WindowTheme {
     faint: string;
     added: string;
     removed: string;
-    addedLine: string;
-    removedLine: string;
-    contextLine: string;
-    addedGutter: string;
-    removedGutter: string;
-    gutter: string;
+    /** A changed row's tint, and the stronger one for the words that changed in it. */
+    addedRow: string;
+    removedRow: string;
+    addedWord: string;
+    removedWord: string;
   };
 }
 
@@ -205,12 +204,10 @@ export async function loadWindowThemes(repoRoot: string): Promise<WindowThemes> 
         faint: theme.lineNumberFg,
         added: theme.addedSignColor,
         removed: theme.removedSignColor,
-        addedLine: theme.addedContentBg,
-        removedLine: theme.removedContentBg,
-        contextLine: theme.contextContentBg,
-        addedGutter: theme.addedBg,
-        removedGutter: theme.removedBg,
-        gutter: theme.lineNumberBg,
+        addedRow: theme.addedBg,
+        removedRow: theme.removedBg,
+        addedWord: theme.addedContentBg,
+        removedWord: theme.removedContentBg,
       },
     })),
   };
