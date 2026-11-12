@@ -809,5 +809,22 @@ function PaletteIcon() {
   );
 }
 
+// Mark a pane while it scrolls, so its scrollbar shows only then (see app.css).
+const scrollTimers = new WeakMap<Element, number>();
+document.addEventListener(
+  "scroll",
+  (event) => {
+    if (!(event.target instanceof Element)) return;
+    const pane = event.target;
+    pane.classList.add("is-scrolling");
+    window.clearTimeout(scrollTimers.get(pane));
+    scrollTimers.set(
+      pane,
+      window.setTimeout(() => pane.classList.remove("is-scrolling"), 700),
+    );
+  },
+  { capture: true, passive: true },
+);
+
 const root = document.getElementById("root");
 if (root) createRoot(root).render(<App />);
