@@ -1322,6 +1322,11 @@ export async function parseCli(argv: string[]): Promise<ParsedCliInput> {
         throw new FlowUserError("`flow watch` does not accept arguments.");
       }
       return { kind: "agent-watch" };
+    case "open":
+      if (rest.length > 0) {
+        throw new FlowUserError("`flow open` does not accept arguments.");
+      }
+      return { kind: "window-open" };
     default:
       throw new Error(`Unknown command: ${commandName}`);
   }

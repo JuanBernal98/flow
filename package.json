@@ -52,6 +52,8 @@
     "@pierre/diffs": "^1.6.4",
     "commander": "^15.1.0",
     "diff": "^9.0.0",
+    "react-dom": "19.3.1",
+    "webview-bun": "2.4.0",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -59,6 +61,7 @@
     "@opentui/react": "0.1.101",
     "@types/bun": "latest",
     "@types/react": "^19.3.0",
+    "@types/react-dom": "19",
     "lint-staged": "^17.6.0",
     "oxfmt": "^0.78.0",
     "oxlint": "^1.93.0",

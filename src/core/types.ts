@@ -94,6 +94,11 @@ export interface AgentWatchCommandInput {
   kind: "agent-watch";
 }
 
+/** `flow open`: the workspace and review in a native window instead of the terminal. */
+export interface WindowOpenCommandInput {
+  kind: "window-open";
+}
+
 export interface PagerCommandInput {
   kind: "pager";
   options: CommonOptions;
@@ -156,7 +161,8 @@ export type ParsedCliInput =
   | CliInput
   | HelpCommandInput
   | PagerCommandInput
-  | AgentWatchCommandInput;
+  | AgentWatchCommandInput
+  | WindowOpenCommandInput;
 
 export interface AppBootstrap {
   input: CliInput;

@@ -29,6 +29,13 @@ async function main() {
     process.exit(0);
   }
 
+  if (startupPlan.kind === "window-open") {
+    // The window is a separate UI over the same core; it never loads the terminal renderer.
+    const { openFlowWindow } = await import("./window/open");
+    await openFlowWindow(process.cwd());
+    process.exit(0);
+  }
+
   if (startupPlan.kind === "plain-text-pager") {
     const { pagePlainText } = await import("./core/pager");
     await pagePlainText(startupPlan.text);

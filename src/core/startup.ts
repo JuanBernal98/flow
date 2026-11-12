@@ -20,6 +20,9 @@ export type StartupPlan =
       kind: "agent-watch";
     }
   | {
+      kind: "window-open";
+    }
+  | {
       kind: "plain-text-pager";
       text: string;
     }
@@ -95,6 +98,10 @@ export async function prepareStartupPlan(
 
   if (parsedCliInput.kind === "agent-watch") {
     return { kind: "agent-watch" };
+  }
+
+  if (parsedCliInput.kind === "window-open") {
+    return { kind: "window-open" };
   }
 
   if (parsedCliInput.kind === "pager") {

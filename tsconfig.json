@@ -27,5 +27,8 @@
     "test/**/*.ts",
     "test/**/*.tsx",
     "benchmarks/**/*.ts"
-  ]
+  ],
+  // webview-bun ships uncompiled TypeScript that fails strict mode; only this file imports it, and
+  // flow runs it as its own process rather than importing it.
+  "exclude": ["src/window/nativeWindow.ts"]
 }
