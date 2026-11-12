@@ -609,20 +609,42 @@ function FilesPane({ files }: { files: WindowDiffFile[] | null }) {
   );
 }
 
-/** A review comment with the agent's replies, like the terminal's comment card. */
-function CommentCard({ comment }: { comment: PersistedComment }) {
+/** One message in a thread, chat style: avatar, author, then the text. */
+function ThreadMessage({ author, body }: { author: "user" | "agent"; body: string }) {
   return (
-    <div className="note">
-      <div className={`note-line ${comment.author === "agent" ? "agent" : "user"}`}>
-        <span className="note-author">{comment.author === "agent" ? "Claude" : "You"}</span>
-        <span className="note-body">{comment.body}</span>
+    <div className={`thread-message ${author}`}>
+      <span className="avatar" aria-hidden="true">
+        {author === "agent" ? "C" : "Y"}
+      </span>
+      <div className="thread-text">
+        <span className="thread-author">{author === "agent" ? "Claude" : "You"}</span>
+        <div className="thread-body">{body}</div>
       </div>
-      {(comment.replies ?? []).map((reply, index) => (
-        <div key={index} className="note-line agent">
-          <span className="note-author">Claude</span>
-          <span className="note-body">{reply.body}</span>
-        </div>
-      ))}
+    </div>
+  );
+}
+
+/** Every comment on one line and its replies in a single box, a row per message. */
+function CommentThread({
+  comments,
+  editor,
+}: {
+  comments: PersistedComment[];
+  editor: React.ReactNode;
+}) {
+  return (
+    <div className={`thread${editor ? " editing" : ""}`}>
+      {comments.flatMap((comment) => [
+        <ThreadMessage
+          key={`${comment.id}`}
+          author={comment.author === "agent" ? "agent" : "user"}
+          body={comment.body}
+        />,
+        ...(comment.replies ?? []).map((reply, index) => (
+          <ThreadMessage key={`${comment.id}-${index}`} author="agent" body={reply.body} />
+        )),
+      ])}
+      {editor}
     </div>
   );
 }
@@ -637,7 +659,7 @@ function CommentEditor({
 }) {
   const [body, setBody] = useState("");
   return (
-    <div className="note editing">
+    <div className="thread-editor">
       <textarea
         autoFocus
         rows={2}
@@ -867,7 +889,14 @@ function Bullets({ title, items, ordered }: { title: string; items: string[]; or
 }
 
 /** What an inline row in the diff holds: a saved comment, or the editor for a new one. */
-type DiffNote = { kind: "comment"; comment: PersistedComment } | { kind: "draft" };
+/**
+ * One discussion under a line, like a GitLab thread: every comment on that line with its replies,
+ * plus the editor when `a` opens there.
+ */
+interface DiffNote {
+  comments: PersistedComment[];
+  editing: boolean;
+}
 
 function DiffPane({
   files,
@@ -932,10 +961,15 @@ function DiffPane({
   const renderNote = useCallback(
     (annotation: DiffLineAnnotation<DiffNote>) => {
       const note = annotation.metadata;
-      return note.kind === "draft" ? (
-        <CommentEditor onSave={onSaveComment} onCancel={onCancelComment} />
-      ) : (
-        <CommentCard comment={note.comment} />
+      return (
+        <CommentThread
+          comments={note.comments}
+          editor={
+            note.editing ? (
+              <CommentEditor onSave={onSaveComment} onCancel={onCancelComment} />
+            ) : null
+          }
+        />
       );
     },
     [onSaveComment, onCancelComment],
@@ -1015,23 +1049,24 @@ const DiffFile = memo(function DiffFile({
         : null,
     [focused],
   );
-  // Comments sit under the line they are on; the editor opens under the focused hunk's last line.
+  // One thread per commented line; the editor joins the thread on the focused hunk's last line.
   const notes = useMemo(() => {
-    const rows: DiffLineAnnotation<DiffNote>[] = comments
-      .filter((comment) => comment.file === file.path)
-      .map((comment) => ({
-        side: "additions" as const,
-        lineNumber: comment.line,
-        metadata: { kind: "comment" as const, comment },
-      }));
-    if (editing && focused) {
-      rows.push({
-        side: "additions",
-        lineNumber: focused.newRange[1],
-        metadata: { kind: "draft" },
-      });
+    const threads = new Map<number, DiffNote>();
+    for (const comment of comments) {
+      if (comment.file !== file.path) continue;
+      const thread = threads.get(comment.line) ?? { comments: [], editing: false };
+      thread.comments.push(comment);
+      threads.set(comment.line, thread);
     }
-    return rows;
+    if (editing && focused) {
+      const line = focused.newRange[1];
+      threads.set(line, { comments: threads.get(line)?.comments ?? [], editing: true });
+    }
+    return [...threads].map(([lineNumber, metadata]): DiffLineAnnotation<DiffNote> => ({
+      side: "additions",
+      lineNumber,
+      metadata,
+    }));
   }, [comments, file.path, editing, focused]);
   return (
     <div className="file" id={fileAnchor(file.path)} style={gutter as React.CSSProperties}>
