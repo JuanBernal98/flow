@@ -18,11 +18,11 @@ zero-prompt context ──▶ Claude                               you ──▶
 
 ## How it works
 
-- **Zero-prompt context.** Pick a ticket and Claude has read it, its Notion pages, and every comment.
-- **Overview.** See what Claude understood before it writes a line. The ticket and docs stay the source of truth.
-- **Ticket-vs-code review.** `R` checks the code against the ticket's acceptance criteria, not just for bugs.
-- **Inline loop.** Comment a hunk; Claude fixes it and replies in place.
-- **Delivery without leaving it.** Branch, commits, merge request, Slack ping, and ticket state, one key each, and merged tickets close themselves. You just approve.
+- **Zero-prompt context.** Claude starts every ticket already knowing it: the ticket, the docs behind it, and the conversation around it. You never paste context again.
+- **Overview.** Before any code is written, you see what Claude understood, so a misunderstanding costs a glance instead of a rewrite. A second reading of the task, while the ticket and docs stay the source of truth.
+- **Ticket-vs-code review.** Reviews ask the question that matters: does the code do what the ticket asks, and only that? Bugs come after.
+- **Inline loop.** You and Claude discuss the code right where it lives, and each round leaves it better.
+- **Delivery without leaving it.** Commits, merge requests, team pings, and ticket updates happen from the same place, and finished tickets close themselves. You stay in charge; flow does the chores.
 
 ## Quick start
 
