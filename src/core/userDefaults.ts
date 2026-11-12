@@ -1,5 +1,5 @@
 /**
- * Answers flow remembers per user, so they are asked once: `flow setup claude` saves the YouTrack
+ * Answers flow remembers per user, so they are asked once: `flow setup` saves the YouTrack
  * URL here and `flow init` offers it in every repository. They live in the user config
  * (`~/.config/flow/config.toml`) under `[defaults]`, a section no command reads as preferences.
  * Saving edits only that one line and keeps the rest of the file as the user wrote it.
@@ -43,7 +43,7 @@ export function saveUserYouTrackUrl(url: string, path = resolveGlobalConfigPath(
   const header = lines.findIndex((candidate) => candidate.trim() === `[${SECTION}]`);
   let next: string;
   if (header === -1) {
-    const block = `[${SECTION}]\n# Answers \`flow setup claude\` remembers for \`flow init\`.\n${line}\n`;
+    const block = `[${SECTION}]\n# Answers \`flow setup\` remembers for \`flow init\`.\n${line}\n`;
     next = text.trim() ? `${text.trimEnd()}\n\n${block}` : block;
   } else {
     const end = lines.findIndex((candidate, index) => index > header && /^\s*\[/.test(candidate));

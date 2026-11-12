@@ -1,5 +1,5 @@
 /**
- * Dependency checks for `flow setup claude`: everything flow and its agent skills need on this
+ * Dependency checks for `flow setup`: everything flow and its agent skills need on this
  * machine, all of it required. A failed check carries a remedy: a command setup may run once the
  * user agrees, or steps the user takes elsewhere. Every probe is injectable so tests never spawn
  * tools.

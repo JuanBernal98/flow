@@ -27,7 +27,7 @@ export interface RepoInitDeps {
   ask: (question: string, defaultValue?: string) => Promise<string>;
   /** Print one line for the user. */
   say: (line: string) => void;
-  /** The YouTrack URL `flow setup claude` remembered, offered as the default answer. */
+  /** The YouTrack URL `flow setup` remembered, offered as the default answer. */
   defaultYouTrackUrl?: string;
   checkYouTrack: (
     url: string,

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # First install of flow from this checkout: dependencies, the `flow` command, and Claude Code.
-# `flow setup claude` checks everything else flow needs and offers to fix what is missing, always
-# showing the command and asking first. Afterwards, `flow update` keeps it up to date.
+# `flow setup` checks everything else flow needs and offers to fix what is missing, always showing
+# the command and asking first. Afterwards, updating is `git pull`; flow says when to run setup.
 set -Eeuo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,7 +49,7 @@ case ":${PATH}:" in
 esac
 
 printf '\n→ Setting up Claude Code\n'
-"${install_dir}/flow" setup claude
+"${install_dir}/flow" setup
 
 printf '\nNext: cd into a repository and run `flow init` to connect it.\n'
-printf 'Later, `flow update` brings the newest flow.\n'
+printf 'To update later: git pull here; flow tells you when to run `flow setup`.\n'

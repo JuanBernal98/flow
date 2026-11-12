@@ -132,6 +132,14 @@ async function main() {
   // Each repository decides what it connects to in its own `.flow/config.toml`; one without
   // integrations gets no loaders, so flow makes no YouTrack or GitLab calls there.
   const integrations = readRepoIntegrations(findRepoRoot(process.cwd()));
+  // After a `git pull` that adds or renames skills, Claude Code's stubs lag behind until setup runs.
+  const [{ claudeSetupIsStale, resolveClaudeDir }, { BUNDLED_SKILLS }] = await Promise.all([
+    import("./core/claudeSetup"),
+    import("./core/cli"),
+  ]);
+  const startupNotice = claudeSetupIsStale(resolveClaudeDir(), BUNDLED_SKILLS)
+    ? "flow changed: run `flow setup` to refresh Claude Code"
+    : undefined;
   const youtrackUrl = integrations.youtrackUrl;
   const mergedState = integrations.mergedState;
 
@@ -144,6 +152,7 @@ async function main() {
       workspaceTasksLoader={youtrackUrl ? () => loadYouTrackTasks({ url: youtrackUrl }) : undefined}
       issueUrl={youtrackUrl ? (ticketId) => youTrackIssueUrl(youtrackUrl, ticketId) : undefined}
       projectKeys={integrations.projectKeys}
+      startupNotice={startupNotice}
       closeMergedTicket={
         youtrackUrl && mergedState
           ? (ticketId) => moveMergedTicket(ticketId, mergedState, { url: youtrackUrl })

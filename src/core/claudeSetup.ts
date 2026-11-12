@@ -1,5 +1,5 @@
 /**
- * `flow setup claude`: install what Claude Code needs to work with flow, from this checkout.
+ * `flow setup`: install what Claude Code needs to work with flow, from this checkout.
  *
  * - One stub per bundled skill under `<claude>/skills/<name>/SKILL.md`. A stub carries the skill's
  *   frontmatter (Claude reads it before running anything) and tells Claude to print the real
@@ -202,6 +202,23 @@ function findFlowStubs(skillsDir: string) {
     const stubPath = join(skillsDir, name, "SKILL.md");
     return existsSync(stubPath) && FLOW_STUB_PATTERN.test(readFileSync(stubPath, "utf8"));
   });
+}
+
+/**
+ * Whether Claude Code's flow stubs lag behind this checkout: a bundled skill has no stub, or a flow
+ * stub names a skill flow no longer ships. False when setup never ran, so plain diff-viewer users
+ * are never nagged.
+ */
+export function claudeSetupIsStale(claudeDir: string, skillNames: readonly string[]) {
+  const skillsDir = join(claudeDir, "skills");
+  const installed = findFlowStubs(skillsDir);
+  if (installed.length === 0) {
+    return false;
+  }
+  return (
+    skillNames.some((name) => !existsSync(join(skillsDir, name, "SKILL.md"))) ||
+    installed.some((name) => !skillNames.includes(name))
+  );
 }
 
 export interface ClaudeSetupOptions {

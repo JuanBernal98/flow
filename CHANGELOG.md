@@ -10,8 +10,6 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
-- `flow update` keeps an install current from anywhere: it fast-forwards flow's checkout (stopping on local changes, no upstream, or a diverged branch), runs `bun install` when something changed, and refreshes Claude Code. `./install.sh` is now only for the first install.
-
 - `[youtrack] project_keys` (asked by `flow init`, checked against YouTrack) limits which ids count as a review's ticket, so `UTF-8` in an MR title or another squad's ticket is never taken for yours. Without it any `KEY-123` counts, as before.
 
 - `./install.sh` installs flow from a fresh clone in one go: dependencies, the `flow` command, and `flow setup claude`. Setup now offers to fix each missing dependency instead of only listing it — `brew install glab`, `glab auth login`, storing the YouTrack token in the Keychain, and adding the YouTrack MCP with that token — always showing the exact command and running it only after a yes; a no stops setup before anything is installed. Notion and Slack, which need the browser, are explained and checked again. Anything already set up is left alone.
@@ -53,6 +51,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The `ticket`, `ticket-context`, and `mr` agent skills now ship in `skills/` next to `flow-review`; `flow skill show <name>` and `flow skill path <name>` print any of them.
 
 ### Changed
+
+- `flow setup claude` is now `flow setup`, and it also runs `bun install` in flow's checkout. Updating flow is `git pull`: skills and the session hook are read live, and when a pull adds or retires a skill, flow says at launch to run `flow setup`.
 
 - Setup asks for the YouTrack URL once and remembers it (`[defaults] youtrack_url` in the user config, also taken from an existing YouTrack MCP), so `flow init` offers it in every repository; before storing the token it offers to open YouTrack's token page in the browser. `flow init` no longer asks for the Slack channel ID: `flow-mr-open` looks the channel up by name (`review_channel_id` still wins when set). `./install.sh` offers to add `~/.local/bin` to your shell profile, showing the line and asking first.
 

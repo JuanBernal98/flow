@@ -155,6 +155,7 @@ export function App({
   readOverview = readTicketOverview,
   issueUrl,
   projectKeys = NO_PROJECT_KEYS,
+  startupNotice,
   workspaceConnected = true,
 }: {
   bootstrap: AppBootstrap;
@@ -187,6 +188,8 @@ export function App({
   issueUrl?: (ticketId: string) => string | undefined;
   /** Projects whose ids count as tickets in MR branches and titles (`[youtrack] project_keys`). */
   projectKeys?: readonly string[];
+  /** A one-time note for the status bar at launch, such as that `flow setup` should run. */
+  startupNotice?: string;
   /** Whether this repository connects to YouTrack or GitLab; without either, the workspace and
    * the Overview start closed, as there is nothing to list. `S` and `x` still open them. */
   workspaceConnected?: boolean;
@@ -587,6 +590,13 @@ export function App({
       }
     };
   }, []);
+
+  // Shown once at launch, long enough to read.
+  useEffect(() => {
+    if (startupNotice) {
+      flashStatus(startupNotice, 10_000);
+    }
+  }, [startupNotice, flashStatus]);
 
   // After every load, my tickets still in Review whose MR is merged move on by themselves. Each is
   // tried once per session, so a failure is reported once instead of retried on every reload.

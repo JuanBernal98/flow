@@ -29,6 +29,7 @@ export function AppHost({
   readOverview,
   issueUrl,
   projectKeys,
+  startupNotice,
   workspaceConnected,
 }: {
   bootstrap: AppBootstrap;
@@ -47,6 +48,7 @@ export function AppHost({
   readOverview?: (repoRoot: string, ticketId: string) => StoredTicketOverview | null;
   issueUrl?: (ticketId: string) => string | undefined;
   projectKeys?: readonly string[];
+  startupNotice?: string;
   workspaceConnected?: boolean;
 }) {
   const [activeBootstrap, setActiveBootstrap] = useState(bootstrap);
@@ -97,6 +99,7 @@ export function AppHost({
       readOverview={readOverview}
       issueUrl={issueUrl}
       projectKeys={projectKeys}
+      startupNotice={startupNotice}
       workspaceConnected={workspaceConnected}
     />
   );

@@ -1,5 +1,5 @@
 /**
- * Walk the user through what `flow setup claude` found missing, one item at a time. Nothing is run
+ * Walk the user through what `flow setup` found missing, one item at a time. Nothing is run
  * without showing the exact command and asking first; the default answer is no, and declining stops
  * setup before it installs anything. What only the user can do (connecting claude.ai connectors) is
  * explained, and setup checks again when they say they are done.

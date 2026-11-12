@@ -105,7 +105,7 @@ function renderCliVersion() {
 }
 
 // Skills shipped under `skills/`; the first one is the default.
-const BUNDLED_SKILLS = [
+export const BUNDLED_SKILLS = [
   "flow-comments-fix",
   "flow-ticket-switch",
   "flow-ticket-context",
@@ -165,9 +165,8 @@ function renderCliHelp() {
     "  flow watch                              stream review events for a coding agent's terminal",
     "  flow focus <file>[:line]                ask the open review to show a file and line",
     "  flow overview write <ticket>            store a ticket overview (JSON on stdin) for the Overview pane",
-    "  flow setup claude                       install flow's skills and session hook into Claude Code",
+    "  flow setup                              set up or refresh flow's dependencies and Claude Code",
     "  flow init                               connect this repository: write its .flow/config.toml",
-    "  flow update                             pull the newest flow and refresh Claude Code",
     "",
     "Global options:",
     "  -h, --help                              show help",
@@ -760,15 +759,14 @@ async function parseSkillCommand(tokens: string[]): Promise<HelpCommandInput> {
 /** Build the `flow setup` help text. */
 function renderSetupHelp() {
   return [
-    "Usage: flow setup claude [--dry-run] [--uninstall]",
+    "Usage: flow setup [--dry-run] [--uninstall]",
     "",
-    "Install what Claude Code needs to work with flow, from this checkout:",
+    "Set flow up, or refresh it after a `git pull`; it only touches what is missing or changed:",
+    "  - flow's own dependencies (`bun install` in this checkout)",
     "  - a stub per bundled skill in ~/.claude/skills (they print the real text with `flow skill show`)",
     "  - a SessionStart hook in ~/.claude/settings.json that arms `flow watch` in each repository",
-    "flow needs all of these, checked first; setup installs nothing while one is missing:",
-    "bun, glab (logged in), a YouTrack token, and the YouTrack, Notion, and Slack connectors.",
-    "",
-    "Run it again after pulling a new flow; it only rewrites flow's own entries.",
+    "It first checks what flow needs (glab logged in, a YouTrack token, and the YouTrack, Notion,",
+    "and Slack connectors) and offers to fix each missing one, showing the command and asking first.",
     "",
     "  --dry-run     show what would change without writing anything",
     "  --uninstall   remove flow's skills and hook",
@@ -804,7 +802,7 @@ function resolveInstalledFlowBin() {
     }
   }
   throw new FlowUserError("This flow is not installed on your PATH yet.", [
-    "Run `bun run install:bin` in this checkout first, then `flow setup claude`.",
+    "Run `bun run install:bin` in this checkout first, then `flow setup`.",
   ]);
 }
 
@@ -921,23 +919,41 @@ async function createTerminalRemedyIo(): Promise<import("./setupRemedies").Remed
   };
 }
 
-/** Parse and run `flow setup claude`. */
-async function parseSetupCommand(tokens: string[]): Promise<HelpCommandInput> {
-  const [target, ...flags] = tokens;
-  if (!target || target === "--help" || target === "-h" || flags.includes("--help")) {
-    return { kind: "help", text: renderSetupHelp() };
+/** Run `bun install` in the checkout flow runs from; a no-op when nothing changed. */
+function installFlowDependencies() {
+  const checkout = dirname(dirname(dirname(resolveBundledCommentsFixSkillPath())));
+  if (!existsSync(join(checkout, ".git")) || !existsSync(join(checkout, "package.json"))) {
+    return;
   }
-  if (target !== "claude") {
-    throw new FlowUserError(`Unknown setup target \`${target}\`.`, [
-      "Only `flow setup claude` exists.",
+  const result = Bun.spawnSync(["bun", "install"], {
+    cwd: checkout,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (result.exitCode !== 0) {
+    throw new FlowUserError("`bun install` failed in flow's checkout.", [
+      result.stderr.toString().trim(),
     ]);
+  }
+  process.stdout.write("✓ flow's dependencies are up to date\n");
+}
+
+/** Parse and run `flow setup`. */
+async function parseSetupCommand(flags: string[]): Promise<HelpCommandInput> {
+  if (flags.includes("--help") || flags.includes("-h")) {
+    return { kind: "help", text: renderSetupHelp() };
   }
   const unknown = flags.filter((flag) => flag !== "--dry-run" && flag !== "--uninstall");
   if (unknown.length > 0) {
-    throw new FlowUserError(`Unknown option \`${unknown[0]}\` for \`flow setup claude\`.`);
+    throw new FlowUserError(`Unknown option \`${unknown[0]}\` for \`flow setup\`.`);
   }
   const dryRun = flags.includes("--dry-run");
   const uninstall = flags.includes("--uninstall");
+
+  // After a `git pull`, new dependencies must land before anything else runs flow's code.
+  if (!dryRun && !uninstall) {
+    installFlowDependencies();
+  }
 
   const [
     { applyClaudeSetup, resolveClaudeDir },
@@ -994,11 +1010,7 @@ async function parseSetupCommand(tokens: string[]): Promise<HelpCommandInput> {
   if (!ready && !dryRun) {
     throw new FlowUserError(
       "Setup stopped before installing anything: flow needs every item below.",
-      [
-        ...checkLines,
-        "",
-        "Fix the ✗ items (or let setup do it) and run `flow setup claude` again.",
-      ],
+      [...checkLines, "", "Fix the ✗ items (or let setup do it) and run `flow setup` again."],
     );
   }
 
@@ -1014,47 +1026,6 @@ async function parseSetupCommand(tokens: string[]): Promise<HelpCommandInput> {
     lines.push("", "Open a new Claude Code session to pick up the changes.");
   }
   return { kind: "help", text: `${lines.join("\n")}\n` };
-}
-
-/** Parse and run `flow update` on the checkout this flow runs from. */
-async function parseUpdateCommand(tokens: string[]): Promise<HelpCommandInput> {
-  if (tokens.includes("--help") || tokens.includes("-h")) {
-    return {
-      kind: "help",
-      text: [
-        "Usage: flow update",
-        "",
-        "Pull the newest flow into its checkout (fast-forward only), run `bun install` when",
-        "something changed, and refresh Claude Code with `flow setup claude`.",
-        "Use ./install.sh only for the first install.",
-        "",
-      ].join("\n"),
-    };
-  }
-  if (tokens.length > 0) {
-    throw new FlowUserError("`flow update` takes no arguments.");
-  }
-  const { runFlowUpdate } = await import("./flowUpdate");
-  // Skills sit at <checkout>/skills/<name>/SKILL.md in a source checkout.
-  const checkout = dirname(dirname(dirname(resolveBundledCommentsFixSkillPath())));
-  const updated = await runFlowUpdate({
-    checkout,
-    git: (args) => {
-      const result = Bun.spawnSync(["git", ...args], {
-        cwd: checkout,
-        stdout: "pipe",
-        stderr: "ignore",
-      });
-      return { exitCode: result.exitCode, stdout: result.stdout.toString() };
-    },
-    runInteractive: async (command, cwd) =>
-      Bun.spawn(command, { cwd, stdin: "inherit", stdout: "inherit", stderr: "inherit" }).exited,
-    say: (line) => process.stdout.write(`${line}\n`),
-  });
-  if (!updated) {
-    throw new FlowUserError("flow was not updated; see above.");
-  }
-  return { kind: "help", text: "" };
 }
 
 /** Parse and run `flow init`, asking in the terminal for what the repository's config lacks. */
@@ -1156,9 +1127,7 @@ async function parseInitCommand(tokens: string[]): Promise<HelpCommandInput> {
 async function parseHookCommand(tokens: string[]): Promise<HelpCommandInput> {
   const [event, ...rest] = tokens;
   if (event !== "session-start") {
-    throw new FlowUserError(
-      "Only `flow hook session-start` exists; `flow setup claude` installs it.",
-    );
+    throw new FlowUserError("Only `flow hook session-start` exists; `flow setup` installs it.");
   }
   const binIndex = rest.indexOf("--bin");
   const flowBin = binIndex >= 0 ? rest[binIndex + 1] : undefined;
@@ -1260,8 +1229,6 @@ export async function parseCli(argv: string[]): Promise<ParsedCliInput> {
       return parseSetupCommand(rest);
     case "init":
       return parseInitCommand(rest);
-    case "update":
-      return parseUpdateCommand(rest);
     case "hook":
       return parseHookCommand(rest);
     case "watch":

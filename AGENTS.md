@@ -116,9 +116,8 @@ CLI input
 - lint: `bun run lint`
 - build binary: `bun run build:bin`
 - install binary: `bun run install:bin`
-- install skills and session hook into Claude Code: `flow setup claude` (`--dry-run` to preview)
+- set up or refresh deps, skills, and the session hook: `flow setup` (`--dry-run` to preview)
 - connect a repository (writes `.flow/config.toml`): `flow init`
-- update a local install (pull, `bun install`, setup): `flow update`
 
 ## binary notes
 

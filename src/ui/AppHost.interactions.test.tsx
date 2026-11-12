@@ -967,6 +967,22 @@ test("C and P ask the agent to commit and open the MR for the checked-out ticket
   }
 });
 
+test("a startup notice shows in the status bar", async () => {
+  const setup = await testRender(
+    <AppHost bootstrap={createSidebarBootstrap()} startupNotice="flow changed: run `flow setup`" />,
+    { width: 160, height: 24 },
+  );
+  try {
+    expect(
+      await waitForFrame(setup, (frame) => frame.includes("flow changed: run `flow setup`")),
+    ).toContain("flow changed: run `flow setup`");
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
 test("x opens the checked-out ticket's overview and X asks the agent to write one", async () => {
   const branchGit: GitRun = async (args) => ({
     ok: true,

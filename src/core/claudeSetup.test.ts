@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   applyClaudeSetup,
+  claudeSetupIsStale,
   renderSessionStartOutput,
   renderSkillStub,
   withFlowSessionStartHook,
@@ -165,5 +166,20 @@ describe("renderSessionStartOutput", () => {
     expect(context).toContain("flow-commit-create skill");
     expect(context).toContain("'flow request: mr-open [<ID>]'");
     expect(context).toContain("flow-mr-open skill");
+  });
+});
+
+describe("claudeSetupIsStale", () => {
+  test("is quiet before setup ever ran, and flags a missing or retired stub after", () => {
+    const claudeDir = createTestClaudeDir();
+    const names = TEST_SKILLS.map((skill) => skill.name);
+    expect(claudeSetupIsStale(claudeDir, names)).toBe(false);
+
+    applyClaudeSetup({ claudeDir, flowBin: FLOW_BIN, skills: TEST_SKILLS });
+    expect(claudeSetupIsStale(claudeDir, names)).toBe(false);
+    // A new skill shipped by a `git pull`.
+    expect(claudeSetupIsStale(claudeDir, [...names, "flow-new-skill"])).toBe(true);
+    // A skill flow no longer ships.
+    expect(claudeSetupIsStale(claudeDir, [names[0]!])).toBe(true);
   });
 });
