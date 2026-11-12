@@ -234,7 +234,7 @@ body {
 .diff {
   overflow-y: auto;
   min-width: 0;
-  padding: 0 0 60px;
+  padding: 0 0 16px;
 }
 
 .stat {
@@ -255,8 +255,8 @@ body {
   color: var(--del);
 }
 
-.file {
-  margin-bottom: 18px;
+.file + .file {
+  margin-top: 18px;
 }
 
 /* The title and the code box share the same horizontal edges: --block-inset on the left, plus the
