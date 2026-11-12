@@ -79,13 +79,29 @@ function App() {
 
   useEffect(reload, [reload]);
 
-  const visibleItems = useMemo(() => {
+  const [collapsed, setCollapsed] = useState<ReadonlySet<WorkspaceSectionId>>(new Set());
+  const filtering = filter.trim() !== "";
+  const matchingItems = useMemo(() => {
     const query = filter.trim().toLowerCase();
     const items = workspace?.items ?? [];
     return query
       ? items.filter((item) => `${item.ticketId ?? ""} ${item.title}`.toLowerCase().includes(query))
       : items;
   }, [workspace, filter]);
+  // The items the keyboard walks: folded sections are skipped, except while filtering.
+  const visibleItems = useMemo(
+    () =>
+      filtering ? matchingItems : matchingItems.filter((item) => !collapsed.has(item.section)),
+    [matchingItems, collapsed, filtering],
+  );
+  const toggleSection = useCallback((id: WorkspaceSectionId) => {
+    setCollapsed((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+    setCursor(0);
+  }, []);
 
   const selected = workspace?.items.find((item) => item.id === selectedId) ?? null;
 
@@ -157,29 +173,40 @@ function App() {
             <div className="sections">
               {workspace === null ? <div className="section-title">Loading…</div> : null}
               {SECTIONS.map((section) => {
-                const items = visibleItems.filter((item) => item.section === section.id);
+                const items = matchingItems.filter((item) => item.section === section.id);
+                const open = filtering || !collapsed.has(section.id);
                 return (
-                  <div key={section.id}>
-                    <div className="section-title">
-                      <span>{section.title}</span>
-                      <span>{items.length}</span>
+                  <section key={section.id} className={`section${open ? " open" : ""}`}>
+                    <button
+                      type="button"
+                      className="section-title"
+                      aria-expanded={open}
+                      onClick={() => toggleSection(section.id)}
+                    >
+                      <ChevronIcon />
+                      <span className="section-name">{section.title}</span>
+                      <span className="section-count">{items.length}</span>
+                    </button>
+                    <div className="section-body">
+                      <div className="section-items">
+                        {items.map((item) => {
+                          const index = visibleItems.indexOf(item);
+                          return (
+                            <SidebarItem
+                              key={item.id}
+                              item={item}
+                              active={index === cursor}
+                              checkedOut={item.id === workspace?.checkedOutId}
+                              onSelect={() => {
+                                setCursor(index);
+                                setSelectedId(item.id);
+                              }}
+                            />
+                          );
+                        })}
+                      </div>
                     </div>
-                    {items.map((item) => {
-                      const index = visibleItems.indexOf(item);
-                      return (
-                        <SidebarItem
-                          key={item.id}
-                          item={item}
-                          active={index === cursor}
-                          checkedOut={item.id === workspace?.checkedOutId}
-                          onSelect={() => {
-                            setCursor(index);
-                            setSelectedId(item.id);
-                          }}
-                        />
-                      );
-                    })}
-                  </div>
+                  </section>
                 );
               })}
             </div>
@@ -238,6 +265,14 @@ function TopBar({ children }: { children: React.ReactNode }) {
     >
       {children}
     </header>
+  );
+}
+
+function ChevronIcon() {
+  return (
+    <svg {...ICON} width={10} height={10} className="chevron">
+      <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} />
+    </svg>
   );
 }
 

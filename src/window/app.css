@@ -93,13 +93,64 @@ body {
 
 .section-title {
   display: flex;
-  justify-content: space-between;
-  padding: 14px 10px 6px;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
   color: var(--muted);
+  font: inherit;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  text-align: left;
+}
+
+.section-title:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.section-name {
+  flex: 1;
+}
+
+.section-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--chip);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.chevron {
+  flex-shrink: 0;
+  transition: transform 160ms ease;
+}
+
+.section.open .chevron {
+  transform: rotate(90deg);
+}
+
+/* Folding animates the body's height from 0 to its content with a grid row. */
+.section-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 180ms ease;
+}
+
+.section.open .section-body {
+  grid-template-rows: 1fr;
+}
+
+.section-items {
+  overflow: hidden;
+  min-height: 0;
 }
 
 .item {
