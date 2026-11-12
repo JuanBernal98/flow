@@ -87,7 +87,7 @@ afterEach(() => {
 
 describe("loadAppBootstrap", () => {
   test("skips binary file-pair diffs instead of reading their contents", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hunk-binary-diff-"));
+    const dir = mkdtempSync(join(tmpdir(), "flow-binary-diff-"));
     tempDirs.push(dir);
 
     const left = join(dir, "before.png");
@@ -113,7 +113,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("marks git binary diffs as skipped binary content", async () => {
-    const dir = createTempRepo("hunk-git-binary-");
+    const dir = createTempRepo("flow-git-binary-");
     const file = join(dir, "image.png");
 
     writeFileSync(file, Buffer.from([0, 1, 2, 3, 4]));
@@ -135,7 +135,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads git working tree changes from a temporary repo", async () => {
-    const dir = createTempRepo("hunk-git-");
+    const dir = createTempRepo("flow-git-");
 
     writeFileSync(join(dir, "example.ts"), "export const value = 1;\n");
     git(dir, "add", "example.ts");
@@ -155,7 +155,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("default review merges staged and unstaged changes", async () => {
-    const dir = createTempRepo("hunk-git-default-scope-");
+    const dir = createTempRepo("flow-git-default-scope-");
 
     writeFileSync(join(dir, "staged.ts"), "export const a = 1;\n");
     writeFileSync(join(dir, "unstaged.ts"), "export const b = 1;\n");
@@ -199,7 +199,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("default review still shows staged files in a repo with no commits", async () => {
-    const dir = createTempRepo("hunk-git-unborn-head-");
+    const dir = createTempRepo("flow-git-unborn-head-");
 
     writeFileSync(join(dir, "staged.ts"), "export const value = 1;\n");
     git(dir, "add", "staged.ts");
@@ -229,7 +229,7 @@ describe("loadAppBootstrap", () => {
   test.skipIf(!sha256Supported)(
     "computes the empty-tree base per object format in a sha256 unborn repo",
     async () => {
-      const dir = createTempRepo("hunk-git-sha256-", "--object-format=sha256");
+      const dir = createTempRepo("flow-git-sha256-", "--object-format=sha256");
 
       writeFileSync(join(dir, "staged.ts"), "export const value = 1;\n");
       git(dir, "add", "staged.ts");
@@ -248,7 +248,7 @@ describe("loadAppBootstrap", () => {
   );
 
   test("includes untracked files in working tree reviews by default", async () => {
-    const dir = createTempRepo("hunk-git-untracked-");
+    const dir = createTempRepo("flow-git-untracked-");
 
     writeFileSync(join(dir, "example.ts"), "export const value = 1;\n");
     git(dir, "add", "example.ts");
@@ -271,7 +271,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("keeps generated large tracked diffs as skipped placeholders", async () => {
-    const dir = createTempRepo("hunk-git-large-tracked-");
+    const dir = createTempRepo("flow-git-large-tracked-");
 
     writeFileSync(join(dir, "large.txt"), "original\n");
     git(dir, "add", "large.txt");
@@ -292,7 +292,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("keeps generated large untracked files as skipped placeholders", async () => {
-    const dir = createTempRepo("hunk-git-large-untracked-");
+    const dir = createTempRepo("flow-git-large-untracked-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const value = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -314,7 +314,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("caps skipped untracked-file stats when byte-size detection would require a full huge read", async () => {
-    const dir = createTempRepo("hunk-git-byte-large-untracked-");
+    const dir = createTempRepo("flow-git-byte-large-untracked-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const value = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -336,7 +336,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("skips untracked symlinks to directories while loading the rest of the review", async () => {
-    const dir = createTempRepo("hunk-git-untracked-dir-symlink-");
+    const dir = createTempRepo("flow-git-untracked-dir-symlink-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -360,7 +360,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("can exclude untracked files from working tree reviews", async () => {
-    const dir = createTempRepo("hunk-git-no-untracked-");
+    const dir = createTempRepo("flow-git-no-untracked-");
 
     writeFileSync(join(dir, "example.ts"), "export const value = 1;\n");
     git(dir, "add", "example.ts");
@@ -379,7 +379,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("includes untracked files when diff compares the working tree against one ref", async () => {
-    const dir = createTempRepo("hunk-git-ref-untracked-");
+    const dir = createTempRepo("flow-git-ref-untracked-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -407,7 +407,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("excludes untracked files for explicit git ranges that do not include the working tree", async () => {
-    const dir = createTempRepo("hunk-git-range-no-untracked-");
+    const dir = createTempRepo("flow-git-range-no-untracked-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -432,7 +432,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("excludes untracked files for revset diffs like HEAD^! that do not include the working tree", async () => {
-    const dir = createTempRepo("hunk-git-revset-no-untracked-");
+    const dir = createTempRepo("flow-git-revset-no-untracked-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -456,7 +456,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads untracked files whose names need parser-safe diff headers", async () => {
-    const dir = createTempRepo("hunk-git-quoted-untracked-");
+    const dir = createTempRepo("flow-git-quoted-untracked-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -487,7 +487,7 @@ describe("loadAppBootstrap", () => {
     // Regression: a user-configured `diff.external` (e.g. difftastic) silently replaces
     // git's unified-diff output, which left the untracked-file synthesizer with patch
     // text Pierre couldn't parse and threw "Expected one parsed file ..., got 0".
-    const dir = createTempRepo("hunk-git-untracked-ext-diff-");
+    const dir = createTempRepo("flow-git-untracked-ext-diff-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -507,7 +507,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("includes repo-wide untracked files even when launched from a subdirectory", async () => {
-    const dir = createTempRepo("hunk-git-subdir-untracked-");
+    const dir = createTempRepo("flow-git-subdir-untracked-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -527,7 +527,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads git working tree changes when diff.noprefix is enabled", async () => {
-    const dir = createTempRepo("hunk-git-noprefix-");
+    const dir = createTempRepo("flow-git-noprefix-");
 
     writeFileSync(join(dir, "example.ts"), "export const value = 1;\n");
     git(dir, "add", "example.ts");
@@ -550,7 +550,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads git working tree changes when diff.mnemonicPrefix is enabled", async () => {
-    const dir = createTempRepo("hunk-git-mnemonic-");
+    const dir = createTempRepo("flow-git-mnemonic-");
 
     writeFileSync(join(dir, "example.ts"), "export const value = 1;\n");
     git(dir, "add", "example.ts");
@@ -573,7 +573,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("reports a friendly error when git review runs outside a repository", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hunk-nonrepo-"));
+    const dir = mkdtempSync(join(tmpdir(), "flow-nonrepo-"));
     tempDirs.push(dir);
 
     await expect(
@@ -587,7 +587,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("reports a friendly error when diff cannot resolve a range", async () => {
-    const dir = createTempRepo("hunk-git-missing-range-");
+    const dir = createTempRepo("flow-git-missing-range-");
 
     writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
     git(dir, "add", "alpha.ts");
@@ -604,7 +604,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads staged-only git diffs from the full UI command path", async () => {
-    const dir = createTempRepo("hunk-git-staged-");
+    const dir = createTempRepo("flow-git-staged-");
 
     writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
     writeFileSync(join(dir, "beta.ts"), "export const beta = 1;\n");
@@ -625,7 +625,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads staged-only git diffs when diff.noprefix is enabled", async () => {
-    const dir = createTempRepo("hunk-git-staged-noprefix-");
+    const dir = createTempRepo("flow-git-staged-noprefix-");
 
     writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
     writeFileSync(join(dir, "beta.ts"), "export const beta = 1;\n");
@@ -647,7 +647,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads pathspec-limited git diffs from the full UI command path", async () => {
-    const dir = createTempRepo("hunk-git-pathspec-");
+    const dir = createTempRepo("flow-git-pathspec-");
 
     writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
     writeFileSync(join(dir, "beta.ts"), "export const beta = 1;\n");
@@ -668,7 +668,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("applies pathspec filtering to untracked files in working tree reviews", async () => {
-    const dir = createTempRepo("hunk-git-untracked-pathspec-");
+    const dir = createTempRepo("flow-git-untracked-pathspec-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -688,7 +688,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads show output for the latest commit and an explicit ref", async () => {
-    const dir = createTempRepo("hunk-show-");
+    const dir = createTempRepo("flow-show-");
 
     writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
     writeFileSync(join(dir, "beta.ts"), "export const beta = 1;\n");
@@ -718,7 +718,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("reports a friendly error when show cannot resolve a ref", async () => {
-    const dir = createTempRepo("hunk-show-missing-ref-");
+    const dir = createTempRepo("flow-show-missing-ref-");
 
     writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
     git(dir, "add", "alpha.ts");
@@ -734,7 +734,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads show output limited by pathspec", async () => {
-    const dir = createTempRepo("hunk-show-pathspec-");
+    const dir = createTempRepo("flow-show-pathspec-");
 
     writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
     writeFileSync(join(dir, "beta.ts"), "export const beta = 1;\n");
@@ -757,7 +757,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads show output when diff.noprefix is enabled", async () => {
-    const dir = createTempRepo("hunk-show-noprefix-");
+    const dir = createTempRepo("flow-show-noprefix-");
 
     writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
     git(dir, "add", "alpha.ts");
@@ -777,7 +777,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads stash show output as a full review changeset", async () => {
-    const dir = createTempRepo("hunk-stash-");
+    const dir = createTempRepo("flow-stash-");
 
     writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
     git(dir, "add", "alpha.ts");
@@ -796,7 +796,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads stash show output when diff.noprefix is enabled", async () => {
-    const dir = createTempRepo("hunk-stash-noprefix-");
+    const dir = createTempRepo("flow-stash-noprefix-");
 
     writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
     git(dir, "add", "alpha.ts");
@@ -815,7 +815,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("reports a friendly error when no stash entries exist", async () => {
-    const dir = createTempRepo("hunk-stash-empty-");
+    const dir = createTempRepo("flow-stash-empty-");
 
     writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
     git(dir, "add", "alpha.ts");
@@ -830,7 +830,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("reports a friendly error when a stash ref does not exist", async () => {
-    const dir = createTempRepo("hunk-stash-missing-ref-");
+    const dir = createTempRepo("flow-stash-missing-ref-");
 
     writeFileSync(join(dir, "alpha.ts"), "export const alpha = 1;\n");
     git(dir, "add", "alpha.ts");
@@ -890,7 +890,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads colorized git patch files like the real pager stdin stream", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hunk-patch-"));
+    const dir = mkdtempSync(join(tmpdir(), "flow-patch-"));
     tempDirs.push(dir);
 
     const before = join(dir, "before.ts");
@@ -952,7 +952,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads patch text emitted with diff.mnemonicPrefix=true (e.g. from `flow pager` stdin)", async () => {
-    const dir = createTempRepo("hunk-patch-mnemonic-prefix-");
+    const dir = createTempRepo("flow-patch-mnemonic-prefix-");
 
     writeFileSync(join(dir, "example.ts"), "export const value = 1;\n");
     git(dir, "add", ".");
@@ -978,7 +978,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("loads renamed patch text emitted with diff.mnemonicPrefix=true", async () => {
-    const dir = createTempRepo("hunk-patch-mnemonic-rename-");
+    const dir = createTempRepo("flow-patch-mnemonic-rename-");
 
     writeFileSync(join(dir, "old.ts"), "export const value = 1;\n");
     git(dir, "add", ".");
@@ -1005,7 +1005,7 @@ describe("loadAppBootstrap", () => {
   });
 
   test("does not strip real directories that look like mnemonic prefixes in noprefix renames", async () => {
-    const dir = createTempRepo("hunk-patch-noprefix-mnemonic-dir-");
+    const dir = createTempRepo("flow-patch-noprefix-mnemonic-dir-");
 
     mkdirSync(join(dir, "c"));
     writeFileSync(join(dir, "c/foo.ts"), "export const value = 1;\n");

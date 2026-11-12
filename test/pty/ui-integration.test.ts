@@ -19,7 +19,7 @@ afterEach(() => {
 ptyDescribe("live UI integration", () => {
   test("the borderless pane edge keeps resizing available in a real PTY", async () => {
     const fixture = harness.createTwoFileRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff"],
       cwd: fixture.dir,
       cols: 240,
@@ -62,7 +62,7 @@ ptyDescribe("live UI integration", () => {
 
   test("the flat file list shows filenames only and opens files from the keyboard", async () => {
     const fixture = harness.createTreeRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff"],
       cwd: fixture.dir,
       cols: 240,
@@ -110,7 +110,7 @@ ptyDescribe("live UI integration", () => {
     const repo = harness.createConnectedRepoFixture(
       `[youtrack]\nurl = "http://127.0.0.1:${youtrack.port}"\n`,
     );
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", fixture.before, fixture.after, "--theme", "zed"],
       cwd: repo.dir,
       cols: 160,
@@ -170,7 +170,7 @@ ptyDescribe("live UI integration", () => {
     const repo = harness.createConnectedRepoFixture(
       `[youtrack]\nurl = "http://127.0.0.1:${youtrack.port}"\n`,
     );
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", fixture.before, fixture.after],
       cwd: repo.dir,
       cols: 160,
@@ -214,7 +214,7 @@ ptyDescribe("live UI integration", () => {
 
   test("real PTY sessions can toggle wrapped lines on and off", async () => {
     const fixture = harness.createLongWrapFilePair();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", fixture.before, fixture.after, "--mode", "split"],
       cols: 102,
       rows: 20,
@@ -254,7 +254,7 @@ ptyDescribe("live UI integration", () => {
 
   test("real hunk navigation jumps to later hunks in the review stream", async () => {
     const fixture = harness.createMultiHunkFilePair();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", fixture.before, fixture.after, "--mode", "split"],
       cols: 104,
       rows: 12,
@@ -284,7 +284,7 @@ ptyDescribe("live UI integration", () => {
 
   test("comma and period jump between files in a real PTY", async () => {
     const fixture = harness.createPinnedHeaderRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 220,
@@ -327,7 +327,7 @@ ptyDescribe("live UI integration", () => {
 
   test("comma and period are inert while the filter is focused", async () => {
     const fixture = harness.createPinnedHeaderRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 220,
@@ -368,7 +368,7 @@ ptyDescribe("live UI integration", () => {
 
   test("backward cross-file hunk navigation reveals the target hunk in a real PTY", async () => {
     const fixture = harness.createCrossFileHunkNavigationRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 120,
@@ -409,7 +409,7 @@ ptyDescribe("live UI integration", () => {
 
   test("PTY sessions can navigate forward and backward between distant hunks in one large file", async () => {
     const fixture = harness.createMultiHunkFilePair();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", fixture.before, fixture.after, "--mode", "split"],
       cols: 104,
       rows: 12,
@@ -450,7 +450,7 @@ ptyDescribe("live UI integration", () => {
   // Blocked by mouse-wheel/pager viewport tracking.
   test.skip("a short last file does not trap upward scrolling at the bottom edge", async () => {
     const fixture = harness.createBottomClampedRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 220,
@@ -490,7 +490,7 @@ ptyDescribe("live UI integration", () => {
 
   test("auto layout responds to live terminal resize in a real PTY", async () => {
     const fixture = harness.createTwoFileRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "auto"],
       cwd: fixture.dir,
       cols: 220,
@@ -525,7 +525,7 @@ ptyDescribe("live UI integration", () => {
 
   test("B switches between the whole branch and uncommitted changes in place", async () => {
     const fixture = harness.createBranchRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff"],
       cwd: fixture.dir,
       cols: 160,
@@ -568,7 +568,7 @@ ptyDescribe("live UI integration", () => {
 
   test("arrows on the workspace never scroll the diff, even after clicking into it", async () => {
     const fixture = harness.createSidebarJumpRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 220,
@@ -597,7 +597,7 @@ ptyDescribe("live UI integration", () => {
 
   test("sidebar selection jumps the main pane without collapsing the review stream", async () => {
     const fixture = harness.createSidebarJumpRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 220,
@@ -633,7 +633,7 @@ ptyDescribe("live UI integration", () => {
 
   test("clicking a sidebar file pins that file header to the top in a real PTY", async () => {
     const fixture = harness.createPinnedHeaderRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 220,
@@ -687,7 +687,7 @@ ptyDescribe("live UI integration", () => {
 
   test("mouse wheel scrolling preserves the divider and header handoff in a real PTY", async () => {
     const fixture = harness.createPinnedHeaderRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 220,
@@ -744,7 +744,7 @@ ptyDescribe("live UI integration", () => {
 
   test("adding a comment keeps the review where it was", async () => {
     const fixture = harness.createPinnedHeaderRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "stack"],
       cwd: fixture.dir,
       cols: 120,
@@ -786,7 +786,7 @@ ptyDescribe("live UI integration", () => {
 
   test("explicit split mode stays split after a live resize", async () => {
     const fixture = harness.createTwoFileRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 220,
@@ -827,7 +827,7 @@ ptyDescribe("live UI integration", () => {
 
   test("explicit stack mode stays stacked after a live resize", async () => {
     const fixture = harness.createTwoFileRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "stack"],
       cwd: fixture.dir,
       cols: 140,
@@ -859,7 +859,7 @@ ptyDescribe("live UI integration", () => {
 
   test("filter focus narrows the visible review stream in the live app", async () => {
     const fixture = harness.createTwoFileRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 220,
@@ -894,7 +894,7 @@ ptyDescribe("live UI integration", () => {
 
   test("slash focuses the filter and narrows the visible review stream", async () => {
     const fixture = harness.createSidebarJumpRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 220,
@@ -937,7 +937,7 @@ ptyDescribe("live UI integration", () => {
 
   test("pager mode hides chrome and pages forward on space", async () => {
     const fixture = harness.createPagerPatchFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["patch", fixture.patchFile, "--pager"],
       cols: 120,
       rows: 20,
@@ -969,7 +969,7 @@ ptyDescribe("live UI integration", () => {
   // Blocked by mouse-wheel/pager viewport tracking.
   test.skip("pager mode handles half-page, page-up, and content-jump keyboard navigation", async () => {
     const fixture = harness.createPagerPatchFixture(60);
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["patch", fixture.patchFile, "--pager"],
       cols: 120,
       rows: 12,
@@ -1043,7 +1043,7 @@ ptyDescribe("live UI integration", () => {
 
   test("stdin patch mode enables mouse wheel scrolling in pager UI", async () => {
     const fixture = harness.createPagerPatchFixture(60);
-    const session = await harness.launchHunkWithFileBackedStdin({
+    const session = await harness.launchFlowWithFileBackedStdin({
       stdinFile: fixture.patchFile,
       args: ["patch", "-"],
       cols: 120,
@@ -1085,7 +1085,7 @@ ptyDescribe("live UI integration", () => {
 
   test("general pager mode enables mouse wheel scrolling for diff-like stdin", async () => {
     const fixture = harness.createPagerPatchFixture(60);
-    const session = await harness.launchHunkWithFileBackedStdin({
+    const session = await harness.launchFlowWithFileBackedStdin({
       stdinFile: fixture.patchFile,
       args: ["pager"],
       cols: 120,
@@ -1127,7 +1127,7 @@ ptyDescribe("live UI integration", () => {
 
   test("general pager mode can display the sidebar file tree", async () => {
     const fixture = harness.createPagerPatchFixture();
-    const session = await harness.launchHunkWithFileBackedStdin({
+    const session = await harness.launchFlowWithFileBackedStdin({
       stdinFile: fixture.patchFile,
       args: ["pager"],
       cols: 120,
@@ -1157,7 +1157,7 @@ ptyDescribe("live UI integration", () => {
 
   test("explicit pager mode still supports mouse wheel scrolling on a TTY", async () => {
     const fixture = harness.createPagerPatchFixture(60);
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["patch", fixture.patchFile, "--pager"],
       cols: 120,
       rows: 12,
@@ -1198,7 +1198,7 @@ ptyDescribe("live UI integration", () => {
 
   test("keyboard help can open with ? in a real PTY", async () => {
     const fixture = harness.createTwoFileRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 220,
@@ -1228,7 +1228,7 @@ ptyDescribe("live UI integration", () => {
 
   test("direct layout hotkeys can switch between split, stack, and auto in a real PTY", async () => {
     const fixture = harness.createTwoFileRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "stack"],
       cwd: fixture.dir,
       cols: 220,
@@ -1286,7 +1286,7 @@ ptyDescribe("live UI integration", () => {
   // Blocked by mouse-wheel/pager viewport tracking.
   test.skip("layout hotkeys preserve the current review position in a real PTY", async () => {
     const fixture = harness.createScrollableFilePair();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", fixture.before, fixture.after, "--mode", "split"],
       cols: 220,
       rows: 12,
@@ -1341,7 +1341,7 @@ ptyDescribe("live UI integration", () => {
   // Blocked by mouse-wheel/pager viewport tracking.
   test.skip("mouse wheel scrolling moves the review pane", async () => {
     const fixture = harness.createScrollableFilePair();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", fixture.before, fixture.after, "--mode", "split"],
       cols: 220,
       rows: 12,
@@ -1384,7 +1384,7 @@ ptyDescribe("live UI integration", () => {
 
   test("arrow-key horizontal scrolling reveals hidden code columns in a real PTY", async () => {
     const fixture = harness.createLongWrapFilePair();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", fixture.before, fixture.after, "--mode", "split"],
       cols: 102,
       rows: 20,
@@ -1428,7 +1428,7 @@ ptyDescribe("live UI integration", () => {
 
   test("wrap toggles reset horizontal code scrolling in a real PTY", async () => {
     const fixture = harness.createLongWrapFilePair();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", fixture.before, fixture.after, "--mode", "split"],
       cols: 102,
       rows: 20,
@@ -1481,7 +1481,7 @@ ptyDescribe("live UI integration", () => {
   // Blocked by mouse-wheel/pager viewport tracking.
   test.skip("the first mouse-wheel step still advances content under the always-pinned file header above a collapsed gap", async () => {
     const fixture = harness.createCollapsedTopRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 220,
@@ -1513,7 +1513,7 @@ ptyDescribe("live UI integration", () => {
   // Blocked by mouse-wheel/pager viewport tracking.
   test.skip("one mouse-wheel step down then up restores the collapsed-gap view beneath the pinned file header", async () => {
     const fixture = harness.createCollapsedTopRepoFixture();
-    const session = await harness.launchHunk({
+    const session = await harness.launchFlow({
       args: ["diff", "--mode", "split"],
       cwd: fixture.dir,
       cols: 220,

@@ -78,7 +78,7 @@ afterEach(() => {
 
 describe("computeWatchSignature", () => {
   test("does not embed full untracked file contents in git watch signatures", () => {
-    const dir = createTempRepo("hunk-watch-untracked-");
+    const dir = createTempRepo("flow-watch-untracked-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -98,7 +98,7 @@ describe("computeWatchSignature", () => {
   });
 
   test("ignores untracked file changes when the git input excludes them", () => {
-    const dir = createTempRepo("hunk-watch-exclude-untracked-");
+    const dir = createTempRepo("flow-watch-exclude-untracked-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -119,7 +119,7 @@ describe("computeWatchSignature", () => {
   });
 
   test("tracks untracked file changes when diff compares the working tree against one ref", () => {
-    const dir = createTempRepo("hunk-watch-ref-untracked-");
+    const dir = createTempRepo("flow-watch-ref-untracked-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");

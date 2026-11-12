@@ -444,7 +444,7 @@ export function createPtyHarness() {
     ].join(" ");
   }
 
-  async function launchHunk(options: {
+  async function launchFlow(options: {
     args: string[];
     cwd?: string;
     cols?: number;
@@ -535,7 +535,7 @@ export function createPtyHarness() {
    * Uses `exec cmd < file` so bash replaces itself with flow, preserving the PTY on stdout/stderr
    * and the controlling terminal while giving the child a non-TTY stdin.
    */
-  async function launchHunkWithFileBackedStdin(options: {
+  async function launchFlowWithFileBackedStdin(options: {
     stdinFile: string;
     args: string[];
     cwd?: string;
@@ -595,8 +595,8 @@ export function createPtyHarness() {
     createSidebarJumpRepoFixture,
     createTwoFileRepoFixture,
     createTreeRepoFixture,
-    launchHunk,
-    launchHunkWithFileBackedStdin,
+    launchFlow,
+    launchFlowWithFileBackedStdin,
     launchShellCommand,
     buildHunkCommand,
     shellQuote,

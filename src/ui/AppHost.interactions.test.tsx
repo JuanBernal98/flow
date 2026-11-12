@@ -2210,7 +2210,7 @@ describe("App interactions", () => {
   });
 
   test("reload shortcut reloads the current file diff from disk", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hunk-reload-"));
+    const dir = mkdtempSync(join(tmpdir(), "flow-reload-"));
     const left = join(dir, "before.ts");
     const right = join(dir, "after.ts");
 
@@ -2264,7 +2264,7 @@ describe("App interactions", () => {
   });
 
   test("watch mode reloads the current file diff from disk", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hunk-watch-"));
+    const dir = mkdtempSync(join(tmpdir(), "flow-watch-"));
     const left = join(dir, "before.ts");
     const right = join(dir, "after.ts");
 

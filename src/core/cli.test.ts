@@ -162,7 +162,7 @@ describe("parseCli", () => {
   });
 
   test("keeps two concrete file paths as file-pair diff mode", async () => {
-    const dir = createTempDir("hunk-cli-files-");
+    const dir = createTempDir("flow-cli-files-");
     const left = join(dir, "before.ts");
     const right = join(dir, "after.ts");
     writeFileSync(left, "before\n");

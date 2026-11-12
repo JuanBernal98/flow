@@ -81,7 +81,7 @@ function splitPatchIntoFileChunks(rawPatch: string) {
 }
 
 function createWorkingTreeRepo() {
-  const dir = mkdtempSync(join(tmpdir(), "hunk-bootstrap-benchmark-"));
+  const dir = mkdtempSync(join(tmpdir(), "flow-bootstrap-benchmark-"));
 
   git(dir, "init");
   git(dir, "config", "user.name", "Benchmark User");

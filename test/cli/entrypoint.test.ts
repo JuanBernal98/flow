@@ -189,7 +189,7 @@ describe("CLI entrypoint contracts", () => {
   });
 
   test("rejects --staged combined with --unstaged without a Bun stack trace", () => {
-    const repoDir = mkdtempSync(join(tmpdir(), "hunk-scope-conflict-"));
+    const repoDir = mkdtempSync(join(tmpdir(), "flow-scope-conflict-"));
     git(repoDir, "init");
 
     try {
@@ -224,7 +224,7 @@ describe("CLI entrypoint contracts", () => {
   });
 
   test("prints a friendly git-repo error without a Bun stack trace", () => {
-    const nonRepoDir = mkdtempSync(join(tmpdir(), "hunk-nonrepo-"));
+    const nonRepoDir = mkdtempSync(join(tmpdir(), "flow-nonrepo-"));
     const sourceEntrypoint = join(process.cwd(), "src/main.tsx");
 
     try {
@@ -252,7 +252,7 @@ describe("CLI entrypoint contracts", () => {
   });
 
   test("prints a friendly invalid-ref error without a Bun stack trace", () => {
-    const repoDir = mkdtempSync(join(tmpdir(), "hunk-show-cli-"));
+    const repoDir = mkdtempSync(join(tmpdir(), "flow-show-cli-"));
     const sourceEntrypoint = join(process.cwd(), "src/main.tsx");
 
     try {

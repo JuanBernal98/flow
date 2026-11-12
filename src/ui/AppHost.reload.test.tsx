@@ -28,7 +28,7 @@ async function settleHighlights(setup: Awaited<ReturnType<typeof testRender>>) {
 
 describe("reload stale highlight cache", () => {
   test("r key picks up new file content for file-pair diffs", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hunk-reload-file-"));
+    const dir = mkdtempSync(join(tmpdir(), "flow-reload-file-"));
     const left = join(dir, "before.ts");
     const right = join(dir, "after.ts");
 
@@ -81,7 +81,7 @@ describe("reload stale highlight cache", () => {
   });
 
   test("r key picks up new file content for git working tree diffs", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "hunk-reload-git-"));
+    const dir = mkdtempSync(join(tmpdir(), "flow-reload-git-"));
     const file = join(dir, "test.txt");
 
     // Repo-local `commit.gpgsign false`, so a globally enabled signer never blocks the commit.

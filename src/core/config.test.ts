@@ -44,8 +44,8 @@ afterEach(() => {
 
 describe("config resolution", () => {
   test("merges global, repo, pager, command, and CLI overrides in the right order", () => {
-    const home = createTempDir("hunk-config-home-");
-    const repo = createTempDir("hunk-config-repo-");
+    const home = createTempDir("flow-config-home-");
+    const repo = createTempDir("flow-config-repo-");
     createRepo(repo);
 
     mkdirSync(join(home, ".config", "flow"), { recursive: true });
@@ -86,8 +86,8 @@ describe("config resolution", () => {
   });
 
   test("defaults unspecified themes to zed, including piped pager-style patch input", () => {
-    const home = createTempDir("hunk-config-home-");
-    const cwd = createTempDir("hunk-config-cwd-");
+    const home = createTempDir("flow-config-home-");
+    const cwd = createTempDir("flow-config-cwd-");
 
     const resolved = resolveConfiguredCliInput(createPatchPagerInput(), {
       cwd,
@@ -101,7 +101,7 @@ describe("config resolution", () => {
   });
 
   test("command-specific config sections also apply to show mode", () => {
-    const home = createTempDir("hunk-config-home-");
+    const home = createTempDir("flow-config-home-");
     mkdirSync(join(home, ".config", "flow"), { recursive: true });
     writeFileSync(
       join(home, ".config", "flow", "config.toml"),
@@ -114,7 +114,7 @@ describe("config resolution", () => {
         ref: "HEAD~1",
         options: {},
       },
-      { cwd: createTempDir("hunk-config-cwd-"), env: { HOME: home } },
+      { cwd: createTempDir("flow-config-cwd-"), env: { HOME: home } },
     );
 
     expect(resolved.input.options.mode).toBe("stack");
@@ -122,11 +122,11 @@ describe("config resolution", () => {
   });
 
   test("defaults git diff to include untracked files and honors config plus CLI overrides", () => {
-    const home = createTempDir("hunk-config-home-");
+    const home = createTempDir("flow-config-home-");
     mkdirSync(join(home, ".config", "flow"), { recursive: true });
     writeFileSync(join(home, ".config", "flow", "config.toml"), "exclude_untracked = true\n");
 
-    const cwd = createTempDir("hunk-config-cwd-");
+    const cwd = createTempDir("flow-config-cwd-");
     const defaultResolved = resolveConfiguredCliInput(
       {
         kind: "vcs",
@@ -143,7 +143,7 @@ describe("config resolution", () => {
       },
       { cwd, env: { HOME: home } },
     );
-    const noConfigHome = createTempDir("hunk-config-home-");
+    const noConfigHome = createTempDir("flow-config-home-");
     const fallbackResolved = resolveConfiguredCliInput(
       {
         kind: "vcs",
@@ -159,11 +159,11 @@ describe("config resolution", () => {
   });
 
   test("honors the watch key from config and lets the CLI override it", () => {
-    const home = createTempDir("hunk-config-home-");
+    const home = createTempDir("flow-config-home-");
     mkdirSync(join(home, ".config", "flow"), { recursive: true });
     writeFileSync(join(home, ".config", "flow", "config.toml"), "watch = true\n");
 
-    const cwd = createTempDir("hunk-config-cwd-");
+    const cwd = createTempDir("flow-config-cwd-");
     const enabledFromConfig = resolveConfiguredCliInput(
       { kind: "vcs", staged: false, options: {} },
       { cwd, env: { HOME: home } },
@@ -172,7 +172,7 @@ describe("config resolution", () => {
       { kind: "vcs", staged: false, options: { watch: false } },
       { cwd, env: { HOME: home } },
     );
-    const noConfigHome = createTempDir("hunk-config-home-");
+    const noConfigHome = createTempDir("flow-config-home-");
     const defaultsToWatching = resolveConfiguredCliInput(
       { kind: "vcs", staged: false, options: {} },
       { cwd, env: { HOME: noConfigHome } },
@@ -180,7 +180,7 @@ describe("config resolution", () => {
 
     // Repo config must override the global config layer (no CLI flag): global
     // `watch = true`, repo `watch = false` → false.
-    const repo = createTempDir("hunk-config-repo-");
+    const repo = createTempDir("flow-config-repo-");
     createRepo(repo);
     mkdirSync(join(repo, ".flow"), { recursive: true });
     writeFileSync(join(repo, ".flow", "config.toml"), "watch = false\n");
@@ -196,8 +196,8 @@ describe("config resolution", () => {
   });
 
   test("loadAppBootstrap exposes resolved initial preferences to the UI", async () => {
-    const home = createTempDir("hunk-config-home-");
-    const repo = createTempDir("hunk-config-repo-");
+    const home = createTempDir("flow-config-home-");
+    const repo = createTempDir("flow-config-repo-");
     createRepo(repo);
 
     mkdirSync(join(home, ".config", "flow"), { recursive: true });
@@ -240,8 +240,8 @@ describe("config resolution", () => {
   });
 
   test("loadAppBootstrap exposes zed when no theme is configured", async () => {
-    const home = createTempDir("hunk-config-home-");
-    const repo = createTempDir("hunk-config-repo-");
+    const home = createTempDir("flow-config-home-");
+    const repo = createTempDir("flow-config-repo-");
     createRepo(repo);
 
     const before = join(repo, "before.ts");
