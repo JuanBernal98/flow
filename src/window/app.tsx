@@ -624,6 +624,7 @@ function DiffPane({
         diffStyle,
         overflow: "scroll",
         disableFileHeader: true,
+        unsafeCSS: DIFF_CSS,
       }) as const,
     [diffStyle, codeTheme, appearance],
   );
@@ -702,14 +703,41 @@ function applyTheme(theme: WindowTheme) {
   style.setProperty("--text", colors.text);
   style.setProperty("--muted", colors.muted);
   style.setProperty("--faint", colors.faint);
-  style.setProperty("--line", colors.border);
+  // One hairline color for every divider, softer than the theme's border like the terminal's rules.
+  style.setProperty("--line", `color-mix(in srgb, ${colors.border} 55%, transparent)`);
   style.setProperty("--accent", colors.accent);
   style.setProperty("--selected", `color-mix(in srgb, ${colors.accent} 18%, transparent)`);
   style.setProperty("--hover", dark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)");
   style.setProperty("--chip", dark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)");
   style.setProperty("--add", colors.added);
   style.setProperty("--del", colors.removed);
+  // Pierre reads these through its shadow DOM, so hunks use the terminal's diff colors.
+  style.setProperty("--diffs-bg-context-override", colors.background);
+  style.setProperty("--diffs-bg-context-gutter-override", colors.background);
+  style.setProperty("--diffs-bg-addition-override", colors.addedLine);
+  style.setProperty("--diffs-bg-deletion-override", colors.removedLine);
+  style.setProperty("--diffs-bg-addition-number-override", colors.addedGutter);
+  style.setProperty("--diffs-bg-deletion-number-override", colors.removedGutter);
+  style.setProperty("--diffs-bg-separator-override", colors.panel);
+  style.setProperty("--diffs-bg-buffer-override", colors.background);
+  style.setProperty("--diffs-fg-number-override", colors.faint);
+  style.setProperty("--diffs-addition-color-override", colors.added);
+  style.setProperty("--diffs-deletion-color-override", colors.removed);
 }
+
+// Pierre paints code with its syntax theme's background in its "theme" layer; this CSS sits in
+// its later "unsafe" layer, so the window's background wins without !important (which would flip
+// the layer order and lose).
+const DIFF_CSS = `
+:host,
+pre,
+code {
+  --diffs-bg: var(--bg);
+  background-color: var(--bg);
+  --diffs-font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  --diffs-font-size: 12.5px;
+}
+`;
 
 function PaletteIcon() {
   return (

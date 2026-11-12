@@ -73,7 +73,7 @@ body {
 
 /* Sidebar */
 .sidebar {
-  background: var(--sidebar);
+  background: var(--bg);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
@@ -157,7 +157,7 @@ body {
 
 /* Overview */
 .overview {
-  background: var(--panel);
+  background: var(--bg);
   border-right: 1px solid var(--line);
   overflow-y: auto;
   padding: 22px 24px 40px;
@@ -228,7 +228,7 @@ body {
 .diff {
   overflow-y: auto;
   min-width: 0;
-  padding: 18px 20px 60px;
+  padding: 0 0 60px;
 }
 
 .stat {
@@ -250,11 +250,7 @@ body {
 }
 
 .file {
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  overflow: hidden;
-  margin-bottom: 14px;
-  background: var(--bg);
+  margin-bottom: 18px;
 }
 
 .file-header {
@@ -262,7 +258,7 @@ body {
   justify-content: space-between;
   padding: 8px 12px;
   border-bottom: 1px solid var(--line);
-  background: var(--panel);
+  background: var(--bg);
   font:
     12px ui-monospace,
     "SF Mono",
@@ -287,7 +283,7 @@ kbd {
 
 /* Files */
 .files {
-  background: var(--sidebar);
+  background: var(--bg);
   border-left: 1px solid var(--line);
   overflow-y: auto;
   padding: 6px 8px 16px;
@@ -342,7 +338,7 @@ kbd {
   gap: 12px;
   padding: 0 6px;
   border-top: 1px solid var(--line);
-  background: var(--sidebar);
+  background: var(--bg);
   color: var(--muted);
   font-size: 11.5px;
   min-width: 0;
@@ -425,7 +421,7 @@ kbd {
   justify-content: center;
   padding: 0 12px;
   border-bottom: 1px solid var(--line);
-  background: var(--sidebar);
+  background: var(--bg);
   -webkit-user-select: none;
 }
 

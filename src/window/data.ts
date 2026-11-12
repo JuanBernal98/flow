@@ -44,6 +44,12 @@ export interface WindowTheme {
     faint: string;
     added: string;
     removed: string;
+    addedLine: string;
+    removedLine: string;
+    contextLine: string;
+    addedGutter: string;
+    removedGutter: string;
+    gutter: string;
   };
 }
 
@@ -199,6 +205,12 @@ export async function loadWindowThemes(repoRoot: string): Promise<WindowThemes> 
         faint: theme.lineNumberFg,
         added: theme.addedSignColor,
         removed: theme.removedSignColor,
+        addedLine: theme.addedContentBg,
+        removedLine: theme.removedContentBg,
+        contextLine: theme.contextContentBg,
+        addedGutter: theme.addedBg,
+        removedGutter: theme.removedBg,
+        gutter: theme.lineNumberBg,
       },
     })),
   };
