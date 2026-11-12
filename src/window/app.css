@@ -1,9 +1,8 @@
 :root {
   /* The diff line-number column, in the code font; the file title is indented by the same. */
-  --gutter-width: 7ch;
-  /* Like the terminal, which keeps the diff one cell off the pane edge. */
-  --block-inset: 14px;
-  --block-end: 16px;
+  --gutter-width: 4.5ch;
+  --block-inset: 0px;
+  --block-end: 0px;
   --code-font: 12.5px ui-monospace, "SF Mono", Menlo, monospace;
   --bg: #ffffff;
   --sidebar: #f5f5f7;
@@ -234,7 +233,8 @@ body {
 .diff {
   overflow-y: auto;
   min-width: 0;
-  padding: 0 8px 16px;
+  /* Equal room on both sides: the numbers on the left sit as far from the edge as the box on the right. */
+  padding: 0 12px 16px 4px;
 }
 
 .stat {

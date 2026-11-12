@@ -809,6 +809,9 @@ pre,
 }
 [data-column-number] {
   border-right: 0;
+  padding-left: 0;
+  padding-right: 1.5ch;
+  --diffs-min-number-column-width: 0;
   --diffs-fg-number-addition-override: var(--faint);
   --diffs-fg-number-deletion-override: var(--faint);
 }
