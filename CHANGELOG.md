@@ -135,6 +135,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Dependencies upgraded within their ranges, plus `shell-quote` and `@hono/node-server` pinned to fixed versions: `bun audit` goes from 44 advisories (1 critical) to 5, none of them on a path flow runs.
+
 - Moving merged tickets to `merged_state` failed with "YouTrack responded 400": the command wrapped the state in braces (`State {Done}`), which YouTrack rejects. It now sends `State Done`, and YouTrack errors show its reason instead of only the status code.
 
 - `g` on a ticket whose MR was opened after flow started now asks GitLab again and opens it, instead of doing nothing until the tasks were reloaded.

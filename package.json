@@ -67,6 +67,10 @@
     "tuistory": "^0.0.16",
     "typescript": "^7.0.2"
   },
+  "overrides": {
+    "@hono/node-server": "^1.19.15",
+    "shell-quote": "^1.11.0"
+  },
   "simple-git-hooks": {
     "pre-commit": "bunx lint-staged"
   },
