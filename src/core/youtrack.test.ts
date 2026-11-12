@@ -7,7 +7,7 @@ const TEST_TOKEN = "perm-test-token";
 function createTestYouTrackDeps(overrides: YouTrackDeps = {}): YouTrackDeps {
   return {
     url: "https://youtrack.example.test",
-    env: { FLOW_YOUTRACK_TOKEN: TEST_TOKEN },
+    env: { FLOW_YOUTRACK_URL: "https://youtrack.example.test", FLOW_YOUTRACK_TOKEN: TEST_TOKEN },
     platform: "linux",
     readKeychainToken: () => undefined,
     fetchImpl: async () => Response.json([]),
@@ -73,6 +73,10 @@ describe("loadYouTrackTasks", () => {
     await loadYouTrackTasks(
       createTestYouTrackDeps({
         url: "https://example.test/youtrack",
+        env: {
+          FLOW_YOUTRACK_URL: "https://example.test/youtrack",
+          FLOW_YOUTRACK_TOKEN: TEST_TOKEN,
+        },
         fetchImpl: async (url) => {
           requested = url;
           return Response.json([]);
@@ -82,8 +86,9 @@ describe("loadYouTrackTasks", () => {
     expect(requested?.pathname).toBe("/youtrack/api/issues");
   });
 
-  test("falls back to the Keychain token on macOS only", async () => {
+  test("falls back to the Keychain token stored for that server, on macOS only", async () => {
     const seenAuth: (string | null)[] = [];
+    const askedHosts: string[] = [];
     const fetchImpl = async (_url: URL, init?: RequestInit) => {
       seenAuth.push(new Headers(init?.headers).get("Authorization"));
       return Response.json([]);
@@ -94,7 +99,10 @@ describe("loadYouTrackTasks", () => {
       createTestYouTrackDeps({
         env,
         platform: "darwin",
-        readKeychainToken: () => "keychain-token",
+        readKeychainToken: (host) => {
+          askedHosts.push(host);
+          return "keychain-token";
+        },
         fetchImpl,
       }),
     );
@@ -103,6 +111,7 @@ describe("loadYouTrackTasks", () => {
     );
 
     expect(mac.kind).toBe("ready");
+    expect(askedHosts).toEqual(["youtrack.example.test"]);
     expect(seenAuth).toEqual(["Bearer keychain-token"]);
     expect(linux.kind).toBe("unconfigured");
   });
@@ -150,9 +159,54 @@ describe("loadYouTrackTasks", () => {
     const result = await loadYouTrackTasks(
       createTestYouTrackDeps({
         url: "http://127.0.0.1:4010",
+        env: { FLOW_YOUTRACK_URL: "http://127.0.0.1:4010", FLOW_YOUTRACK_TOKEN: TEST_TOKEN },
       }),
     );
     expect(result.kind).toBe("ready");
+  });
+
+  test("never sends a token to a server it was not stored for", async () => {
+    let calls = 0;
+    const fetchImpl = async () => {
+      calls += 1;
+      return Response.json([]);
+    };
+    // A repository pointing elsewhere: the environment token is for another host, and the
+    // Keychain only has one for youtrack.example.test.
+    const result = await loadYouTrackTasks(
+      createTestYouTrackDeps({
+        url: "https://evil.example.test",
+        platform: "darwin",
+        readKeychainToken: (host) => (host === "youtrack.example.test" ? TEST_TOKEN : undefined),
+        fetchImpl,
+      }),
+    );
+    expect(result).toEqual({
+      kind: "unconfigured",
+      message: "No YouTrack token for evil.example.test; run `flow setup`",
+    });
+    expect(calls).toBe(0);
+  });
+
+  test("does not follow redirects, so the token cannot be carried to another server", async () => {
+    const seenRedirect: (RequestRedirect | undefined)[] = [];
+    const result = await loadYouTrackTasks(
+      createTestYouTrackDeps({
+        fetchImpl: async (_url, init) => {
+          seenRedirect.push(init?.redirect);
+          return new Response(null, {
+            status: 302,
+            headers: { location: "https://evil.example.test/" },
+          });
+        },
+      }),
+    );
+    expect(seenRedirect).toEqual(["manual"]);
+    expect(result).toEqual({
+      kind: "error",
+      message:
+        "YouTrack redirected the request (302); flow does not follow redirects with your token",
+    });
   });
 
   test("turns HTTP, schema, network, and timeout failures into messages without the token", async () => {

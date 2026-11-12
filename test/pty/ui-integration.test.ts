@@ -115,7 +115,10 @@ ptyDescribe("live UI integration", () => {
       cwd: repo.dir,
       cols: 160,
       rows: 24,
-      env: { FLOW_YOUTRACK_TOKEN: "pty-test-token" },
+      env: {
+        FLOW_YOUTRACK_URL: `http://127.0.0.1:${youtrack.port}`,
+        FLOW_YOUTRACK_TOKEN: "pty-test-token",
+      },
     });
     try {
       await session.waitForText(/Press \? for help/);
@@ -175,7 +178,10 @@ ptyDescribe("live UI integration", () => {
       cwd: repo.dir,
       cols: 160,
       rows: 24,
-      env: { FLOW_YOUTRACK_TOKEN: "pty-test-token" },
+      env: {
+        FLOW_YOUTRACK_URL: `http://127.0.0.1:${youtrack.port}`,
+        FLOW_YOUTRACK_TOKEN: "pty-test-token",
+      },
     });
     try {
       await session.waitForText(/PROJ-102/);

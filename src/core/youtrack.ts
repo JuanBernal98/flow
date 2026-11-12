@@ -1,13 +1,17 @@
 /**
  * YouTrack client behind the workspace Tasks section.
  *
- * The instance is the repository's `[youtrack] url` (see `repoIntegrations`); the token comes from
- * `FLOW_YOUTRACK_TOKEN`, falling back to the macOS Keychain item `flow-youtrack`. The token is only
- * ever sent to that instance and is never logged, persisted, or echoed in error messages.
+ * The instance is the repository's `[youtrack] url` (see `repoIntegrations`), but a repository
+ * never decides where a token goes: each token is bound to its server. On macOS it is the Keychain
+ * item `flow-youtrack:<host>`; elsewhere `FLOW_YOUTRACK_TOKEN` counts only for the host in
+ * `FLOW_YOUTRACK_URL`. A repository pointing at any other server finds no token, so nothing is sent.
+ * Requests never follow redirects, and the token is never logged, persisted, or echoed in errors.
  */
+import { userInfo } from "node:os";
 import { z } from "zod";
 
-const KEYCHAIN_SERVICE = "flow-youtrack";
+// Before tokens were bound to their server, one item held the token for any server.
+const LEGACY_KEYCHAIN_SERVICE = "flow-youtrack";
 // All my open tickets in one request; the workspace splits off the ones in Review by State.
 const ASSIGNED_TASKS_QUERY = "for: me #Unresolved sort by: updated desc";
 const ISSUE_FIELDS = "idReadable,summary,customFields(name,value(name))";
@@ -38,7 +42,8 @@ export interface YouTrackDeps {
   url?: string;
   env?: NodeJS.ProcessEnv;
   platform?: NodeJS.Platform;
-  readKeychainToken?: () => string | undefined;
+  /** Read the Keychain token stored for one host. */
+  readKeychainToken?: (host: string) => string | undefined;
   fetchImpl?: FetchImpl;
   fetchTimeoutMs?: number;
 }
@@ -66,9 +71,14 @@ const IssueAssignmentSchema = z.object({
 
 const AssigneeSchema = z.object({ login: z.string() });
 
-/** Read the token from the macOS Keychain without ever routing it through argv or stdout logs. */
-function readKeychainToken() {
-  const proc = Bun.spawnSync(["security", "find-generic-password", "-s", KEYCHAIN_SERVICE, "-w"], {
+/** The Keychain service that holds the token for one YouTrack host. */
+export function youTrackKeychainService(host: string) {
+  return `${LEGACY_KEYCHAIN_SERVICE}:${host}`;
+}
+
+/** Read one Keychain item's secret without ever routing it through argv or stdout logs. */
+function readKeychainItem(service: string) {
+  const proc = Bun.spawnSync(["security", "find-generic-password", "-s", service, "-w"], {
     stdout: "pipe",
     stderr: "ignore",
   });
@@ -77,6 +87,28 @@ function readKeychainToken() {
   }
   const token = proc.stdout.toString().trim();
   return token.length > 0 ? token : undefined;
+}
+
+/** The Keychain token stored for one host. */
+function readKeychainToken(host: string) {
+  return readKeychainItem(youTrackKeychainService(host));
+}
+
+/** The token for one server, or undefined when none is stored for that server. */
+function tokenForHost(
+  host: string,
+  {
+    env = process.env,
+    platform = process.platform,
+    readKeychainToken: readToken = readKeychainToken,
+  }: Pick<YouTrackDeps, "env" | "platform" | "readKeychainToken">,
+) {
+  const envToken = env.FLOW_YOUTRACK_TOKEN?.trim();
+  const envHost = parseInstanceUrl(env.FLOW_YOUTRACK_URL?.trim() ?? "")?.host;
+  if (envToken && envHost === host) {
+    return envToken;
+  }
+  return platform === "darwin" ? readToken(host) : undefined;
 }
 
 /** Accept https, plus plain http only for loopback so a token never crosses the network in clear. */
@@ -119,33 +151,74 @@ function resolveConnection({
     return { kind: "unconfigured", message: "YouTrack URL needs https" };
   }
 
-  const token =
-    env.FLOW_YOUTRACK_TOKEN?.trim() || (platform === "darwin" ? readToken() : undefined);
+  const token = tokenForHost(baseUrl.host, { env, platform, readKeychainToken: readToken });
   if (!token) {
-    return { kind: "unconfigured", message: "No YouTrack token found" };
+    return {
+      kind: "unconfigured",
+      message: `No YouTrack token for ${baseUrl.host}; run \`flow setup\``,
+    };
   }
 
   return { baseUrl, token };
 }
 
 /**
- * The stored token, for handing to Claude's YouTrack MCP during setup. Callers must never print it.
+ * The token stored for one instance, for handing to Claude's YouTrack MCP during setup. Callers
+ * must never print it.
  */
-export function readYouTrackToken({
-  env = process.env,
-  platform = process.platform,
-  readKeychainToken: readToken = readKeychainToken,
-}: Pick<YouTrackDeps, "env" | "platform" | "readKeychainToken"> = {}) {
-  return env.FLOW_YOUTRACK_TOKEN?.trim() || (platform === "darwin" ? readToken() : undefined);
+export function readYouTrackToken(
+  instanceUrl: string,
+  deps: Pick<YouTrackDeps, "env" | "platform" | "readKeychainToken"> = {},
+) {
+  const host = parseInstanceUrl(instanceUrl.trim())?.host;
+  return host ? tokenForHost(host, deps) : undefined;
 }
 
-/** Whether a YouTrack token is available, without ever returning or printing it. */
-export function hasYouTrackToken({
-  env = process.env,
-  platform = process.platform,
-  readKeychainToken: readToken = readKeychainToken,
-}: Pick<YouTrackDeps, "env" | "platform" | "readKeychainToken"> = {}) {
-  return Boolean(env.FLOW_YOUTRACK_TOKEN?.trim() || (platform === "darwin" && readToken()));
+/** Whether a token is stored for one instance, without ever returning or printing it. */
+export function hasYouTrackToken(
+  instanceUrl: string,
+  deps: Pick<YouTrackDeps, "env" | "platform" | "readKeychainToken"> = {},
+) {
+  return Boolean(readYouTrackToken(instanceUrl, deps));
+}
+
+/** Whether the Keychain still holds a token from before tokens were bound to their server. */
+export function hasLegacyYouTrackToken() {
+  return process.platform === "darwin" && Boolean(readKeychainItem(LEGACY_KEYCHAIN_SERVICE));
+}
+
+/**
+ * Bind the old server-less Keychain token to one instance and remove the old item. The token passes
+ * through `security`'s arguments for a moment, as the Keychain offers no other non-interactive way.
+ */
+export function migrateLegacyYouTrackToken(instanceUrl: string) {
+  const host = parseInstanceUrl(instanceUrl.trim())?.host;
+  const token = readKeychainItem(LEGACY_KEYCHAIN_SERVICE);
+  if (!host || !token) {
+    return false;
+  }
+  const stored = Bun.spawnSync(
+    [
+      "security",
+      "add-generic-password",
+      "-U",
+      "-a",
+      userInfo().username,
+      "-s",
+      youTrackKeychainService(host),
+      "-w",
+      token,
+    ],
+    { stdout: "ignore", stderr: "ignore" },
+  );
+  if (stored.exitCode !== 0 || readKeychainToken(host) !== token) {
+    return false;
+  }
+  Bun.spawnSync(["security", "delete-generic-password", "-s", LEGACY_KEYCHAIN_SERVICE], {
+    stdout: "ignore",
+    stderr: "ignore",
+  });
+  return true;
 }
 
 /** Pull the display name of a single-value custom field such as State. */
@@ -194,8 +267,16 @@ async function requestYouTrack(
         Accept: "application/json",
         ...(init.body ? { "Content-Type": "application/json" } : {}),
       },
+      // A redirect could carry the token to another server, so none is ever followed.
+      redirect: "manual",
       signal: controller.signal,
     });
+    if (response.status >= 300 && response.status < 400) {
+      return {
+        ok: false,
+        message: `YouTrack redirected the request (${response.status}); flow does not follow redirects with your token`,
+      };
+    }
     if (!response.ok) {
       const body: unknown = await response.json().catch(() => undefined);
       return { ok: false, message: describeHttpFailure(response.status, body) };

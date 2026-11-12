@@ -5,6 +5,7 @@
  * explained, and setup checks again when they say they are done.
  */
 import type { SetupCheck } from "./setupChecks";
+import { youTrackKeychainService } from "./youtrack";
 
 export interface RemedyIo {
   say: (line: string) => void;
@@ -19,6 +20,8 @@ export interface RemedyIo {
    * Undefined when the user stops instead of answering.
    */
   youTrackUrl: () => Promise<string | undefined>;
+  /** Move the old server-less Keychain token to the instance's own item; true when it worked. */
+  migrateYouTrackToken: (url: string) => boolean;
   /** Open a page in the user's browser. */
   openUrl: (url: string) => void;
   checkYouTrack: (
@@ -72,23 +75,51 @@ export async function resolveMissingDependencies(
       if (await io.confirm("  Open that page in your browser?")) {
         io.openUrl(tokenPage);
       }
-      if (!remedy.store) {
+      if (!remedy.keychainAccount) {
         io.say(
-          "  Then export FLOW_YOUTRACK_TOKEN=<token> in your shell profile and open a new terminal.",
+          `  Then export FLOW_YOUTRACK_URL=${url} and FLOW_YOUTRACK_TOKEN=<token> in your shell profile, and open a new terminal.`,
         );
         if (!(await io.waitForRecheck())) {
           return checks;
         }
       } else {
-        io.say(`  flow can store it by running: ${remedy.store.join(" ")}`);
-        io.say("  It asks for the token without showing it, and keeps it in your Keychain.");
+        // Stored under its server, the token can never be handed to any other host.
+        const store = [
+          "security",
+          "add-generic-password",
+          "-U",
+          "-a",
+          remedy.keychainAccount,
+          "-s",
+          youTrackKeychainService(new URL(url).host),
+          "-w",
+        ];
+        io.say(`  flow can store it by running: ${store.join(" ")}`);
+        io.say(
+          "  It asks for the token without showing it and keeps it in your Keychain, for this server only.",
+        );
         if (!(await io.confirm("  Run it now?"))) {
           return checks;
         }
-        const exitCode = await io.runInteractive(remedy.store);
+        const exitCode = await io.runInteractive(store);
         if (exitCode !== 0) {
           io.say(`  That exited with code ${exitCode}; checking again.`);
         }
+      }
+    } else if (remedy.kind === "youtrack-token-migrate") {
+      const url = await io.youTrackUrl();
+      if (!url) {
+        return checks;
+      }
+      const host = new URL(url).host;
+      io.say(
+        `  flow can move it to ${youTrackKeychainService(host)}, so it is only ever sent to ${host}, and remove the old item.`,
+      );
+      if (!(await io.confirm("  Move it now?"))) {
+        return checks;
+      }
+      if (!io.migrateYouTrackToken(url)) {
+        io.say("  Could not move the token; checking again.");
       }
     } else {
       io.say(

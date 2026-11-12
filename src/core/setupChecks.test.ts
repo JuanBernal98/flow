@@ -15,7 +15,7 @@ function createTestCheckDeps(overrides: Partial<SetupCheckDeps> = {}): SetupChec
       args[0] === "claude"
         ? { exitCode: 0, stdout: CONNECTED_MCP_LIST }
         : { exitCode: 0, stdout: "" },
-    hasYouTrackToken: () => true,
+    youTrackToken: () => "ok",
     platform: "darwin",
     username: "tester",
     ...overrides,
@@ -46,7 +46,7 @@ describe("runSetupChecks", () => {
                 exitCode: 0,
                 stdout: "claude.ai Notion: https://mcp.notion.com/mcp - ! Needs authentication",
               },
-        hasYouTrackToken: () => false,
+        youTrackToken: () => "missing",
       }),
     );
     expect(checks.map((check) => check.status)).toEqual([
@@ -64,16 +64,7 @@ describe("runSetupChecks", () => {
     });
     expect(checks.find((check) => check.name === "YouTrack token")?.remedy).toEqual({
       kind: "youtrack-token",
-      store: [
-        "security",
-        "add-generic-password",
-        "-U",
-        "-a",
-        "tester",
-        "-s",
-        "flow-youtrack",
-        "-w",
-      ],
+      keychainAccount: "tester",
     });
     expect(checks.find((check) => check.name === "YouTrack MCP")?.remedy).toEqual({
       kind: "youtrack-mcp",
@@ -99,6 +90,13 @@ describe("runSetupChecks", () => {
       createTestCheckDeps({ which: withoutGlab, platform: "linux" }),
     );
     expect(linux.find((check) => check.name === "glab")?.remedy?.kind).toBe("manual");
+  });
+
+  test("offers to bind a token stored before tokens had a server", async () => {
+    const checks = await runSetupChecks(createTestCheckDeps({ youTrackToken: () => "legacy" }));
+    expect(checks.find((check) => check.name === "YouTrack token")?.remedy).toEqual({
+      kind: "youtrack-token-migrate",
+    });
   });
 
   test("fails when `claude` is missing, since the connectors cannot be checked", async () => {

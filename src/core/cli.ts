@@ -827,7 +827,11 @@ async function rememberYouTrackUrlFromMcp() {
 
 /** Ask, run, and print in the user's terminal for setup's remedies. */
 async function createTerminalRemedyIo(): Promise<import("./setupRemedies").RemedyIo> {
-  const [readline, { checkYouTrackAccess, readYouTrackToken }, userDefaults] = await Promise.all([
+  const [
+    readline,
+    { checkYouTrackAccess, migrateLegacyYouTrackToken, readYouTrackToken },
+    userDefaults,
+  ] = await Promise.all([
     import("node:readline/promises"),
     import("./youtrack"),
     import("./userDefaults"),
@@ -865,6 +869,7 @@ async function createTerminalRemedyIo(): Promise<import("./setupRemedies").Remed
         process.stdout.write("  Use the https:// address you open YouTrack at.\n");
       }
     },
+    migrateYouTrackToken: (url) => migrateLegacyYouTrackToken(url),
     openUrl: (url) => {
       Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url], {
         stdout: "ignore",
@@ -882,7 +887,7 @@ async function createTerminalRemedyIo(): Promise<import("./setupRemedies").Remed
       Bun.spawnSync(["claude", "mcp", "get", "youtrack"], { stdout: "ignore", stderr: "ignore" })
         .exitCode === 0,
     addYouTrackMcp: async (url, replace) => {
-      const token = readYouTrackToken();
+      const token = readYouTrackToken(url);
       if (!token) {
         return { ok: false, output: "No YouTrack token is stored yet." };
       }

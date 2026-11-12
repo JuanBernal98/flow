@@ -5,17 +5,21 @@
  * tools.
  */
 import { userInfo } from "node:os";
-import { hasYouTrackToken } from "./youtrack";
+import { readUserDefaults } from "./userDefaults";
+import { hasLegacyYouTrackToken, hasYouTrackToken } from "./youtrack";
 
 /** How to fix a failed check. Setup never runs anything without asking first. */
 export type SetupRemedy =
   /** A command setup can run in the user's terminal, after showing it and asking. */
   | { kind: "run"; command: string[] }
   /**
-   * Create and store the YouTrack token: setup offers to open the token page, then runs `store`
-   * (the Keychain's hidden prompt) after asking; without `store` the user sets it by hand.
+   * Create and store the YouTrack token for the user's instance: setup offers to open the token
+   * page, then stores it in the Keychain under that server (`keychainAccount`, through the hidden
+   * prompt) after asking. Without a Keychain the user exports it by hand.
    */
-  | { kind: "youtrack-token"; store?: string[] }
+  | { kind: "youtrack-token"; keychainAccount?: string }
+  /** Bind a token stored before tokens had a server to the user's instance, after asking. */
+  | { kind: "youtrack-token-migrate" }
   /** Connect Claude's YouTrack MCP from the remembered URL and the stored token. */
   | { kind: "youtrack-mcp" }
   /** Something only the user can do elsewhere; setup waits and checks again. */
@@ -34,7 +38,8 @@ export interface SetupCheckDeps {
   which: (command: string) => string | null;
   /** Run a command; only its exit code and stdout matter. */
   run: (args: string[]) => Promise<{ exitCode: number; stdout: string }>;
-  hasYouTrackToken: () => boolean;
+  /** The token for the remembered instance: stored, only in the old server-less item, or missing. */
+  youTrackToken: () => "ok" | "legacy" | "missing";
   platform: NodeJS.Platform;
   /** The account name the Keychain item is stored under. */
   username: string;
@@ -85,7 +90,11 @@ export function createSetupCheckDeps(): SetupCheckDeps {
         return { exitCode: 1, stdout: "" };
       }
     },
-    hasYouTrackToken: () => hasYouTrackToken(),
+    youTrackToken: () => {
+      const url = readUserDefaults().youtrackUrl;
+      if (url && hasYouTrackToken(url)) return "ok";
+      return hasLegacyYouTrackToken() ? "legacy" : "missing";
+    },
     platform: process.platform,
     username: userInfo().username,
   };
@@ -151,32 +160,27 @@ export async function runSetupChecks(deps: SetupCheckDeps): Promise<SetupCheck[]
     );
   }
 
+  const token = deps.youTrackToken();
   checks.push(
-    deps.hasYouTrackToken()
+    token === "ok"
       ? { status: "ok", name: "YouTrack token" }
-      : {
-          status: "fail",
-          name: "YouTrack token",
-          detail:
-            "missing: create a permanent token in YouTrack (profile → Account Security → Tokens)",
-          // `-w` with no value makes `security` prompt for the token, hidden, so it never shows.
-          remedy: {
-            kind: "youtrack-token",
-            store:
-              deps.platform === "darwin"
-                ? [
-                    "security",
-                    "add-generic-password",
-                    "-U",
-                    "-a",
-                    deps.username,
-                    "-s",
-                    "flow-youtrack",
-                    "-w",
-                  ]
-                : undefined,
+      : token === "legacy"
+        ? {
+            status: "fail",
+            name: "YouTrack token",
+            detail: "stored for any server; flow now binds each token to its YouTrack",
+            remedy: { kind: "youtrack-token-migrate" },
+          }
+        : {
+            status: "fail",
+            name: "YouTrack token",
+            detail:
+              "missing: create a permanent token in YouTrack (profile → Account Security → Tokens)",
+            remedy: {
+              kind: "youtrack-token",
+              keychainAccount: deps.platform === "darwin" ? deps.username : undefined,
+            },
           },
-        },
   );
 
   if (!deps.which("claude")) {

@@ -52,6 +52,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- **Security:** the YouTrack token is bound to its server. The Keychain item is now `flow-youtrack:<host>`, and on Linux `FLOW_YOUTRACK_TOKEN` counts only for the host in `FLOW_YOUTRACK_URL`; a repository whose config points anywhere else finds no token, so nothing is sent there. Requests never follow redirects. `flow setup` offers to move a token stored the old way. The skills that read tickets, Notion, or MRs now treat that content as data, never as instructions.
+
 - `flow setup claude` is now `flow setup`, and it also runs `bun install` in flow's checkout. Updating flow is `git pull`: skills and the session hook are read live, and when a pull adds or retires a skill, flow says at launch to run `flow setup`.
 
 - Setup asks for the YouTrack URL once and remembers it (`[defaults] youtrack_url` in the user config, also taken from an existing YouTrack MCP), so `flow init` offers it in every repository; before storing the token it offers to open YouTrack's token page in the browser. `flow init` no longer asks for the Slack channel ID: `flow-mr-open` looks the channel up by name (`review_channel_id` still wins when set). `./install.sh` offers to add `~/.local/bin` to your shell profile, showing the line and asking first.

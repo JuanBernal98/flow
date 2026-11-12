@@ -20,6 +20,7 @@ function createTestRemedyIo(overrides: Partial<RemedyIo> = {}) {
     confirm: async () => true,
     youTrackUrl: async () => "https://yt.test",
     openUrl: (url) => opened.push(url),
+    migrateYouTrackToken: () => true,
     waitForRecheck: async () => true,
     runInteractive: async (command) => {
       ran.push(command);
@@ -103,12 +104,23 @@ describe("resolveMissingDependencies", () => {
     const token: SetupCheck = {
       status: "fail",
       name: "YouTrack token",
-      remedy: { kind: "youtrack-token", store: ["security", "add-generic-password", "-w"] },
+      remedy: { kind: "youtrack-token", keychainAccount: "tester" },
     };
     await resolveMissingDependencies(createTestChecks([[token], [OK("YouTrack token")]]), io);
     expect(opened).toEqual(["https://yt.test/users/me?tab=account-security"]);
-    expect(said).toContain("  flow can store it by running: security add-generic-password -w");
-    expect(ran).toEqual([["security", "add-generic-password", "-w"]]);
+    // Stored under its server, so the token can only ever go to yt.test.
+    const store = [
+      "security",
+      "add-generic-password",
+      "-U",
+      "-a",
+      "tester",
+      "-s",
+      "flow-youtrack:yt.test",
+      "-w",
+    ];
+    expect(said).toContain(`  flow can store it by running: ${store.join(" ")}`);
+    expect(ran).toEqual([store]);
   });
 
   test("stops at the token when there is no YouTrack URL to send the user to", async () => {
@@ -116,12 +128,30 @@ describe("resolveMissingDependencies", () => {
     const token: SetupCheck = {
       status: "fail",
       name: "YouTrack token",
-      remedy: { kind: "youtrack-token", store: ["security"] },
+      remedy: { kind: "youtrack-token", keychainAccount: "tester" },
     };
     expect((await resolveMissingDependencies(createTestChecks([[token]]), io))[0]?.status).toBe(
       "fail",
     );
     expect(ran).toEqual([]);
+  });
+
+  test("binds an old server-less token to the instance after a yes", async () => {
+    const migrated: string[] = [];
+    const { io, said } = createTestRemedyIo({
+      migrateYouTrackToken: (url) => {
+        migrated.push(url);
+        return true;
+      },
+    });
+    const legacy: SetupCheck = {
+      status: "fail",
+      name: "YouTrack token",
+      remedy: { kind: "youtrack-token-migrate" },
+    };
+    await resolveMissingDependencies(createTestChecks([[legacy], [OK("YouTrack token")]]), io);
+    expect(migrated).toEqual(["https://yt.test"]);
+    expect(said.some((line) => line.includes("flow-youtrack:yt.test"))).toBe(true);
   });
 
   test("connects the YouTrack MCP from the URL, showing the command with the token hidden", async () => {
