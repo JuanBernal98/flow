@@ -1,5 +1,7 @@
 # flow
 
+![flow: your tickets and reviews, the agent's overview of the ticket, and the live diff of your branch](assets/flow-screenshot.png)
+
 Work your tickets with a coding agent from one terminal: your YouTrack tickets and your squad's GitLab reviews beside a live diff of your branch, what the agent understood about each ticket, and Claude Code skills that load a ticket's context, review code against the ticket, fix your review comments, and open the merge request.
 
 `flow` is a hard fork of [dunk](https://github.com/amix/dunk) (itself a fork of [hunk](https://github.com/modem-dev/hunk)). The diff viewer comes from dunk: `diff`/`show`/`patch`/`pager`/`difftool`, split and stack layouts, hunk comments with `a`, drifted comments, the Git pager setup, and the general config. **See [dunk's README](https://github.com/amix/dunk#readme) for those.** This README covers what flow adds.
