@@ -6,15 +6,7 @@
 
 **flow** minimizes distractions and leaves only what matters: review, iteration, and judgment, in a human–AI loop. Claude starts every ticket already knowing it, and everything around the code runs itself:
 
-```text
-                         writes · fixes · reviews vs. the ticket
-                          ┌───────────────────────────────────┐
-                          │                                   ▼
-zero-prompt context ──▶ Claude                               you ──▶ shipped
-                          ▲                                   │
-                          └───────────────────────────────────┘
-                              reviews · comments · decides
-```
+![The human–AI loop: a YouTrack ticket goes to Claude, which writes, fixes, reviews, and iterates; you review, comment, and decide; the result ships as a GitLab merge request](assets/flow-loop.png)
 
 ## How it works
 
