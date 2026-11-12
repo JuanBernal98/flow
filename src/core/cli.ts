@@ -813,16 +813,23 @@ function resolveInstalledFlowBin() {
 async function rememberYouTrackUrlFromMcp() {
   const { readUserDefaults, saveUserYouTrackUrl } = await import("./userDefaults");
   if (readUserDefaults().youtrackUrl) {
-    return;
+    return undefined;
   }
+  const url = readYouTrackMcpUrl();
+  if (url) {
+    saveUserYouTrackUrl(url);
+  }
+  return url;
+}
+
+/** The instance Claude's YouTrack MCP points at, reading only the URL line (the rest has the token). */
+function readYouTrackMcpUrl() {
   const result = Bun.spawnSync(["claude", "mcp", "get", "youtrack"], {
     stdout: "pipe",
     stderr: "ignore",
   });
   const url = /^\s*URL:\s*(https:\/\/\S+?)\/mcp\/?\s*$/m.exec(result.stdout.toString())?.[1];
-  if (result.exitCode === 0 && url) {
-    saveUserYouTrackUrl(url);
-  }
+  return result.exitCode === 0 ? url : undefined;
 }
 
 /** Ask, run, and print in the user's terminal for setup's remedies. */
@@ -854,6 +861,12 @@ async function createTerminalRemedyIo(): Promise<import("./setupRemedies").Remed
       if (remembered) {
         process.stdout.write(`  YouTrack: ${remembered} (remembered in your flow config)\n`);
         return remembered;
+      }
+      // A YouTrack MCP the user set up already says which instance is theirs.
+      const fromMcp = await rememberYouTrackUrlFromMcp();
+      if (fromMcp) {
+        process.stdout.write(`  YouTrack: ${fromMcp} (from your Claude YouTrack MCP)\n`);
+        return fromMcp;
       }
       for (;;) {
         const answer = (
