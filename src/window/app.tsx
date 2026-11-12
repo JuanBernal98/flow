@@ -791,6 +791,11 @@ code {
   text-align: right;
   color: var(--faint);
 }
+/* Breathing room inside the box; the gutter gets the same, so numbers stay on their lines. */
+[data-gutter],
+[data-content] {
+  padding-block: 6px;
+}
 [data-column-number] {
   border-right: 0;
   --diffs-fg-number-addition-override: var(--faint);
