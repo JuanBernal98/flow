@@ -52,7 +52,7 @@ function createTestInitDeps(
   };
 }
 
-const FULL_ANSWERS = ["https://yt.test", "", "", "my-team", "#team-reviews", "C0123456789"];
+const FULL_ANSWERS = ["https://yt.test", "", "", "my-team", "#team-reviews"];
 
 describe("missingConfigSections", () => {
   test("lists the sections a config does not declare", () => {
@@ -75,7 +75,7 @@ describe("runRepoInit", () => {
     expect(parsed).toEqual({
       youtrack: { url: "https://yt.test", merged_state: "Done" },
       gitlab: { review_label: "my-team" },
-      slack: { review_channel: "#team-reviews", review_channel_id: "C0123456789" },
+      slack: { review_channel: "#team-reviews" },
     });
     expect(config).toContain("# Your tickets still in Review move to this state");
     expect(readFileSync(join(root, ".git", "info", "exclude"), "utf8")).toContain(".flow/\n");
@@ -99,8 +99,6 @@ describe("runRepoInit", () => {
         "my-team",
         "team",
         "#team",
-        "x",
-        "C0123456789",
       ],
       {
         checkYouTrack: async () =>
@@ -122,7 +120,17 @@ describe("runRepoInit", () => {
       youtrack: { project_keys: ["PROJ", "OPS"] },
     });
     expect(deps.lines).toContain("  start the channel name with #; try again.");
-    expect(deps.lines).toContain("  that does not look like a channel ID (C0…); try again.");
+  });
+
+  test("offers the YouTrack URL setup remembered, so Enter is enough", async () => {
+    const root = createTestGitRepo();
+    const deps = createTestInitDeps(root, ["", "", "", "my-team", "#team-reviews"], {
+      defaultYouTrackUrl: "https://remembered.test",
+    });
+    await runRepoInit(root, deps);
+    expect(Bun.TOML.parse(readFileSync(join(root, ".flow", "config.toml"), "utf8"))).toMatchObject({
+      youtrack: { url: "https://remembered.test" },
+    });
   });
 
   test("only asks for the missing sections and keeps what the config already says", async () => {
@@ -132,14 +140,10 @@ describe("runRepoInit", () => {
       join(root, ".flow", "config.toml"),
       'theme = "claude"\n\n[youtrack]\nurl = "https://yt.test"\n',
     );
-    const deps = createTestInitDeps(root, ["my-team", "#team-reviews", "C0123456789"]);
+    const deps = createTestInitDeps(root, ["my-team", "#team-reviews"]);
     await runRepoInit(root, deps);
 
-    expect(deps.questions).toEqual([
-      "GitLab label of your squad's MRs",
-      "Slack review channel",
-      "Slack channel ID",
-    ]);
+    expect(deps.questions).toEqual(["GitLab label of your squad's MRs", "Slack review channel"]);
     const parsed = Bun.TOML.parse(readFileSync(join(root, ".flow", "config.toml"), "utf8"));
     expect(parsed).toMatchObject({
       theme: "claude",

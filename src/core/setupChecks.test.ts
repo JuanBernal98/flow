@@ -63,8 +63,8 @@ describe("runSetupChecks", () => {
       command: ["glab", "auth", "login"],
     });
     expect(checks.find((check) => check.name === "YouTrack token")?.remedy).toEqual({
-      kind: "run",
-      command: [
+      kind: "youtrack-token",
+      store: [
         "security",
         "add-generic-password",
         "-U",

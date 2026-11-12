@@ -807,11 +807,31 @@ function resolveInstalledFlowBin() {
   ]);
 }
 
+/**
+ * Remember the YouTrack URL for `flow init` when Claude's YouTrack MCP already has it, as on a
+ * machine set up before. `claude mcp get` also prints the token, so only the URL line is read.
+ */
+async function rememberYouTrackUrlFromMcp() {
+  const { readUserDefaults, saveUserYouTrackUrl } = await import("./userDefaults");
+  if (readUserDefaults().youtrackUrl) {
+    return;
+  }
+  const result = Bun.spawnSync(["claude", "mcp", "get", "youtrack"], {
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  const url = /^\s*URL:\s*(https:\/\/\S+?)\/mcp\/?\s*$/m.exec(result.stdout.toString())?.[1];
+  if (result.exitCode === 0 && url) {
+    saveUserYouTrackUrl(url);
+  }
+}
+
 /** Ask, run, and print in the user's terminal for setup's remedies. */
 async function createTerminalRemedyIo(): Promise<import("./setupRemedies").RemedyIo> {
-  const [readline, { checkYouTrackAccess, readYouTrackToken }] = await Promise.all([
+  const [readline, { checkYouTrackAccess, readYouTrackToken }, userDefaults] = await Promise.all([
     import("node:readline/promises"),
     import("./youtrack"),
+    import("./userDefaults"),
   ]);
   // A prompt per question, closed right after, so commands that read the terminal get it to
   // themselves (glab and security ask their own questions).
@@ -826,7 +846,32 @@ async function createTerminalRemedyIo(): Promise<import("./setupRemedies").Remed
   return {
     say: (line) => process.stdout.write(`${line}\n`),
     confirm: async (text) => /^y(es)?$/i.test(await question(`${text} [y/N] `)),
-    ask: (text) => question(`${text}: `),
+    youTrackUrl: async () => {
+      const remembered = userDefaults.readUserDefaults().youtrackUrl;
+      if (remembered) {
+        process.stdout.write(`  YouTrack: ${remembered} (remembered in your flow config)\n`);
+        return remembered;
+      }
+      for (;;) {
+        const answer = (
+          await question("  YouTrack URL, like https://youtrack.example.com (empty to stop): ")
+        ).replace(/\/+$/, "");
+        if (!answer) {
+          return undefined;
+        }
+        if (answer.startsWith("https://") || /^http:\/\/(localhost|127\.0\.0\.1)/.test(answer)) {
+          userDefaults.saveUserYouTrackUrl(answer);
+          return answer;
+        }
+        process.stdout.write("  Use the https:// address you open YouTrack at.\n");
+      }
+    },
+    openUrl: (url) => {
+      Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url], {
+        stdout: "ignore",
+        stderr: "ignore",
+      });
+    },
     waitForRecheck: async () =>
       (await question("  Press Enter to check again, or q to stop: ")).toLowerCase() !== "q",
     runInteractive: async (command) => {
@@ -942,6 +987,9 @@ async function parseSetupCommand(tokens: string[]): Promise<HelpCommandInput> {
     ),
   ];
   const ready = checks.every((check) => check.status === "ok");
+  if (ready && !dryRun) {
+    await rememberYouTrackUrlFromMcp();
+  }
   if (!ready && !dryRun) {
     throw new FlowUserError(
       "Setup stopped before installing anything: flow needs every item below.",
@@ -995,11 +1043,13 @@ async function parseInitCommand(tokens: string[]): Promise<HelpCommandInput> {
     { checkYouTrackAccess, isYouTrackProject, isYouTrackState },
     { findRepoRoot },
     readline,
+    { readUserDefaults },
   ] = await Promise.all([
     import("./repoInit"),
     import("./youtrack"),
     import("./config"),
     import("node:readline/promises"),
+    import("./userDefaults"),
   ]);
   const repoRoot = findRepoRoot(process.cwd());
   if (!repoRoot) {
@@ -1019,6 +1069,7 @@ async function parseInitCommand(tokens: string[]): Promise<HelpCommandInput> {
       },
       say: (line) => process.stdout.write(`${line}\n`),
       checkYouTrack: (url) => checkYouTrackAccess({ url }),
+      defaultYouTrackUrl: readUserDefaults().youtrackUrl,
       isYouTrackState: (url, state) => isYouTrackState(state, { url }),
       isYouTrackProject: (url, projectKey) => isYouTrackProject(projectKey, { url }),
       hasGitLabLabel: async (label) => {

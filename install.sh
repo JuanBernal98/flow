@@ -18,5 +18,37 @@ printf '→ Installing dependencies (bun install)\n'
 printf '\n→ Installing the flow command\n'
 bash "${repo_root}/scripts/install-bin.sh"
 
+# Without the install directory on PATH, `flow` is "command not found" in the next terminal.
+# Offer to add it to the shell's profile, showing the exact line and asking first.
+install_dir="${FLOW_INSTALL_DIR:-${HOME}/.local/bin}"
+case ":${PATH}:" in
+  *":${install_dir}:"*) ;;
+  *)
+    case "${SHELL##*/}" in
+      zsh) profile="${HOME}/.zshrc" ;;
+      bash) profile="${HOME}/.bashrc"; [ "$(uname)" = "Darwin" ] && profile="${HOME}/.bash_profile" ;;
+      *) profile="" ;;
+    esac
+    line="export PATH=\"${install_dir}:\$PATH\""
+    printf '\n%s is not on your PATH yet, so new terminals will not find `flow`.\n' "${install_dir}"
+    if [ -n "${profile}" ] && [ -t 0 ]; then
+      printf 'flow can add this line to %s:\n  %s\nAdd it now? [y/N] ' "${profile}" "${line}"
+      read -r answer
+      case "${answer}" in
+        [yY] | [yY][eE][sS])
+          printf '\n# flow\n%s\n' "${line}" >>"${profile}"
+          printf 'Added. New terminals will find `flow`.\n'
+          ;;
+        *) printf 'Skipped. Add it to your shell profile yourself:\n  %s\n' "${line}" ;;
+      esac
+    else
+      printf 'Add this to your shell profile:\n  %s\n' "${line}"
+    fi
+    export PATH="${install_dir}:${PATH}"
+    ;;
+esac
+
 printf '\n→ Setting up Claude Code\n'
-"${FLOW_INSTALL_DIR:-${HOME}/.local/bin}/flow" setup claude
+"${install_dir}/flow" setup claude
+
+printf '\nNext: cd into a repository and run `flow init` to connect it.\n'

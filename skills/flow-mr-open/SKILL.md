@@ -14,7 +14,11 @@ Los datos del equipo viven en el `.flow/config.toml` del repo, que es local y no
 desde la raíz del repo y usa estos valores en todo el skill:
 
 - `<youtrack>`: `[youtrack] url` (p. ej. `https://youtrack.example.com`).
-- `<canal>` y `<canal-id>`: `[slack] review_channel` (p. ej. `#team-reviews`) y `review_channel_id`.
+- `<canal>`: `[slack] review_channel` (p. ej. `#team-reviews`).
+- `<canal-id>`: `[slack] review_channel_id` si está. Si no, búscalo con
+  `mcp__claude_ai_Slack__slack_search_channels` (`keywords`: el nombre sin `#`,
+  `channel_types: "public_channel,private_channel"`) y quédate solo con el canal cuyo nombre coincide
+  exactamente. Si no hay ninguno o hay más de uno, dilo y para.
 
 Si falta `[youtrack] url` o `[slack]`, dilo y para: el skill necesita los dos. Si las herramientas
 `mcp__claude_ai_Slack__*` no están disponibles, dilo, sugiere `/mcp` para conectar Slack y para antes de

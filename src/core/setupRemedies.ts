@@ -10,12 +10,17 @@ export interface RemedyIo {
   say: (line: string) => void;
   /** Ask a yes/no question; anything but yes is no. */
   confirm: (question: string) => Promise<boolean>;
-  /** Ask for a value; an empty answer or `q` means stop. */
-  ask: (question: string) => Promise<string>;
   /** Wait for Enter (check again) or `q` (stop). */
   waitForRecheck: () => Promise<boolean>;
   /** Run a command in the user's terminal, output and prompts included; returns its exit code. */
   runInteractive: (command: string[]) => Promise<number>;
+  /**
+   * The YouTrack URL: the remembered one, else asked once and remembered for `flow init`.
+   * Undefined when the user stops instead of answering.
+   */
+  youTrackUrl: () => Promise<string | undefined>;
+  /** Open a page in the user's browser. */
+  openUrl: (url: string) => void;
   checkYouTrack: (
     url: string,
   ) => Promise<{ ok: true; login: string } | { ok: false; message: string }>;
@@ -54,12 +59,43 @@ export async function resolveMissingDependencies(
       if (!(await io.waitForRecheck())) {
         return checks;
       }
+    } else if (remedy.kind === "youtrack-token") {
+      const url = await io.youTrackUrl();
+      if (!url) {
+        return checks;
+      }
+      const tokenPage = `${url}/users/me?tab=account-security`;
+      io.say(
+        `  Create a permanent token with the YouTrack scope on your profile page: ${tokenPage}`,
+      );
+      io.say("  (Profile → Account Security → Tokens → New token.)");
+      if (await io.confirm("  Open that page in your browser?")) {
+        io.openUrl(tokenPage);
+      }
+      if (!remedy.store) {
+        io.say(
+          "  Then export FLOW_YOUTRACK_TOKEN=<token> in your shell profile and open a new terminal.",
+        );
+        if (!(await io.waitForRecheck())) {
+          return checks;
+        }
+      } else {
+        io.say(`  flow can store it by running: ${remedy.store.join(" ")}`);
+        io.say("  It asks for the token without showing it, and keeps it in your Keychain.");
+        if (!(await io.confirm("  Run it now?"))) {
+          return checks;
+        }
+        const exitCode = await io.runInteractive(remedy.store);
+        if (exitCode !== 0) {
+          io.say(`  That exited with code ${exitCode}; checking again.`);
+        }
+      }
     } else {
       io.say(
         "  flow can add YouTrack's MCP server to Claude Code, using the token you stored for flow.",
       );
-      const url = (await io.ask("  YouTrack URL (empty to stop)")).replace(/\/+$/, "");
-      if (!url || url === "q") {
+      const url = await io.youTrackUrl();
+      if (!url) {
         return checks;
       }
       const access = await io.checkYouTrack(url);

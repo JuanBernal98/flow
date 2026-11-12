@@ -11,7 +11,12 @@ import { hasYouTrackToken } from "./youtrack";
 export type SetupRemedy =
   /** A command setup can run in the user's terminal, after showing it and asking. */
   | { kind: "run"; command: string[] }
-  /** Connect Claude's YouTrack MCP: setup asks for the URL and reuses the stored token. */
+  /**
+   * Create and store the YouTrack token: setup offers to open the token page, then runs `store`
+   * (the Keychain's hidden prompt) after asking; without `store` the user sets it by hand.
+   */
+  | { kind: "youtrack-token"; store?: string[] }
+  /** Connect Claude's YouTrack MCP from the remembered URL and the stored token. */
   | { kind: "youtrack-mcp" }
   /** Something only the user can do elsewhere; setup waits and checks again. */
   | { kind: "manual"; steps: string };
@@ -155,11 +160,11 @@ export async function runSetupChecks(deps: SetupCheckDeps): Promise<SetupCheck[]
           detail:
             "missing: create a permanent token in YouTrack (profile → Account Security → Tokens)",
           // `-w` with no value makes `security` prompt for the token, hidden, so it never shows.
-          remedy:
-            deps.platform === "darwin"
-              ? {
-                  kind: "run",
-                  command: [
+          remedy: {
+            kind: "youtrack-token",
+            store:
+              deps.platform === "darwin"
+                ? [
                     "security",
                     "add-generic-password",
                     "-U",
@@ -168,13 +173,9 @@ export async function runSetupChecks(deps: SetupCheckDeps): Promise<SetupCheck[]
                     "-s",
                     "flow-youtrack",
                     "-w",
-                  ],
-                }
-              : {
-                  kind: "manual",
-                  steps:
-                    "Export FLOW_YOUTRACK_TOKEN=<token> in your shell profile, then open a new terminal.",
-                },
+                  ]
+                : undefined,
+          },
         },
   );
 

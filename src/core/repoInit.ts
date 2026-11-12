@@ -20,7 +20,6 @@ export interface RepoConfigValues {
   projectKeys: string[];
   reviewLabel: string;
   slackChannel: string;
-  slackChannelId: string;
 }
 
 export interface RepoInitDeps {
@@ -28,6 +27,8 @@ export interface RepoInitDeps {
   ask: (question: string, defaultValue?: string) => Promise<string>;
   /** Print one line for the user. */
   say: (line: string) => void;
+  /** The YouTrack URL `flow setup claude` remembered, offered as the default answer. */
+  defaultYouTrackUrl?: string;
   checkYouTrack: (
     url: string,
   ) => Promise<{ ok: true; login: string } | { ok: false; message: string }>;
@@ -40,9 +41,6 @@ export interface RepoInitDeps {
   /** Run git in the repository. */
   git: (args: string[]) => { exitCode: number; stdout: string };
 }
-
-// Slack channel IDs: C… for public channels, G… for older private ones.
-const SLACK_CHANNEL_ID = /^[CG][A-Z0-9]{8,}$/;
 
 /** Split a comma-separated answer into project keys. */
 function splitProjectKeys(answer: string) {
@@ -82,9 +80,8 @@ export function renderConfigSections(sections: RepoConfigSection[], values: Repo
     ],
     slack: [
       "[slack]",
-      "# Where the flow-mr-open skill posts the review request.",
+      "# Where the flow-mr-open skill posts the review request; it looks the channel up by name.",
       `review_channel = ${JSON.stringify(values.slackChannel)}`,
-      `review_channel_id = ${JSON.stringify(values.slackChannelId)}`,
     ],
   };
   return `${sections.map((section) => blocks[section].join("\n")).join("\n\n")}\n`;
@@ -145,16 +142,20 @@ export async function runRepoInit(repoRoot: string, deps: RepoInitDeps) {
     projectKeys: [],
     reviewLabel: "",
     slackChannel: "",
-    slackChannelId: "",
   };
 
   if (missing.includes("youtrack")) {
-    values.youtrackUrl = await askUntil(deps, "YouTrack URL", undefined, async (url) => {
-      const access = await deps.checkYouTrack(url);
-      if (!access.ok) return access.message;
-      deps.say(`  ✓ connected as ${access.login}`);
-      return undefined;
-    });
+    values.youtrackUrl = await askUntil(
+      deps,
+      "YouTrack URL",
+      deps.defaultYouTrackUrl,
+      async (url) => {
+        const access = await deps.checkYouTrack(url);
+        if (!access.ok) return access.message;
+        deps.say(`  ✓ connected as ${access.login}`);
+        return undefined;
+      },
+    );
     values.mergedState = await askUntil(deps, "State for merged tickets", "Done", async (state) => {
       const known = await deps.isYouTrackState(values.youtrackUrl, state);
       if (known === false) return `"${state}" is not a State on this YouTrack`;
@@ -199,10 +200,6 @@ export async function runRepoInit(repoRoot: string, deps: RepoInitDeps) {
   if (missing.includes("slack")) {
     values.slackChannel = await askUntil(deps, "Slack review channel", undefined, async (channel) =>
       channel.startsWith("#") ? undefined : "start the channel name with #",
-    );
-    deps.say("  Channel ID: open the channel in Slack → its name → About, at the bottom (C0…).");
-    values.slackChannelId = await askUntil(deps, "Slack channel ID", undefined, async (id) =>
-      SLACK_CHANNEL_ID.test(id) ? undefined : "that does not look like a channel ID (C0…)",
     );
   }
 

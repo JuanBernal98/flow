@@ -52,6 +52,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Setup asks for the YouTrack URL once and remembers it (`[defaults] youtrack_url` in the user config, also taken from an existing YouTrack MCP), so `flow init` offers it in every repository; before storing the token it offers to open YouTrack's token page in the browser. `flow init` no longer asks for the Slack channel ID: `flow-mr-open` looks the channel up by name (`review_channel_id` still wins when set). `./install.sh` offers to add `~/.local/bin` to your shell profile, showing the line and asking first.
+
 - Agent skills are renamed with the category first so they group and never clash with other skills: `flow-review` → `flow-comments-fix`, `ticket` → `flow-ticket-switch`, `ticket-context` → `flow-ticket-context`, `review` → `flow-review`, `mr` → `flow-mr-open`. Run `flow setup claude` to move your stubs and SessionStart hook to the new names; `flow skill show` without a name now prints `flow-comments-fix`. The watcher's event lines are unchanged.
 
 - Switching to a ticket that already has an overview no longer asks the agent for its context again, to save tokens. Press `X` to refresh it.

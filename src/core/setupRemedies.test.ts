@@ -14,10 +14,12 @@ function createTestChecks(rounds: SetupCheck[][]) {
 function createTestRemedyIo(overrides: Partial<RemedyIo> = {}) {
   const said: string[] = [];
   const ran: string[][] = [];
+  const opened: string[] = [];
   const io: RemedyIo = {
     say: (line) => said.push(line),
     confirm: async () => true,
-    ask: async () => "https://yt.test/",
+    youTrackUrl: async () => "https://yt.test",
+    openUrl: (url) => opened.push(url),
     waitForRecheck: async () => true,
     runInteractive: async (command) => {
       ran.push(command);
@@ -28,7 +30,7 @@ function createTestRemedyIo(overrides: Partial<RemedyIo> = {}) {
     addYouTrackMcp: async () => ({ ok: true, output: "Added HTTP MCP server youtrack" }),
     ...overrides,
   };
-  return { io, said, ran };
+  return { io, said, ran, opened };
 }
 
 const GLAB_MISSING: SetupCheck = {
@@ -91,6 +93,35 @@ describe("resolveMissingDependencies", () => {
     expect(
       (await resolveMissingDependencies(createTestChecks([[notion]]), stopped.io))[0]?.status,
     ).toBe("fail");
+  });
+
+  test("guides the token: opens its page if asked, then stores it through the hidden prompt", async () => {
+    const answers = [true, true];
+    const { io, said, ran, opened } = createTestRemedyIo({
+      confirm: async () => answers.shift() ?? false,
+    });
+    const token: SetupCheck = {
+      status: "fail",
+      name: "YouTrack token",
+      remedy: { kind: "youtrack-token", store: ["security", "add-generic-password", "-w"] },
+    };
+    await resolveMissingDependencies(createTestChecks([[token], [OK("YouTrack token")]]), io);
+    expect(opened).toEqual(["https://yt.test/users/me?tab=account-security"]);
+    expect(said).toContain("  flow can store it by running: security add-generic-password -w");
+    expect(ran).toEqual([["security", "add-generic-password", "-w"]]);
+  });
+
+  test("stops at the token when there is no YouTrack URL to send the user to", async () => {
+    const { io, ran } = createTestRemedyIo({ youTrackUrl: async () => undefined });
+    const token: SetupCheck = {
+      status: "fail",
+      name: "YouTrack token",
+      remedy: { kind: "youtrack-token", store: ["security"] },
+    };
+    expect((await resolveMissingDependencies(createTestChecks([[token]]), io))[0]?.status).toBe(
+      "fail",
+    );
+    expect(ran).toEqual([]);
   });
 
   test("connects the YouTrack MCP from the URL, showing the command with the token hidden", async () => {
