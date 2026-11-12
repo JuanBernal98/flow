@@ -5,6 +5,7 @@
  * overview, x toggles the overview, / filters, r reloads.
  */
 import { PatchDiff } from "@pierre/diffs/react";
+import type React from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import type { StoredTicketOverview } from "../core/ticketOverview";
@@ -33,7 +34,10 @@ function App() {
   const [diff, setDiff] = useState<WindowDiffFile[] | null>(null);
   const [cursor, setCursor] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [workspaceOpen, setWorkspaceOpen] = useState(true);
   const [overviewOpen, setOverviewOpen] = useState(true);
+  const [filesOpen, setFilesOpen] = useState(true);
+  const [diffStyle, setDiffStyle] = useState<DiffStyle>("split");
   const [filter, setFilter] = useState("");
   const [timing, setTiming] = useState<string>("");
   const filterRef = useRef<HTMLInputElement>(null);
@@ -85,6 +89,14 @@ function App() {
         if (item) setSelectedId(item.id);
       } else if (event.key === "x") {
         setOverviewOpen((open) => !open);
+      } else if (event.key === "S") {
+        setWorkspaceOpen((open) => !open);
+      } else if (event.key === "s") {
+        setFilesOpen((open) => !open);
+      } else if (event.key === "1") {
+        setDiffStyle("split");
+      } else if (event.key === "2") {
+        setDiffStyle("unified");
       } else if (event.key === "/") {
         event.preventDefault();
         filterRef.current?.focus();
@@ -100,63 +112,307 @@ function App() {
   }, [visibleItems, cursor, reload]);
 
   return (
-    <div className={`shell${overviewOpen ? "" : " no-overview"}`}>
-      <aside className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">
-            <span />
-            <span />
-          </div>
-          flow
-        </div>
-        <input
-          ref={filterRef}
-          className="filter"
-          placeholder="Filter  /"
-          value={filter}
-          onChange={(event) => {
-            setFilter(event.target.value);
-            setCursor(0);
-          }}
-        />
-        <div className="sections">
-          {workspace === null ? <div className="section-title">Loading…</div> : null}
-          {SECTIONS.map((section) => {
-            const items = visibleItems.filter((item) => item.section === section.id);
-            return (
-              <div key={section.id}>
-                <div className="section-title">
-                  <span>{section.title}</span>
-                  <span>{items.length}</span>
-                </div>
-                {items.map((item) => {
-                  const index = visibleItems.indexOf(item);
-                  return (
-                    <SidebarItem
-                      key={item.id}
-                      item={item}
-                      active={index === cursor}
-                      checkedOut={item.id === workspace?.checkedOutId}
-                      onSelect={() => {
-                        setCursor(index);
-                        setSelectedId(item.id);
-                      }}
-                    />
-                  );
-                })}
+    <div className="window">
+      <div
+        className="panes"
+        style={{ gridTemplateColumns: paneColumns(workspaceOpen, overviewOpen, filesOpen) }}
+      >
+        {workspaceOpen ? (
+          <aside className="sidebar">
+            <div className="brand">
+              <div className="brand-mark">
+                <span />
+                <span />
               </div>
-            );
-          })}
-        </div>
-        <div className="status-bar" title={workspace?.notice}>
-          {workspace?.notice ? "⚠︎ " : ""}
-          {[workspace?.branch ? `on ${workspace.branch}` : "", timing].filter(Boolean).join(" · ")}
-        </div>
-      </aside>
-      <OverviewPane item={selected} />
-      <DiffPane files={diff} />
+              flow
+            </div>
+            <input
+              ref={filterRef}
+              className="filter"
+              placeholder="Filter  /"
+              value={filter}
+              onChange={(event) => {
+                setFilter(event.target.value);
+                setCursor(0);
+              }}
+            />
+            <div className="sections">
+              {workspace === null ? <div className="section-title">Loading…</div> : null}
+              {SECTIONS.map((section) => {
+                const items = visibleItems.filter((item) => item.section === section.id);
+                return (
+                  <div key={section.id}>
+                    <div className="section-title">
+                      <span>{section.title}</span>
+                      <span>{items.length}</span>
+                    </div>
+                    {items.map((item) => {
+                      const index = visibleItems.indexOf(item);
+                      return (
+                        <SidebarItem
+                          key={item.id}
+                          item={item}
+                          active={index === cursor}
+                          checkedOut={item.id === workspace?.checkedOutId}
+                          onSelect={() => {
+                            setCursor(index);
+                            setSelectedId(item.id);
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </aside>
+        ) : null}
+        {overviewOpen ? <OverviewPane item={selected} /> : null}
+        <DiffPane files={diff} diffStyle={diffStyle} />
+        {filesOpen ? <FilesPane files={diff} /> : null}
+      </div>
+      <StatusBar
+        workspace={workspace}
+        files={diff}
+        timing={timing}
+        panels={{ workspace: workspaceOpen, overview: overviewOpen, files: filesOpen }}
+        diffStyle={diffStyle}
+        onToggleWorkspace={() => setWorkspaceOpen((open) => !open)}
+        onToggleOverview={() => setOverviewOpen((open) => !open)}
+        onToggleFiles={() => setFilesOpen((open) => !open)}
+        onDiffStyle={setDiffStyle}
+      />
     </div>
   );
+}
+
+type DiffStyle = "split" | "unified";
+
+/** Grid columns for the open panes; the diff always takes the rest. */
+function paneColumns(workspace: boolean, overview: boolean, files: boolean) {
+  return [workspace ? "280px" : "", overview ? "380px" : "", "minmax(0, 1fr)", files ? "240px" : ""]
+    .filter(Boolean)
+    .join(" ");
+}
+
+/** The bottom bar: panel toggles on the edges, the branch and change totals in between. */
+function StatusBar({
+  workspace,
+  files,
+  timing,
+  panels,
+  diffStyle,
+  onToggleWorkspace,
+  onToggleOverview,
+  onToggleFiles,
+  onDiffStyle,
+}: {
+  workspace: WindowWorkspace | null;
+  files: WindowDiffFile[] | null;
+  timing: string;
+  panels: { workspace: boolean; overview: boolean; files: boolean };
+  diffStyle: DiffStyle;
+  onToggleWorkspace: () => void;
+  onToggleOverview: () => void;
+  onToggleFiles: () => void;
+  onDiffStyle: (style: DiffStyle) => void;
+}) {
+  const additions = files?.reduce((sum, file) => sum + file.additions, 0) ?? 0;
+  const deletions = files?.reduce((sum, file) => sum + file.deletions, 0) ?? 0;
+  return (
+    <footer className="statusbar">
+      <div className="statusbar-group">
+        <IconButton
+          label="Workspace"
+          shortcut="S"
+          active={panels.workspace}
+          onClick={onToggleWorkspace}
+        >
+          <SidebarLeftIcon />
+        </IconButton>
+        <IconButton
+          label="Overview"
+          shortcut="x"
+          active={panels.overview}
+          onClick={onToggleOverview}
+        >
+          <DocumentIcon />
+        </IconButton>
+        {workspace?.branch ? (
+          <span className="statusbar-item">
+            <BranchIcon />
+            {workspace.branch}
+          </span>
+        ) : null}
+        {workspace?.notice ? (
+          <span className="statusbar-item warning" title={workspace.notice}>
+            ⚠︎ {workspace.notice}
+          </span>
+        ) : null}
+      </div>
+      <div className="statusbar-group">
+        {timing ? <span className="statusbar-item faint">{timing}</span> : null}
+        {files ? (
+          <span className="statusbar-item stat">
+            {files.length} files <span className="add">+{additions}</span>{" "}
+            <span className="del">-{deletions}</span>
+          </span>
+        ) : null}
+        <div className="segmented" role="group" aria-label="Diff layout">
+          <button
+            type="button"
+            className={diffStyle === "split" ? "on" : ""}
+            title="Split (1)"
+            onClick={() => onDiffStyle("split")}
+          >
+            <SplitIcon />
+          </button>
+          <button
+            type="button"
+            className={diffStyle === "unified" ? "on" : ""}
+            title="Stacked (2)"
+            onClick={() => onDiffStyle("unified")}
+          >
+            <StackIcon />
+          </button>
+        </div>
+        <IconButton label="Files" shortcut="s" active={panels.files} onClick={onToggleFiles}>
+          <SidebarRightIcon />
+        </IconButton>
+      </div>
+    </footer>
+  );
+}
+
+function IconButton({
+  label,
+  shortcut,
+  active,
+  onClick,
+  children,
+}: {
+  label: string;
+  shortcut: string;
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      className={`icon-button${active ? " on" : ""}`}
+      title={`${active ? "Hide" : "Show"} ${label} (${shortcut})`}
+      aria-pressed={active}
+      onClick={onClick}
+    >
+      {children}
+    </button>
+  );
+}
+
+const ICON = {
+  width: 16,
+  height: 16,
+  viewBox: "0 0 16 16",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 1.3,
+} as const;
+
+function SidebarLeftIcon() {
+  return (
+    <svg {...ICON}>
+      <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
+      <path d="M6 2.5v11" />
+      <path d="M3 5h1.5M3 7h1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SidebarRightIcon() {
+  return (
+    <svg {...ICON}>
+      <rect x="1.5" y="2.5" width="13" height="11" rx="2" />
+      <path d="M10 2.5v11" />
+      <path d="M11.5 5H13M11.5 7H13" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function DocumentIcon() {
+  return (
+    <svg {...ICON}>
+      <path d="M4 1.5h5.5L12.5 4.5v10h-8.5z" strokeLinejoin="round" />
+      <path d="M6 7.5h4.5M6 10h4.5M6 5h2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function BranchIcon() {
+  return (
+    <svg {...ICON} width={13} height={13}>
+      <circle cx="4.5" cy="3.5" r="1.5" />
+      <circle cx="4.5" cy="12.5" r="1.5" />
+      <circle cx="11.5" cy="5.5" r="1.5" />
+      <path d="M4.5 5v6M11.5 7c0 2.5-3 2.5-7 4" />
+    </svg>
+  );
+}
+
+function SplitIcon() {
+  return (
+    <svg {...ICON} width={14} height={14}>
+      <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
+      <path d="M8 2.5v11" />
+    </svg>
+  );
+}
+
+function StackIcon() {
+  return (
+    <svg {...ICON} width={14} height={14}>
+      <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
+      <path d="M1.5 8h13" />
+    </svg>
+  );
+}
+
+/** The changed files; clicking one scrolls the diff to it. */
+function FilesPane({ files }: { files: WindowDiffFile[] | null }) {
+  return (
+    <nav className="files">
+      <div className="pane-title">Changes</div>
+      {(files ?? []).map((file) => {
+        const slash = file.path.lastIndexOf("/");
+        return (
+          <button
+            type="button"
+            key={file.path}
+            className="file-row"
+            title={file.path}
+            onClick={() =>
+              document
+                .getElementById(fileAnchor(file.path))
+                ?.scrollIntoView({ behavior: "smooth", block: "start" })
+            }
+          >
+            <span className="file-name">
+              {file.path.slice(slash + 1)}
+              <span className="file-dir">{slash > 0 ? file.path.slice(0, slash) : ""}</span>
+            </span>
+            <span className="stat">
+              <span className="add">+{file.additions}</span>{" "}
+              <span className="del">-{file.deletions}</span>
+            </span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
+
+function fileAnchor(path: string) {
+  return `file-${path}`;
 }
 
 const SidebarItem = memo(function SidebarItem({
@@ -269,40 +525,40 @@ function Bullets({ title, items, ordered }: { title: string; items: string[]; or
   );
 }
 
-const DIFF_OPTIONS = {
-  theme: { dark: "pierre-dark", light: "pierre-light" },
-  themeType: "system",
-  diffStyle: "split",
-  overflow: "scroll",
-  disableFileHeader: true,
-} as const;
-
-function DiffPane({ files }: { files: WindowDiffFile[] | null }) {
+function DiffPane({ files, diffStyle }: { files: WindowDiffFile[] | null; diffStyle: DiffStyle }) {
+  const options = useMemo(
+    () =>
+      ({
+        theme: { dark: "pierre-dark", light: "pierre-light" },
+        themeType: "system",
+        diffStyle,
+        overflow: "scroll",
+        disableFileHeader: true,
+      }) as const,
+    [diffStyle],
+  );
   if (files === null) {
     return <main className="diff" />;
   }
-  const additions = files.reduce((sum, file) => sum + file.additions, 0);
-  const deletions = files.reduce((sum, file) => sum + file.deletions, 0);
   return (
     <main className="diff">
-      <div className="diff-header">
-        <strong>Changes</strong>
-        <span className="stat">
-          {files.length} files <span className="add">+{additions}</span>{" "}
-          <span className="del">-{deletions}</span>
-        </span>
-      </div>
       {files.length === 0 ? <p className="empty">No changes on this branch yet.</p> : null}
       {files.map((file) => (
-        <DiffFile key={file.path} file={file} />
+        <DiffFile key={file.path} file={file} options={options} />
       ))}
     </main>
   );
 }
 
-const DiffFile = memo(function DiffFile({ file }: { file: WindowDiffFile }) {
+const DiffFile = memo(function DiffFile({
+  file,
+  options,
+}: {
+  file: WindowDiffFile;
+  options: React.ComponentProps<typeof PatchDiff>["options"];
+}) {
   return (
-    <div className="file">
+    <div className="file" id={fileAnchor(file.path)}>
       <div className="file-header">
         <span>{file.path}</span>
         <span className="stat">
@@ -310,7 +566,7 @@ const DiffFile = memo(function DiffFile({ file }: { file: WindowDiffFile }) {
           <span className="del">-{file.deletions}</span>
         </span>
       </div>
-      <PatchDiff patch={file.patch} options={DIFF_OPTIONS} />
+      <PatchDiff patch={file.patch} options={options} />
     </div>
   );
 });
