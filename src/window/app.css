@@ -524,7 +524,7 @@ kbd {
   transition-duration: 80ms;
 }
 
-/* File icons and status: new files read green, deleted ones red and struck through. */
+/* File icons stay muted; only a deleted file is marked, struck through. */
 .file-icon {
   flex-shrink: 0;
 }
@@ -538,14 +538,9 @@ kbd {
   flex: 1;
 }
 
-.file-row.added .file-name,
-.file-header-name.added {
-  color: var(--add);
-}
-
 .file-row.deleted .file-name,
 .file-header-name.deleted {
-  color: var(--del);
+  color: var(--faint);
   text-decoration: line-through;
 }
 

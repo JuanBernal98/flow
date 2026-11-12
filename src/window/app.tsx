@@ -443,7 +443,7 @@ function FilesPane({ files }: { files: WindowDiffFile[] | null }) {
                 ?.scrollIntoView({ behavior: "smooth", block: "start" })
             }
           >
-            <FileIcon path={file.path} />
+            <FileIcon />
             <span className="file-name">
               {file.path.slice(slash + 1)}
               <span className="file-dir">{slash > 0 ? file.path.slice(0, slash) : ""}</span>
@@ -459,36 +459,9 @@ function FilesPane({ files }: { files: WindowDiffFile[] | null }) {
   );
 }
 
-/** Language colors for file icons, by extension; anything else gets the muted file color. */
-const FILE_COLORS: Record<string, string> = {
-  ts: "#3178c6",
-  tsx: "#3178c6",
-  mts: "#3178c6",
-  js: "#e8c547",
-  jsx: "#e8c547",
-  mjs: "#e8c547",
-  json: "#cbcb41",
-  md: "#519aba",
-  css: "#a86fd9",
-  scss: "#cd6799",
-  html: "#e34c26",
-  rs: "#dea584",
-  py: "#4b8bbe",
-  go: "#00add8",
-  java: "#e76f00",
-  kt: "#a97bff",
-  rb: "#cc342d",
-  sh: "#89e051",
-  toml: "#9c4221",
-  yml: "#cb171e",
-  yaml: "#cb171e",
-  sql: "#e38c00",
-};
-
-/** A small document icon tinted with the file's language color. */
-function FileIcon({ path }: { path: string }) {
-  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
-  const color = FILE_COLORS[extension] ?? "var(--faint)";
+/** A small document icon in the muted text color. */
+function FileIcon() {
+  const color = "var(--faint)";
   return (
     <svg className="file-icon" width={14} height={14} viewBox="0 0 16 16" aria-hidden="true">
       <path
@@ -699,7 +672,7 @@ const DiffFile = memo(function DiffFile({
       <div className="file-header">
         <span>
           <span className="gutter-spacer" aria-hidden="true" />
-          <FileIcon path={file.path} />
+          <FileIcon />
           <span className={`file-header-name ${file.status}`}>
             {file.path.slice(file.path.lastIndexOf("/") + 1)}
           </span>
