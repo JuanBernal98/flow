@@ -6,7 +6,13 @@
 
 The slow part of coding with an AI is not the coding: it is handing it the context. Opening the ticket, its Notion page and comments, finding the branch, writing the commit, opening the MR, pinging the team, moving the ticket. flow closes that gap. It shows your YouTrack tickets and your squad's GitLab reviews beside a live diff of your branch, and every chore around a ticket is one key that asks Claude to do it.
 
-The code itself stays a human–AI loop: you and Claude write it and review it together, in the diff.
+What flow does not automate is the part that matters: the code. That stays a **human–AI loop**, with better context going in and review at its center:
+
+```text
+richer context  →  Claude writes  →  you review in the diff  →  Claude improves  →  …until it matches the ticket
+```
+
+Claude starts from the full ticket instead of a pasted summary, and every round of review — your inline comments, a check against the ticket's acceptance criteria — makes the code better before anyone else sees it.
 
 ## How it works
 
