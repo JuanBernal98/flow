@@ -15,7 +15,7 @@ The code itself stays a human–AI loop: you and Claude write it and review it t
 - **Ticket-scoped review.** `R` diffs the branch (or a teammate's MR) against the ticket's acceptance criteria: met, missed, or out of scope, then bugs and quick simplifications.
 - **Bidirectional inline comments.** Hunk-anchored comments in `.flow/comments.json` that survive edits; Claude fixes, replies in place, and can comment back.
 - **Event bus, no daemon.** Keys write requests to `.flow/`; `flow watch` streams them to Claude Code, which runs the matching skill. Idle costs no tokens.
-- **End-to-end delivery, from ticket start to done.** The bookkeeping around a ticket — branch, commits, MR, Slack ping, ticket state — runs itself, so engineers spend their time on the code, not on managing the ticket. Pick a ticket and its branch is ready; `C` commits in the repo's own format; `P` pushes, opens the MR, posts it to your squad's Slack, and moves the ticket to Review; approvals surface as Ready to merge; once merged, the ticket moves to `merged_state` (opt-in, re-checked against YouTrack first). Commits, pushes, MRs, and Slack posts wait for your yes.
+- **Focus on quality, not bookkeeping.** Everything around a ticket — branch, commits, MR, Slack ping, ticket state — is automated end to end, from ticket start to done, so engineers put their time into what matters: the design, the code, and its review. Pick a ticket and its branch is ready; `C` commits in the repo's own format; `P` pushes, opens the MR, posts it to your squad's Slack, and moves the ticket to Review; approvals surface as Ready to merge; once merged, the ticket moves to `merged_state` (opt-in, re-checked against YouTrack first). Commits, pushes, MRs, and Slack posts wait for your yes.
 
 ## Quick start
 
