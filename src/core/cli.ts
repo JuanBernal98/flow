@@ -167,6 +167,7 @@ function renderCliHelp() {
     "  flow overview write <ticket>            store a ticket overview (JSON on stdin) for the Overview pane",
     "  flow setup claude                       install flow's skills and session hook into Claude Code",
     "  flow init                               connect this repository: write its .flow/config.toml",
+    "  flow update                             pull the newest flow and refresh Claude Code",
     "",
     "Global options:",
     "  -h, --help                              show help",
@@ -1015,6 +1016,47 @@ async function parseSetupCommand(tokens: string[]): Promise<HelpCommandInput> {
   return { kind: "help", text: `${lines.join("\n")}\n` };
 }
 
+/** Parse and run `flow update` on the checkout this flow runs from. */
+async function parseUpdateCommand(tokens: string[]): Promise<HelpCommandInput> {
+  if (tokens.includes("--help") || tokens.includes("-h")) {
+    return {
+      kind: "help",
+      text: [
+        "Usage: flow update",
+        "",
+        "Pull the newest flow into its checkout (fast-forward only), run `bun install` when",
+        "something changed, and refresh Claude Code with `flow setup claude`.",
+        "Use ./install.sh only for the first install.",
+        "",
+      ].join("\n"),
+    };
+  }
+  if (tokens.length > 0) {
+    throw new FlowUserError("`flow update` takes no arguments.");
+  }
+  const { runFlowUpdate } = await import("./flowUpdate");
+  // Skills sit at <checkout>/skills/<name>/SKILL.md in a source checkout.
+  const checkout = dirname(dirname(dirname(resolveBundledCommentsFixSkillPath())));
+  const updated = await runFlowUpdate({
+    checkout,
+    git: (args) => {
+      const result = Bun.spawnSync(["git", ...args], {
+        cwd: checkout,
+        stdout: "pipe",
+        stderr: "ignore",
+      });
+      return { exitCode: result.exitCode, stdout: result.stdout.toString() };
+    },
+    runInteractive: async (command, cwd) =>
+      Bun.spawn(command, { cwd, stdin: "inherit", stdout: "inherit", stderr: "inherit" }).exited,
+    say: (line) => process.stdout.write(`${line}\n`),
+  });
+  if (!updated) {
+    throw new FlowUserError("flow was not updated; see above.");
+  }
+  return { kind: "help", text: "" };
+}
+
 /** Parse and run `flow init`, asking in the terminal for what the repository's config lacks. */
 async function parseInitCommand(tokens: string[]): Promise<HelpCommandInput> {
   if (tokens.includes("--help") || tokens.includes("-h")) {
@@ -1218,6 +1260,8 @@ export async function parseCli(argv: string[]): Promise<ParsedCliInput> {
       return parseSetupCommand(rest);
     case "init":
       return parseInitCommand(rest);
+    case "update":
+      return parseUpdateCommand(rest);
     case "hook":
       return parseHookCommand(rest);
     case "watch":

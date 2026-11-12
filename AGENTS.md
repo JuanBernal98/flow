@@ -118,6 +118,7 @@ CLI input
 - install binary: `bun run install:bin`
 - install skills and session hook into Claude Code: `flow setup claude` (`--dry-run` to preview)
 - connect a repository (writes `.flow/config.toml`): `flow init`
+- update a local install (pull, `bun install`, setup): `flow update`
 
 ## binary notes
 

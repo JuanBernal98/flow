@@ -10,6 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- `flow update` keeps an install current from anywhere: it fast-forwards flow's checkout (stopping on local changes, no upstream, or a diverged branch), runs `bun install` when something changed, and refreshes Claude Code. `./install.sh` is now only for the first install.
+
 - `[youtrack] project_keys` (asked by `flow init`, checked against YouTrack) limits which ids count as a review's ticket, so `UTF-8` in an MR title or another squad's ticket is never taken for yours. Without it any `KEY-123` counts, as before.
 
 - `./install.sh` installs flow from a fresh clone in one go: dependencies, the `flow` command, and `flow setup claude`. Setup now offers to fix each missing dependency instead of only listing it — `brew install glab`, `glab auth login`, storing the YouTrack token in the Keychain, and adding the YouTrack MCP with that token — always showing the exact command and running it only after a yes; a no stops setup before anything is installed. Notion and Slack, which need the browser, are explained and checked again. Anything already set up is left alone.
@@ -18,7 +20,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - `C` asks the coding agent to commit your uncommitted work: the new `flow-commit-create` skill groups the changes by feature, lists the commit messages in the repo's own format for you to confirm, folds fixes into the branch commit they belong to, and never pushes. `P` asks it to open the merge request with `flow-mr-open`, which still asks before every outside action. Both act on the checked-out branch, and the controls help now groups the workspace keys under **Workspace**, `h`/`g` under **Browser**, and everything you ask the agent for (`X`, `R`, `C`, `P`, all uppercase so they are not pressed by accident) under **Agent actions**.
 
-- `flow setup claude` installs flow's skills and SessionStart hook into Claude Code from your checkout, removes stubs for skills flow no longer ships, after checking the dependencies, all required: bun, `glab` login, the YouTrack token, and the YouTrack, Notion, and Slack connectors. While one is missing it installs nothing and exits with an error; `flow-ticket-context` and `flow-mr-open` likewise stop without Notion or Slack (and `[slack]` in the config). `--dry-run` previews, `--uninstall` removes; re-run it after pulling. The hook runs `flow hook session-start`, so its text is versioned with flow.
+- `flow setup claude` installs flow's skills and SessionStart hook into Claude Code from your checkout, removes stubs for skills flow no longer ships, after checking the dependencies, all required: bun, `glab` login, the YouTrack token, and the YouTrack, Notion, and Slack connectors. While one is missing it installs nothing and exits with an error; `flow-ticket-context` and `flow-mr-open` likewise stop without Notion or Slack (and `[slack]` in the config). `--dry-run` previews, `--uninstall` removes; run it again through `flow update`. The hook runs `flow hook session-start`, so its text is versioned with flow.
 
 - `[youtrack] merged_state` (e.g. `"Done"`) moves your tickets still in `Review` to that state once their MR is merged, on every load, so a merge done in GitLab never leaves the ticket behind. Each ticket is read again first and only moved while it is still assigned to you and in `Review`; tickets with an MR still open are left alone. Off unless set.
 

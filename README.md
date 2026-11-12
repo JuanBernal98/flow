@@ -21,7 +21,7 @@ The code itself stays a human–AI loop: you and Claude write it and review it t
 
 ```bash
 git clone https://github.com/JuanBernal98/flow.git
-cd flow && ./install.sh     # installs flow and sets up Claude Code, asking before each step
+cd flow && ./install.sh     # first install only: flow plus Claude Code, asking before each step
 
 cd ~/code/your-repo
 flow init                   # connect the repo: YouTrack, your squad's GitLab label and Slack channel
@@ -66,6 +66,6 @@ Keys that ask Claude for something are uppercase, so they are hard to press by a
 - **Each squad configures its own repo.** `flow init` writes a local `.flow/config.toml` with your YouTrack, GitLab label, and Slack channel, so flow itself carries no company details.
 - **Nothing leaves without you.** Claude asks before committing, pushing, posting to Slack, or moving a ticket; setup asks before installing anything.
 - **Two terminals, no glue.** flow and Claude talk through files in `.flow/`; the session hook keeps Claude listening, and it costs no tokens while idle.
-- **Update** with `git pull && ./install.sh`.
+- **Update** with `flow update`: it pulls the newest flow and refreshes Claude Code. `./install.sh` is only for the first install.
 
 flow is a fork of [dunk](https://github.com/amix/dunk), which provides the diff viewer (`diff`, `show`, `patch`, layouts, pager); see its README for those. Development notes live in [`AGENTS.md`](AGENTS.md). [MIT](LICENSE).
