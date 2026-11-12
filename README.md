@@ -7,10 +7,13 @@
 **flow** minimizes distractions and leaves only what matters: review, iteration, and judgment, in a human–AI loop. Claude starts every ticket already knowing it, and everything around the code runs itself:
 
 ```text
-full context  →  Claude  ⇄  you  →  shipped
-
-Claude   writes · fixes · reviews against the ticket · comments back
-you      review · comment · decide
+                  writes · fixes · reviews vs. the ticket
+                   ┌───────────────────────────────────┐
+                   │                                   ▼
+full context ──▶ Claude                               you ──▶ shipped
+                   ▲                                   │
+                   └───────────────────────────────────┘
+                       reviews · comments · decides
 ```
 
 ## How it works
