@@ -6,7 +6,7 @@ import { join } from "node:path";
 const repoRoot = process.cwd();
 const sourceEntrypoint = join(repoRoot, "src/main.tsx");
 const tempDirs: string[] = [];
-const enableTtySmokeTests = process.env.DUNK_RUN_TTY_SMOKE === "1";
+const enableTtySmokeTests = process.env.FLOW_RUN_TTY_SMOKE === "1";
 if (enableTtySmokeTests) {
   setDefaultTimeout(15000);
 }
@@ -55,7 +55,7 @@ function stripTerminalControl(text: string) {
 }
 
 function createFixtureFiles(lines = 1) {
-  const dir = mkdtempSync(join(tmpdir(), "dunk-tty-smoke-"));
+  const dir = mkdtempSync(join(tmpdir(), "flow-tty-smoke-"));
   tempDirs.push(dir);
 
   const before = join(dir, "before.ts");
@@ -120,7 +120,7 @@ function createFixtureFiles(lines = 1) {
 }
 
 function createLongWrapFixtureFiles() {
-  const dir = mkdtempSync(join(tmpdir(), "dunk-tty-smoke-"));
+  const dir = mkdtempSync(join(tmpdir(), "flow-tty-smoke-"));
   tempDirs.push(dir);
 
   const before = join(dir, "before.ts");
@@ -230,9 +230,9 @@ describe("TTY render smoke", () => {
 
     expect(output).not.toContain("View  Navigate  Theme  Agent  Help");
     expect(output).toContain("before.ts -> after.ts");
-    expect(output).toContain("▌@@ -1,1 +1,2 @@");
-    expect(output).toContain("▌1 - export const answer = 41;");
-    expect(output).toContain("▌1 + export const answer = 42;");
+    expect(output).toContain(" @@ -1,1 +1,2 @@");
+    expect(output).toContain(" 1   export const answer = 41;");
+    expect(output).toContain(" 1   export const answer = 42;");
   });
 
   ttyTest("regular mode can toggle wrapped lines from terminal input", async () => {
@@ -275,9 +275,9 @@ describe("TTY render smoke", () => {
       const output = await runTtySmoke({ mode: "stack" });
 
       expect(output).not.toContain("View  Navigate  Theme  Agent  Help");
-      expect(output).toContain("▌1   -  export const answer = 41;");
-      expect(output).toContain("▌  1 +  export const answer = 42;");
-      expect(output).not.toContain("│1 + export const answer = 42;");
+      expect(output).toContain(" 1   export const answer = 41;");
+      expect(output).toContain(" 1   export const answer = 42;");
+      expect(output).not.toContain("│1   export const answer = 42;");
     },
   );
 
@@ -334,7 +334,7 @@ describe("TTY render smoke", () => {
     expect(output).toContain("after_05");
   });
 
-  ttyTest("general pager mode opens dunk pager UI for diff-like stdin", async () => {
+  ttyTest("general pager mode opens flow pager UI for diff-like stdin", async () => {
     if (!ttyToolsAvailable) {
       return;
     }

@@ -84,10 +84,14 @@ describe("reload stale highlight cache", () => {
     const dir = mkdtempSync(join(tmpdir(), "hunk-reload-git-"));
     const file = join(dir, "test.txt");
 
-    execSync("git init && git config user.email test@test && git config user.name test", {
-      cwd: dir,
-      stdio: "ignore",
-    });
+    // Repo-local `commit.gpgsign false`, so a globally enabled signer never blocks the commit.
+    execSync(
+      "git init && git config user.email test@test && git config user.name test && git config commit.gpgsign false",
+      {
+        cwd: dir,
+        stdio: "ignore",
+      },
+    );
     writeFileSync(file, "original line\n");
     execSync("git add . && git commit -m init", { cwd: dir, stdio: "ignore" });
 

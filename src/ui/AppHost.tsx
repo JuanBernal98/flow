@@ -3,21 +3,56 @@ import { resolveConfiguredCliInput } from "../core/config";
 import { loadAppBootstrap } from "../core/loaders";
 import { resolveRuntimeCliInput } from "../core/terminal";
 import type { AppBootstrap, CliInput } from "../core/types";
-import type { UpdateNotice } from "../core/updateNotice";
+import type { FocusRequest } from "../core/focusRequests";
+import type { GitRun } from "../core/ticketSwitch";
+import type { MergeRequest, WorkspaceReviewsResult } from "../core/gitlab";
+import type { StoredTicketOverview } from "../core/ticketOverview";
+import type { MergedTicketResult, WorkspaceTasksResult } from "../core/youtrack";
 import { App } from "./App";
+import { useWorkspaceTasks } from "./hooks/useWorkspaceTasks";
 
-/** Keep one live dunk app mounted while supporting fs-driven reloads. */
+/** Keep one live flow app mounted while supporting fs-driven reloads. */
 export function AppHost({
   bootstrap,
   onQuit = () => process.exit(0),
-  startupNoticeResolver,
+  workspaceTasksLoader,
+  onOpenUrl,
+  createTicketGit,
+  requestTicketContext,
+  requestReview,
+  requestCommit,
+  requestMergeRequestOpen,
+  readAgentFocusRequest,
+  loadMergeRequests,
+  loadReviews,
+  closeMergedTicket,
+  readOverview,
+  issueUrl,
+  projectKeys,
+  workspaceConnected,
 }: {
   bootstrap: AppBootstrap;
   onQuit?: () => void;
-  startupNoticeResolver?: () => Promise<UpdateNotice | null>;
+  workspaceTasksLoader?: () => Promise<WorkspaceTasksResult>;
+  onOpenUrl?: (url: string) => void;
+  createTicketGit?: (cwd: string) => GitRun;
+  requestTicketContext?: (repoRoot: string, ticketId: string) => void;
+  requestReview?: (repoRoot: string, ticketId: string, mergeRequestIid: number | undefined) => void;
+  requestCommit?: (repoRoot: string, ticketId: string | undefined) => void;
+  requestMergeRequestOpen?: (repoRoot: string, ticketId: string | undefined) => void;
+  readAgentFocusRequest?: (repoRoot: string) => FocusRequest | null;
+  loadMergeRequests?: (repoRoot: string) => Promise<MergeRequest[]>;
+  loadReviews?: (repoRoot: string) => Promise<WorkspaceReviewsResult>;
+  closeMergedTicket?: (ticketId: string) => Promise<MergedTicketResult>;
+  readOverview?: (repoRoot: string, ticketId: string) => StoredTicketOverview | null;
+  issueUrl?: (ticketId: string) => string | undefined;
+  projectKeys?: readonly string[];
+  workspaceConnected?: boolean;
 }) {
   const [activeBootstrap, setActiveBootstrap] = useState(bootstrap);
   const [appVersion, setAppVersion] = useState(0);
+  // Tasks live above the remount key so a full review reload does not refetch YouTrack.
+  const workspaceTasks = useWorkspaceTasks(workspaceTasksLoader);
 
   const reloadSession = useCallback(
     async (nextInput: CliInput, options?: { resetApp?: boolean; sourcePath?: string }) => {
@@ -47,7 +82,22 @@ export function AppHost({
       bootstrap={activeBootstrap}
       onQuit={onQuit}
       onReloadSession={reloadSession}
-      startupNoticeResolver={startupNoticeResolver}
+      workspaceTasks={workspaceTasks.tasks}
+      onRefreshWorkspaceTasks={workspaceTasks.refresh}
+      onOpenUrl={onOpenUrl}
+      createTicketGit={createTicketGit}
+      requestTicketContext={requestTicketContext}
+      requestReview={requestReview}
+      requestCommit={requestCommit}
+      requestMergeRequestOpen={requestMergeRequestOpen}
+      readAgentFocusRequest={readAgentFocusRequest}
+      loadMergeRequests={loadMergeRequests}
+      loadReviews={loadReviews}
+      closeMergedTicket={closeMergedTicket}
+      readOverview={readOverview}
+      issueUrl={issueUrl}
+      projectKeys={projectKeys}
+      workspaceConnected={workspaceConnected}
     />
   );
 }

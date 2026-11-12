@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import { join } from "node:path";
-import { DunkUserError } from "./errors";
+import { FlowUserError } from "./errors";
 import type { VcsCommandInput, ShowCommandInput, StashShowCommandInput } from "./types";
 
 export type GitBackedInput = VcsCommandInput | ShowCommandInput | StashShowCommandInput;
@@ -166,7 +166,7 @@ export function buildGitStashShowArgs(input: StashShowCommandInput) {
 }
 
 /**
- * The single classification of a `dunk diff` review's scope. Title, command
+ * The single classification of a `flow diff` review's scope. Title, command
  * label, and untracked-inclusion all derive from this so the default-vs-staged
  * vs-unstaged mapping cannot drift between consumers.
  */
@@ -189,17 +189,21 @@ export function classifyVcsScope(input: VcsCommandInput): VcsScope {
 function formatVcsCommandLabel(input: VcsCommandInput) {
   switch (classifyVcsScope(input)) {
     case "staged":
-      return "dunk diff --staged";
+      return "flow diff --staged";
     case "branch":
+      // A bare `flow diff` reviews the branch by default; name the command as it was typed.
+      if (input.branchReview?.implicit) {
+        return "flow diff";
+      }
       return input.branchReview?.explicitBase
-        ? `dunk diff --branch=${input.branchReview.explicitBase}`
-        : "dunk diff --branch";
+        ? `flow diff --branch=${input.branchReview.explicitBase}`
+        : "flow diff --branch";
     case "unstaged":
-      return "dunk diff --unstaged";
+      return "flow diff --unstaged";
     case "all":
-      return "dunk diff";
+      return "flow diff";
     case "range":
-      return `dunk diff ${input.range}`;
+      return `flow diff ${input.range}`;
   }
 }
 
@@ -208,9 +212,9 @@ export function formatGitCommandLabel(input: GitBackedInput) {
     case "vcs":
       return formatVcsCommandLabel(input);
     case "show":
-      return input.ref ? `dunk show ${input.ref}` : "dunk show";
+      return input.ref ? `flow show ${input.ref}` : "flow show";
     case "stash-show":
-      return input.ref ? `dunk stash show ${input.ref}` : "dunk stash show";
+      return input.ref ? `flow stash show ${input.ref}` : "flow stash show";
   }
 }
 
@@ -218,8 +222,8 @@ function getMissingRepoHelp(input: GitBackedInput) {
   if (input.kind === "vcs") {
     return [
       "Run the command from a Git checkout, or compare files directly instead:",
-      "  dunk diff <before-file> <after-file>",
-      "  dunk patch <file.patch>",
+      "  flow diff <before-file> <after-file>",
+      "  flow patch <file.patch>",
     ];
   }
 
@@ -258,14 +262,14 @@ function isNoStashEntriesMessage(stderr: string) {
 }
 
 function createMissingGitExecutableError(input: GitBackedInput, gitExecutable: string) {
-  return new DunkUserError(
+  return new FlowUserError(
     `Git is required for \`${formatGitCommandLabel(input)}\`, but \`${gitExecutable}\` was not found in PATH.`,
     ["Install Git or make it available on PATH, then try again."],
   );
 }
 
 function createMissingRepoError(input: GitBackedInput) {
-  return new DunkUserError(
+  return new FlowUserError(
     `\`${formatGitCommandLabel(input)}\` must be run inside a Git repository.`,
     getMissingRepoHelp(input),
   );
@@ -273,14 +277,14 @@ function createMissingRepoError(input: GitBackedInput) {
 
 function createInvalidRevisionError(input: VcsCommandInput | ShowCommandInput) {
   if (input.kind === "vcs") {
-    return new DunkUserError(
+    return new FlowUserError(
       `\`${formatGitCommandLabel(input)}\` could not resolve Git revision or range \`${input.range}\`.`,
       ["Check the revision or range and try again."],
     );
   }
 
   const ref = input.ref ?? "HEAD";
-  return new DunkUserError(
+  return new FlowUserError(
     `\`${formatGitCommandLabel(input)}\` could not resolve Git ref \`${ref}\`.`,
     ["Check the ref name and try again."],
   );
@@ -288,19 +292,19 @@ function createInvalidRevisionError(input: VcsCommandInput | ShowCommandInput) {
 
 function createMissingStashError(input: StashShowCommandInput) {
   if (input.ref) {
-    return new DunkUserError(
+    return new FlowUserError(
       `\`${formatGitCommandLabel(input)}\` could not resolve stash entry \`${input.ref}\`.`,
       ["List available stashes with `git stash list`, then try again."],
     );
   }
 
-  return new DunkUserError("`dunk stash show` could not find a stash entry to show.", [
-    "Create one with `git stash push`, or pass an explicit stash ref like `dunk stash show stash@{0}`.",
+  return new FlowUserError("`flow stash show` could not find a stash entry to show.", [
+    "Create one with `git stash push`, or pass an explicit stash ref like `flow stash show stash@{0}`.",
   ]);
 }
 
 function createGenericGitError(input: GitBackedInput, stderr: string) {
-  return new DunkUserError(`\`${formatGitCommandLabel(input)}\` failed.`, [
+  return new FlowUserError(`\`${formatGitCommandLabel(input)}\` failed.`, [
     firstGitErrorLine(stderr),
   ]);
 }
@@ -310,7 +314,7 @@ function translateGitSpawnFailure(
   error: unknown,
   gitExecutable: string,
 ): Error {
-  if (error instanceof DunkUserError) {
+  if (error instanceof FlowUserError) {
     return error;
   }
 
@@ -346,6 +350,15 @@ function translateGitExitFailure(input: GitBackedInput, stderr: string) {
 }
 
 /** Spawn one Git command and accept only the exit codes the caller declared as non-errors. */
+/**
+ * Environment for every git process flow starts. Without optional locks, reads such as `diff` and
+ * `status` never take index.lock just to refresh the index, so watch polling can't make a
+ * concurrent `git switch` (ours or anyone's) fail with "could not write index"; commands that must
+ * lock, like `switch`, still do. Passed explicitly because Bun spawns don't see later edits to
+ * `process.env`.
+ */
+export const GIT_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: "0" };
+
 function runGitCommand({
   input,
   args,
@@ -358,6 +371,7 @@ function runGitCommand({
   try {
     proc = Bun.spawnSync([gitExecutable, ...args], {
       cwd,
+      env: GIT_ENV,
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
@@ -382,7 +396,7 @@ function runGitCommand({
   };
 }
 
-/** Run a git command and translate common failures into user-facing dunk errors. */
+/** Run a git command and translate common failures into user-facing flow errors. */
 export function runGitText(options: RunGitTextOptions) {
   return runGitCommand(options).stdout;
 }
@@ -390,9 +404,9 @@ export function runGitText(options: RunGitTextOptions) {
 const workingTreeGitDiffInputCache = new Map<string, boolean>();
 
 /**
- * Return whether one `dunk diff` input still compares against the live working tree.
+ * Return whether one `flow diff` input still compares against the live working tree.
  *
- * Plain `dunk diff <ref>` keeps the working tree on one side, so untracked files should still
+ * Plain `flow diff <ref>` keeps the working tree on one side, so untracked files should still
  * appear. Explicit revision-set expressions like `a..b`, `a...b`, or `rev^!` expand into positive
  * and negative revisions and should stay commit-to-commit only.
  */
@@ -570,7 +584,7 @@ function resolveGitEmptyTreeId(input: GitBackedInput, cwd: string, gitExecutable
 /**
  * Resolve the effective comparison base for a working-tree review.
  *
- * The default `dunk diff` carries `range: "HEAD"` so it merges staged and
+ * The default `flow diff` carries `range: "HEAD"` so it merges staged and
  * unstaged work. A repo with no commits has an unborn HEAD where `git diff
  * HEAD` would hard-fail, so fall back to git's empty tree — that still surfaces
  * staged-but-uncommitted files as additions, preserving the default scope.

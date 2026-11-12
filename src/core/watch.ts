@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import { join } from "node:path";
 import { findRepoRoot } from "./config";
-import { DUNK_COMMENTS_RELATIVE_PATH } from "./dunkPaths";
+import { FLOW_COMMENTS_RELATIVE_PATH } from "./flowPaths";
 import {
   buildGitDiffRawArgs,
   listGitUntrackedFiles,
@@ -138,10 +138,10 @@ export function computeWatchSignature(input: CliInput) {
   }
 
   // Tracking the comments file too lets watch mode pick up external edits to
-  // `.dunk/comments.json` without an extra fs.watch hookup.
+  // `.flow/comments.json` without an extra fs.watch hookup.
   const repoRoot = findRepoRoot();
   if (repoRoot) {
-    parts.push(`comments:${statSignature(join(repoRoot, DUNK_COMMENTS_RELATIVE_PATH))}`);
+    parts.push(`comments:${statSignature(join(repoRoot, FLOW_COMMENTS_RELATIVE_PATH))}`);
   }
 
   return parts.join("\n---\n");

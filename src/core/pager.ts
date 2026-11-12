@@ -10,7 +10,7 @@ export function stripTerminalControl(text: string) {
     .replace(/\x1b[@-_]/g, "");
 }
 
-/** Detect whether generic pager stdin looks like a diff/patch that dunk should review. */
+/** Detect whether generic pager stdin looks like a diff/patch that flow should review. */
 export function looksLikePatchInput(text: string) {
   const normalized = stripTerminalControl(text.replaceAll("\r\n", "\n"));
 
@@ -23,15 +23,15 @@ export function looksLikePatchInput(text: string) {
 
 /**
  * Set on the plain-text pager's environment so a `$PAGER` that routes back into
- * `dunk pager` (directly, via a wrapper, or via a quoted path) can't recurse.
+ * `flow pager` (directly, via a wrapper, or via a quoted path) can't recurse.
  */
-const PLAIN_TEXT_PAGER_SENTINEL = "DUNK_IN_TEXT_PAGER";
+const PLAIN_TEXT_PAGER_SENTINEL = "FLOW_IN_TEXT_PAGER";
 
-/** Choose a plain-text pager command while avoiding recursive `dunk pager` launches. */
+/** Choose a plain-text pager command while avoiding recursive `flow pager` launches. */
 export function resolveTextPagerCommand(env: NodeJS.ProcessEnv = process.env) {
-  const candidate = env.DUNK_TEXT_PAGER ?? env.PAGER;
+  const candidate = env.FLOW_TEXT_PAGER ?? env.PAGER;
 
-  if (!candidate || env[PLAIN_TEXT_PAGER_SENTINEL] || /(^|\s|\/)dunk(\s|$)/.test(candidate)) {
+  if (!candidate || env[PLAIN_TEXT_PAGER_SENTINEL] || /(^|\s|\/)flow(\s|$)/.test(candidate)) {
     return "less -R";
   }
 

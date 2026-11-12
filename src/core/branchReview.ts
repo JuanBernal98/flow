@@ -1,4 +1,6 @@
-import { DunkUserError } from "./errors";
+import { FlowUserError } from "./errors";
+import { GIT_ENV } from "./git";
+import { branchBaseConfigKey } from "./ticketSwitch";
 import type { VcsCommandInput } from "./types";
 
 /**
@@ -50,7 +52,7 @@ interface GitProbeResult {
  * Spawn a short git probe and surface the raw exit code, stdout, and stderr.
  *
  * The resolver bypasses `runGitText` here on purpose: that helper translates non-zero exits into
- * `DunkUserError` with a flattened message, which loses the signal we need to distinguish "ref
+ * `FlowUserError` with a flattened message, which loses the signal we need to distinguish "ref
  * does not exist" (exit 1 / empty stdout under `--quiet`) from real failures like a corrupt repo
  * or missing executable.
  */
@@ -59,14 +61,15 @@ function probeGit(args: string[], cwd: string, gitExecutable: string): GitProbeR
   try {
     proc = Bun.spawnSync([gitExecutable, ...args], {
       cwd,
+      env: GIT_ENV,
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
     });
   } catch (error) {
     if (error instanceof Error && error.message.includes("Executable not found in $PATH")) {
-      throw new DunkUserError(
-        `Git is required for \`dunk diff --branch\`, but \`${gitExecutable}\` was not found in PATH.`,
+      throw new FlowUserError(
+        `Git is required for \`flow diff --branch\`, but \`${gitExecutable}\` was not found in PATH.`,
         ["Install Git or make it available on PATH, then try again."],
       );
     }
@@ -98,7 +101,7 @@ function probeGitRefExists(ref: string, cwd: string, gitExecutable: string): str
     return undefined;
   }
 
-  throw new DunkUserError(`\`dunk diff --branch\` failed while probing base \`${ref}\`.`, [
+  throw new FlowUserError(`\`flow diff --branch\` failed while probing base \`${ref}\`.`, [
     probe.stderr.trim() || `git rev-parse exited with code ${probe.exitCode}.`,
   ]);
 }
@@ -178,31 +181,31 @@ function computeGitMergeBase(base: string, cwd: string, gitExecutable: string): 
     return { kind: "missing-ref" };
   }
 
-  throw new DunkUserError(
-    `\`dunk diff --branch\` failed while resolving the merge-base for \`${base}\`.`,
+  throw new FlowUserError(
+    `\`flow diff --branch\` failed while resolving the merge-base for \`${base}\`.`,
     [stderr.trim() || `git merge-base exited with code ${probe.exitCode}.`],
   );
 }
 
 function createNoBaseFoundError() {
-  return new DunkUserError(
-    "`dunk diff --branch` could not find a base branch to compare against.",
+  return new FlowUserError(
+    "`flow diff --branch` could not find a base branch to compare against.",
     [
-      "Pass one explicitly (`dunk diff --branch=origin/main`),",
-      'or set `[branch_review] base = "origin/main"` in `.dunk/config.toml`.',
+      "Pass one explicitly (`flow diff --branch=origin/main`),",
+      'or set `[branch_review] base = "origin/main"` in `.flow/config.toml`.',
     ],
   );
 }
 
 function createBaseNotFoundError(base: string) {
-  return new DunkUserError(`\`dunk diff --branch\` could not resolve base \`${base}\`.`, [
+  return new FlowUserError(`\`flow diff --branch\` could not resolve base \`${base}\`.`, [
     "Check the ref name (run `git fetch` if it lives on a remote you have not pulled yet).",
   ]);
 }
 
 function createMissingMergeBaseError(base: string) {
-  return new DunkUserError(
-    `\`dunk diff --branch\` could not find a common ancestor between \`HEAD\` and \`${base}\`.`,
+  return new FlowUserError(
+    `\`flow diff --branch\` could not find a common ancestor between \`HEAD\` and \`${base}\`.`,
     ["Verify the base shares history with the current branch, or pass a different base."],
   );
 }
@@ -225,6 +228,17 @@ function resolveExplicitGitBase(
   }
 }
 
+/** The review base flow recorded for the checked-out branch, if any (see `branchBaseConfigKey`). */
+function resolveRecordedBranchBase(cwd: string, gitExecutable: string): string | undefined {
+  const head = probeGit(["symbolic-ref", "--quiet", "--short", "HEAD"], cwd, gitExecutable);
+  const branch = head.exitCode === 0 ? firstNonEmptyLine(head.stdout) : undefined;
+  if (!branch) {
+    return undefined;
+  }
+  const base = probeGit(["config", "--get", branchBaseConfigKey(branch)], cwd, gitExecutable);
+  return base.exitCode === 0 ? firstNonEmptyLine(base.stdout) : undefined;
+}
+
 /** Resolve a Git branch-review base into a concrete merge-base SHA. */
 export function resolveGitBranchBase(
   input: VcsCommandInput,
@@ -233,6 +247,12 @@ export function resolveGitBranchBase(
   const explicitBase = input.branchReview?.explicitBase;
   if (explicitBase) {
     return resolveExplicitGitBase(explicitBase, cwd, gitExecutable);
+  }
+
+  // A branch's own base (a merge request's target) is more specific than the repo-wide default.
+  const recordedBase = resolveRecordedBranchBase(cwd, gitExecutable);
+  if (recordedBase) {
+    return resolveExplicitGitBase(recordedBase, cwd, gitExecutable);
   }
 
   const configuredBase = input.options.branchReviewBase;

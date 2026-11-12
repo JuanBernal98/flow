@@ -102,7 +102,7 @@ describe("annotated hunk navigation", () => {
   const afterB = "new\n";
 
   test("only includes hunks that have overlapping annotations", () => {
-    // dunk 0 new range is [1,1], hunk 1 new range is [17,17].
+    // flow 0 new range is [1,1], hunk 1 new range is [17,17].
     // Annotate only hunk 1 in file alpha, and hunk 0 in file beta.
     const fileA = createTestFile("alpha", "alpha.ts", beforeA, afterA, [
       { newRange: [17, 17], summary: "Note on hunk 1" },

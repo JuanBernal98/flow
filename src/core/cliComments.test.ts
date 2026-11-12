@@ -5,16 +5,18 @@ import { join } from "node:path";
 import { computeAnchor, readCommentsFile, splitLines, writeCommentsFile } from "./comments";
 import {
   renderCommentsHelp,
+  runCommentsAdd,
   runCommentsList,
+  runCommentsReply,
   runCommentsResolve,
   runCommentsShow,
 } from "./cliComments";
-import { DunkUserError } from "./errors";
+import { FlowUserError } from "./errors";
 
 const tempDirs: string[] = [];
 
 function createTempRepo(): string {
-  const repoRoot = mkdtempSync(join(tmpdir(), "dunk-cli-comments-"));
+  const repoRoot = mkdtempSync(join(tmpdir(), "flow-cli-comments-"));
   mkdirSync(join(repoRoot, ".git"), { recursive: true });
   tempDirs.push(repoRoot);
   return repoRoot;
@@ -35,7 +37,7 @@ afterEach(() => {
   }
 });
 
-describe("dunk comments CLI", () => {
+describe("flow comments CLI", () => {
   test("list reports the empty state when nothing is pending", () => {
     const repoRoot = createTempRepo();
     expect(runCommentsList("text", { cwd: repoRoot })).toBe("No pending comments.\n");
@@ -185,7 +187,7 @@ describe("dunk comments CLI", () => {
   test("show errors when the id is missing", () => {
     const repoRoot = createTempRepo();
     expect(() => runCommentsShow(99, "text", { cwd: repoRoot })).toThrow(
-      /No dunk comment with id 99/,
+      /No flow comment with id 99/,
     );
   });
 
@@ -221,7 +223,7 @@ describe("dunk comments CLI", () => {
 
   test("absolute paths in comments cannot leak files outside the repo", () => {
     const repoRoot = createTempRepo();
-    const outside = mkdtempSync(join(tmpdir(), "dunk-cli-outside-"));
+    const outside = mkdtempSync(join(tmpdir(), "flow-cli-outside-"));
     tempDirs.push(outside);
     const secretPath = join(outside, "outside-secret.txt");
     writeFileSync(secretPath, "TOP_SECRET_TOKEN", "utf8");
@@ -291,7 +293,7 @@ describe("dunk comments CLI", () => {
       ],
     });
 
-    expect(() => runCommentsResolve([2], { cwd: repoRoot })).toThrow(/No dunk comment with id #2/);
+    expect(() => runCommentsResolve([2], { cwd: repoRoot })).toThrow(/No flow comment with id #2/);
   });
 
   test("resolve removes one comment and writes the file atomically", () => {
@@ -344,7 +346,7 @@ describe("dunk comments CLI", () => {
     // CLI-visible: the review reports clean.
     expect(runCommentsList("text", { cwd: repoRoot })).toBe("No pending comments.\n");
     // And the literal contract of this change: no empty artifact left behind.
-    expect(existsSync(join(repoRoot, ".dunk", "comments.json"))).toBe(false);
+    expect(existsSync(join(repoRoot, ".flow", "comments.json"))).toBe(false);
   });
 
   test("resolve refuses partial success when one id is missing", () => {
@@ -357,7 +359,7 @@ describe("dunk comments CLI", () => {
     });
 
     expect(() => runCommentsResolve([1, 99], { cwd: repoRoot })).toThrow(
-      /No dunk comment with id #99/,
+      /No flow comment with id #99/,
     );
 
     const remaining = readCommentsFile(repoRoot);
@@ -366,21 +368,109 @@ describe("dunk comments CLI", () => {
 
   test("resolve rejects empty id lists", () => {
     const repoRoot = createTempRepo();
-    expect(() => runCommentsResolve([], { cwd: repoRoot })).toThrow(DunkUserError);
+    expect(() => runCommentsResolve([], { cwd: repoRoot })).toThrow(FlowUserError);
   });
 
   test("commands fail clearly when the cwd is not a repo", () => {
-    const dir = mkdtempSync(join(tmpdir(), "dunk-cli-no-repo-"));
+    const dir = mkdtempSync(join(tmpdir(), "flow-cli-no-repo-"));
     tempDirs.push(dir);
     expect(() => runCommentsList("text", { cwd: dir })).toThrow(/Not inside a git repository/);
   });
 
   test("renderCommentsHelp lists every subcommand", () => {
     const help = renderCommentsHelp();
-    expect(help).toContain("dunk comments");
+    expect(help).toContain("flow comments");
     expect(help).toContain("list");
     expect(help).toContain("show");
     expect(help).toContain("resolve");
     expect(help).toContain("--json");
+  });
+});
+
+describe("flow comments reply", () => {
+  /** One anchored comment in a throwaway repo. */
+  function createRepoWithTestComment() {
+    const repoRoot = createTempRepo();
+    const content = "alpha\nbeta\ngamma\n";
+    writeRepoFile(repoRoot, "src/a.ts", content);
+    writeCommentsFile(repoRoot, {
+      schema: 1,
+      comments: [
+        {
+          id: 1,
+          file: "src/a.ts",
+          line: 2,
+          range: [1, 3],
+          anchor: computeAnchor(splitLines(content), 2),
+          body: "¿por qué beta?",
+        },
+      ],
+    });
+    return repoRoot;
+  }
+
+  test("appends agent replies in order and keeps the comment open", () => {
+    const repoRoot = createRepoWithTestComment();
+
+    expect(runCommentsReply(1, "  porque gamma depende de él  ", { cwd: repoRoot })).toBe(
+      "Replied to comment 1.\n",
+    );
+    runCommentsReply(1, "y lo he renombrado", { cwd: repoRoot });
+
+    const [comment] = readCommentsFile(repoRoot).comments;
+    expect(comment?.replies).toEqual([
+      { author: "agent", body: "porque gamma depende de él" },
+      { author: "agent", body: "y lo he renombrado" },
+    ]);
+    const listed = runCommentsList("text", { cwd: repoRoot });
+    expect(listed).toContain("    ¿por qué beta?\n    ↳ porque gamma depende de él");
+    expect(listed).toContain("    ↳ y lo he renombrado");
+    expect(runCommentsShow(1, "text", { cwd: repoRoot })).toContain("↳ y lo he renombrado");
+  });
+
+  test("rejects unknown ids and empty text without writing", () => {
+    const repoRoot = createRepoWithTestComment();
+
+    expect(() => runCommentsReply(9, "hola", { cwd: repoRoot })).toThrow(FlowUserError);
+    expect(() => runCommentsReply(1, "   ", { cwd: repoRoot })).toThrow(FlowUserError);
+    expect(readCommentsFile(repoRoot).comments[0]?.replies).toBeUndefined();
+  });
+});
+
+describe("flow comments add", () => {
+  test("anchors an agent comment to the file and marks it as the agent's", () => {
+    const repoRoot = createTempRepo();
+    const content = "alpha\nbeta\ngamma\n";
+    writeRepoFile(repoRoot, "src/a.ts", content);
+
+    expect(runCommentsAdd("src/a.ts", [2, 3], "  mira este bucle  ", { cwd: repoRoot })).toBe(
+      "Added comment 1 on src/a.ts:2-3.\n",
+    );
+
+    const [comment] = readCommentsFile(repoRoot).comments;
+    expect(comment).toEqual({
+      id: 1,
+      file: "src/a.ts",
+      line: 2,
+      range: [2, 3],
+      anchor: computeAnchor(splitLines(content), 2),
+      body: "mira este bucle",
+      author: "agent",
+    });
+    expect(runCommentsList("text", { cwd: repoRoot })).toContain("#1  src/a.ts:2-3  (agent)");
+  });
+
+  test("rejects missing files, bad ranges, and empty text without writing", () => {
+    const repoRoot = createTempRepo();
+    writeRepoFile(repoRoot, "src/a.ts", "alpha\n");
+
+    expect(() => runCommentsAdd("src/missing.ts", [1, 1], "x", { cwd: repoRoot })).toThrow(
+      FlowUserError,
+    );
+    expect(() => runCommentsAdd("src/a.ts", [3, 2], "x", { cwd: repoRoot })).toThrow(FlowUserError);
+    expect(() => runCommentsAdd("src/a.ts", [1, 1], "  ", { cwd: repoRoot })).toThrow(
+      FlowUserError,
+    );
+    expect(existsSync(join(repoRoot, ".flow", "comments.json"))).toBe(false);
   });
 });

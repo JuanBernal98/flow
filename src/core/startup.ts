@@ -1,5 +1,5 @@
 import type { resolveConfiguredCliInput } from "./config";
-import { DunkUserError } from "./errors";
+import { FlowUserError } from "./errors";
 import type { loadAppBootstrap } from "./loaders";
 import type { looksLikePatchInput } from "./pager";
 import type {
@@ -15,6 +15,9 @@ export type StartupPlan =
   | {
       kind: "help";
       text: string;
+    }
+  | {
+      kind: "agent-watch";
     }
   | {
       kind: "plain-text-pager";
@@ -49,7 +52,7 @@ export interface StartupDeps {
 }
 
 /**
- * Detect a captured pager host (LazyGit, `git -c core.pager=dunk log -p`)
+ * Detect a captured pager host (LazyGit, `git -c core.pager=flow log -p`)
  * that pipes our output into its own panel while advertising `TERM=dumb`.
  * Such hosts give a non-TTY stdout, so this must be checked before the
  * generic non-TTY passthrough or the static path would never fire for them.
@@ -57,7 +60,7 @@ export interface StartupDeps {
 function isCapturedPagerHost(env: NodeJS.ProcessEnv) {
   // Mirrors upstream hunk's captured-host signal set, all gated on TERM=dumb:
   // `LV=-c` (the `lv` pager invoked in filtered/captured mode), `GIT_PAGER`
-  // (git driving us as a custom pager, e.g. `git -c core.pager=dunk log -p`),
+  // (git driving us as a custom pager, e.g. `git -c core.pager=flow log -p`),
   // and any `LAZYGIT*` var (LazyGit's diff panel). Misses degrade safely to
   // passthrough; a false positive would need TERM=dumb on a real TTY.
   return (
@@ -73,7 +76,7 @@ function isCapturedPagerHost(env: NodeJS.ProcessEnv) {
  * directly. The heavy diff/render modules — `loaders.ts` (Pierre), `pager.ts`,
  * `terminal.ts`, `watch.ts`, `config.ts` — are dynamic-imported behind the
  * branches that actually need them, so `--help`, `--version`, and the agent
- * `dunk comments` CLI pay zero parse-time cost for Pierre and friends.
+ * `flow comments` CLI pay zero parse-time cost for Pierre and friends.
  */
 export async function prepareStartupPlan(
   argv: string[] = process.argv,
@@ -88,6 +91,10 @@ export async function prepareStartupPlan(
       kind: "help",
       text: parsedCliInput.text,
     };
+  }
+
+  if (parsedCliInput.kind === "agent-watch") {
+    return { kind: "agent-watch" };
   }
 
   if (parsedCliInput.kind === "pager") {
@@ -155,14 +162,14 @@ export async function prepareStartupPlan(
 
   if (cliInput.options.watch && !watchMod.canReloadInput(cliInput)) {
     if (runtimeCliInput.options.watch) {
-      throw new DunkUserError(
-        "`--watch` requires a file- or Git-backed input that dunk can reopen.",
+      throw new FlowUserError(
+        "`--watch` requires a file- or Git-backed input that flow can reopen.",
         ["Use a patch file path instead of stdin."],
       );
     }
 
     // `watch = true` from config is a default, not a demand: stdin patches and
-    // `dunk pager` (Git's core.pager) can't be reopened, so open them unwatched.
+    // `flow pager` (Git's core.pager) can't be reopened, so open them unwatched.
     cliInput = { ...cliInput, options: { ...cliInput.options, watch: false } };
   }
 

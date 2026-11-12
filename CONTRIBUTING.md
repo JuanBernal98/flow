@@ -1,6 +1,6 @@
-# Contributing to dunk
+# Contributing to flow
 
-`dunk` is a small, opinionated terminal diff viewer. Keep changes focused, verify behavior locally, and prefer small PRs over broad rewrites.
+`flow` is a small, opinionated terminal diff viewer. Keep changes focused, verify behavior locally, and prefer small PRs over broad rewrites.
 
 ## Development setup
 
@@ -16,7 +16,7 @@ Install dependencies:
 bun install
 ```
 
-Run `dunk` from source:
+Run `flow` from source:
 
 ```bash
 bun run src/main.tsx -- diff
@@ -118,11 +118,11 @@ Key rules:
 
 - Keep scope tight and explain user-visible behavior changes clearly.
 - Update docs and examples when behavior or workflows change.
-- `dunk diff` includes untracked working-tree files by default. Use `--exclude-untracked` if you want to review tracked changes only.
+- `flow diff` includes untracked working-tree files by default. Use `--exclude-untracked` if you want to review tracked changes only.
 
 ## Release notes
 
-- The npm package name is `dunkdiff`.
-- The installed CLI command is `dunk`.
-- The automated prebuilt publish workflow lives in `.github/workflows/release-prebuilt-npm.yml`. It publishes through npm trusted publishing, so no npm token is stored in the repo. Each of the five packages (`dunkdiff` and the four `dunkdiff-<os>-<cpu>` packages) needs a trusted publisher on npmjs.com for `amix/dunk`, workflow `release-prebuilt-npm.yml`, environment `npm`, with `npm publish` allowed. A new trusted publisher expires unless it publishes within 2 days, so add it shortly before tagging.
+- The npm package name is `flow`.
+- The installed CLI command is `flow`.
+- The automated prebuilt publish workflow lives in `.github/workflows/release-prebuilt-npm.yml`. It publishes through npm trusted publishing, so no npm token is stored in the repo. Each of the five packages (`flow` and the four `flow-<os>-<cpu>` packages) needs a trusted publisher on npmjs.com for `JuanBernal98/flow`, workflow `release-prebuilt-npm.yml`, environment `npm`, with `npm publish` allowed. A new trusted publisher expires unless it publishes within 2 days, so add it shortly before tagging.
 - To publish from your own machine instead, run `bun run publish:prebuilt:npm -- --tag latest` in a terminal so npm can prompt for 2FA.

@@ -108,7 +108,7 @@ export async function runEditorLaunch(
     const child = spawn(program!, args, spawnOptions);
 
     if (!plan.needsTty) {
-      // GUI editors detach so killing dunk doesn't also kill the editor.
+      // GUI editors detach so killing flow doesn't also kill the editor.
       // Wait one event-loop tick for immediate ENOENT-style spawn errors
       // before resolving. On macOS this is common for `EDITOR=zed`/`cursor`
       // when the GUI app is installed but its CLI helper is not on PATH.

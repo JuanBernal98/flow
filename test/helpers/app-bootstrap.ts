@@ -7,6 +7,9 @@ export function createTestVcsAppBootstrap({
   initialMode = "split",
   initialShowHunkHeaders,
   initialShowLineNumbers,
+  // Tests assume the side panes start closed unless they cover opening them.
+  initialShowFileTree = false,
+  initialShowOverview = false,
   initialTheme = "midnight",
   initialWrapLines,
   inputMode = initialMode,
@@ -21,6 +24,8 @@ export function createTestVcsAppBootstrap({
   initialMode?: LayoutMode;
   initialShowHunkHeaders?: boolean;
   initialShowLineNumbers?: boolean;
+  initialShowFileTree?: boolean;
+  initialShowOverview?: boolean;
   initialTheme?: string;
   initialWrapLines?: boolean;
   inputMode?: LayoutMode;
@@ -49,6 +54,8 @@ export function createTestVcsAppBootstrap({
     initialMode,
     initialShowHunkHeaders,
     initialShowLineNumbers,
+    initialShowFileTree,
+    initialShowOverview,
     initialTheme,
     initialWrapLines,
   };

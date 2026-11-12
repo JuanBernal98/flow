@@ -1,9 +1,12 @@
 import { RGBA, SyntaxStyle, type ThemeMode } from "@opentui/core";
+import { CLAUDE_CODE_DARK_CODE_THEME, CLAUDE_CODE_LIGHT_CODE_THEME } from "./diff/claudeCodeThemes";
 
 export interface AppTheme {
   id: string;
   label: string;
   appearance: "light" | "dark";
+  /** Syntax theme Pierre highlights code with, by name; defaults to Pierre's own for the mode. */
+  codeTheme?: string;
   background: string;
   panel: string;
   panelAlt: string;
@@ -317,7 +320,8 @@ export const THEMES: AppTheme[] = [
       fileModified: "#dec184",
       fileUntracked: "#74ade8",
       noteBorder: "#b477cf",
-      noteBackground: "#2f343e",
+      // Comment cards read as a chat on a purple surface in every theme.
+      noteBackground: "#2d2539",
       noteTitleBackground: "#363c46",
       noteTitleText: "#dce0e5",
     },
@@ -333,11 +337,124 @@ export const THEMES: AppTheme[] = [
       punctuation: "#acb2be",
     },
   ),
+  // Claude: the user's iTerm profile (its background, text, and ANSI palette) with Claude Code's
+  // accents — the Claude orange, the lavender, and its diff greens and reds. Like that iTerm
+  // profile it has a dark and a light variant; `claude` picks one from the terminal's mode.
+  withLazySyntaxStyle(
+    {
+      id: "claude-dark",
+      label: "Claude Dark",
+      appearance: "dark",
+      // Code colors are Claude Code's own "Monokai Extended" palette.
+      codeTheme: CLAUDE_CODE_DARK_CODE_THEME,
+      background: "#15191f",
+      panel: "#1c2129",
+      panelAlt: "#232933",
+      border: "#343b46",
+      accent: "#d77757",
+      accentMuted: "#3b2c27",
+      text: "#dcdcdc",
+      muted: "#999999",
+      // Diff rows use the palette Claude Code's diff highlighter paints edits with in dark themes:
+      // near-black green and red tints that read as transparent over the background, slightly
+      // stronger tints for changed words, and its decoration colors for the +/- signs. Context
+      // sits on the plain background.
+      addedBg: "#022800",
+      removedBg: "#3d0100",
+      contextBg: "#15191f",
+      addedContentBg: "#044700",
+      removedContentBg: "#5c0200",
+      contextContentBg: "#15191f",
+      addedSignColor: "#50c850",
+      removedSignColor: "#dc5a5a",
+      lineNumberBg: "#15191f",
+      lineNumberFg: "#686868",
+      selectedHunk: "#26324a",
+      badgeAdded: "#4eba65",
+      badgeRemoved: "#ff6b80",
+      badgeNeutral: "#999999",
+      fileNew: "#4eba65",
+      fileDeleted: "#ff6b80",
+      fileRenamed: "#b1b9f9",
+      fileModified: "#ffc107",
+      fileUntracked: "#00c5c7",
+      noteBorder: "#b1b9f9",
+      // Comment cards read as a chat on a purple surface in every theme.
+      noteBackground: "#262540",
+      noteTitleBackground: "#232933",
+      noteTitleText: "#dcdcdc",
+    },
+    {
+      default: "#dcdcdc",
+      keyword: "#e17ee1",
+      string: "#a7abf2",
+      comment: "#686868",
+      number: "#c7c400",
+      function: "#00c5c7",
+      property: "#c7c7c7",
+      type: "#d77757",
+      punctuation: "#999999",
+    },
+  ),
+  withLazySyntaxStyle(
+    {
+      id: "claude-light",
+      label: "Claude Light",
+      appearance: "light",
+      // Code colors are Claude Code's own "GitHub" palette for light themes.
+      codeTheme: CLAUDE_CODE_LIGHT_CODE_THEME,
+      background: "#fafafa",
+      panel: "#f1f1f1",
+      panelAlt: "#e8e8e8",
+      border: "#d4d4d4",
+      accent: "#c4633f",
+      accentMuted: "#f3ddd4",
+      text: "#101010",
+      muted: "#6b6b6b",
+      // The light counterpart of Claude Code's diff highlighter palette.
+      addedBg: "#dcffdc",
+      removedBg: "#ffdcdc",
+      contextBg: "#fafafa",
+      addedContentBg: "#b2ffb2",
+      removedContentBg: "#ffc7c7",
+      contextContentBg: "#fafafa",
+      addedSignColor: "#248a3d",
+      removedSignColor: "#cf222e",
+      lineNumberBg: "#fafafa",
+      lineNumberFg: "#8a8a8a",
+      selectedHunk: "#d6e6fb",
+      badgeAdded: "#2c7a39",
+      badgeRemoved: "#ab2b3f",
+      badgeNeutral: "#6b6b6b",
+      fileNew: "#2c7a39",
+      fileDeleted: "#ab2b3f",
+      fileRenamed: "#5769f7",
+      fileModified: "#966c1e",
+      fileUntracked: "#0f8a8c",
+      noteBorder: "#8a63d2",
+      noteBackground: "#efeafb",
+      noteTitleBackground: "#e8e8e8",
+      noteTitleText: "#101010",
+    },
+    {
+      default: "#101010",
+      keyword: "#a626a4",
+      string: "#2744c7",
+      comment: "#8a8a8a",
+      number: "#966c1e",
+      function: "#0f6f8a",
+      property: "#3a3a3a",
+      type: "#c4633f",
+      punctuation: "#6b6b6b",
+    },
+  ),
 ];
 
-/** Resolve a named theme or fall back to dunk's explicit built-in default. */
-export function resolveTheme(requested: string | undefined, _themeMode: ThemeMode | null) {
-  const exact = THEMES.find((theme) => theme.id === requested);
+/** Resolve a named theme or fall back to flow's explicit built-in default. */
+export function resolveTheme(requested: string | undefined, themeMode: ThemeMode | null) {
+  // `claude` follows the terminal like the iTerm profile it comes from; dark when unknown.
+  const id = requested === "claude" ? `claude-${themeMode ?? "dark"}` : requested;
+  const exact = THEMES.find((theme) => theme.id === id);
   if (exact) {
     return exact;
   }

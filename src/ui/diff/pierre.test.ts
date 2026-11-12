@@ -1,8 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import { parseDiffFromFile } from "@pierre/diffs";
 import type { DiffFile } from "../../core/types";
-import { buildSplitRows, buildStackRows, loadHighlightedDiff, type DiffRow } from "./pierre";
+import {
+  buildSplitRows,
+  buildStackRows,
+  codeThemeName,
+  loadHighlightedDiff,
+  type DiffRow,
+} from "./pierre";
 import { resolveTheme } from "../themes";
+import { createTestDiffFile } from "../../../test/helpers/diff-helpers";
 
 function createDiffFile(): DiffFile {
   const metadata = parseDiffFromFile(
@@ -96,6 +103,56 @@ function createMarkdownDiffFile(): DiffFile {
 }
 
 describe("Pierre diff rows", () => {
+  test("emphasizes changed words only when part of a line changed", async () => {
+    const metadata = parseDiffFromFile(
+      {
+        name: "words.ts",
+        contents: "export const answer = 41;\nconst old = 1;\n",
+        cacheKey: "words-before",
+      },
+      {
+        name: "words.ts",
+        contents: "export const answer = 42;\nreturn rewrittenEntirely(true);\n",
+        cacheKey: "words-after",
+      },
+      { context: 3 },
+      true,
+    );
+    const file: DiffFile = { ...createDiffFile(), id: "words", path: "words.ts", metadata };
+    const theme = resolveTheme("claude-dark", null);
+    const highlighted = await loadHighlightedDiff(file, codeThemeName(theme));
+    const additions = buildStackRows(file, highlighted, theme).flatMap((row) =>
+      row.type === "stack-line" && row.cell.kind === "addition" ? [row.cell.spans] : [],
+    );
+    const emphasized = (spans: { text: string; bg?: string }[]) =>
+      spans.filter((span) => span.bg === theme.addedContentBg).map((span) => span.text.trim());
+
+    // One changed number keeps its word emphasis; a rewritten line keeps the plain row tint.
+    expect(emphasized(additions[0] ?? [])).toEqual(["42"]);
+    expect(emphasized(additions[1] ?? [])).toEqual([]);
+  });
+
+  test("highlights code with a theme's own code theme, such as Claude Code's for claude-dark", async () => {
+    const file = createDiffFile();
+    const claude = resolveTheme("claude-dark", null);
+    expect(codeThemeName(claude)).toBe("claude-code-monokai-extended");
+    expect(codeThemeName(resolveTheme("midnight", null))).toBe("pierre-dark");
+
+    const tokenColors = (codeTheme: string) =>
+      loadHighlightedDiff(file, codeTheme).then((highlighted) =>
+        buildStackRows(file, highlighted, claude).flatMap((row) =>
+          row.type === "stack-line" ? row.cell.spans.map((span) => span.fg) : [],
+        ),
+      );
+    const claudeColors = new Set(
+      (await tokenColors(codeThemeName(claude))).map((color) => color?.toLowerCase()),
+    );
+    // Claude Code's keyword pink and its cyan for declarations, which Pierre's palette never uses.
+    expect(claudeColors.has("#f92672")).toBe(true);
+    expect(claudeColors.has("#66d9ef")).toBe(true);
+    expect(new Set(await tokenColors("pierre-dark"))).not.toEqual(claudeColors);
+  });
+
   test("builds split rows with Pierre-highlighted emphasis spans", async () => {
     const file = createDiffFile();
     const theme = resolveTheme("midnight", null);
@@ -186,7 +243,7 @@ describe("Pierre diff rows", () => {
 
     for (const themeId of ["midnight", "paper"] as const) {
       const theme = resolveTheme(themeId, null);
-      const highlighted = await loadHighlightedDiff(file, theme.appearance);
+      const highlighted = await loadHighlightedDiff(file, codeThemeName(theme));
       const rows = buildStackRows(file, highlighted, theme).filter(
         (row): row is Extract<DiffRow, { type: "stack-line" }> =>
           row.type === "stack-line" && row.cell.kind === "addition",
@@ -227,7 +284,7 @@ describe("Pierre diff rows", () => {
 
   test("keeps reserved-color remaps isolated across dark themes", async () => {
     const file = createMarkdownDiffFile();
-    const highlighted = await loadHighlightedDiff(file, "dark");
+    const highlighted = await loadHighlightedDiff(file, "pierre-dark");
 
     for (const themeId of ["graphite", "midnight", "ember"] as const) {
       const theme = resolveTheme(themeId, null);
@@ -262,4 +319,29 @@ describe("Pierre diff rows", () => {
       ).toBe(true);
     }
   });
+});
+
+test("split sides flow independently so a deletion leaves no gap on the right", () => {
+  const file = createTestDiffFile({
+    id: "compact",
+    context: 3,
+    path: "compact.ts",
+    before: "const one = 1;\nconst two = 2;\nconst three = 3;\n",
+    after: "const one = 1;\nconst three = 3;\n",
+  });
+  const rows = buildSplitRows(file, null, resolveTheme("midnight", null)).filter(
+    (row) => row.type === "split-line",
+  );
+
+  expect(
+    rows.map((row) =>
+      row.type === "split-line"
+        ? [row.left.lineNumber ?? null, row.left.kind, row.right.lineNumber ?? null, row.right.kind]
+        : null,
+    ),
+  ).toEqual([
+    [1, "context", 1, "context"],
+    [2, "deletion", 2, "context"],
+    [3, "context", null, "empty"],
+  ]);
 });

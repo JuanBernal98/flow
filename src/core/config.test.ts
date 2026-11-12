@@ -48,9 +48,9 @@ describe("config resolution", () => {
     const repo = createTempDir("hunk-config-repo-");
     createRepo(repo);
 
-    mkdirSync(join(home, ".config", "dunk"), { recursive: true });
+    mkdirSync(join(home, ".config", "flow"), { recursive: true });
     writeFileSync(
-      join(home, ".config", "dunk", "config.toml"),
+      join(home, ".config", "flow", "config.toml"),
       [
         'theme = "graphite"',
         "line_numbers = false",
@@ -63,9 +63,9 @@ describe("config resolution", () => {
       ].join("\n"),
     );
 
-    mkdirSync(join(repo, ".dunk"), { recursive: true });
+    mkdirSync(join(repo, ".flow"), { recursive: true });
     writeFileSync(
-      join(repo, ".dunk", "config.toml"),
+      join(repo, ".flow", "config.toml"),
       ['theme = "paper"', "wrap_lines = true", "", "[pager]", "hunk_headers = false"].join("\n"),
     );
 
@@ -74,7 +74,7 @@ describe("config resolution", () => {
       env: { HOME: home },
     });
 
-    expect(resolved.repoConfigPath).toBe(join(repo, ".dunk", "config.toml"));
+    expect(resolved.repoConfigPath).toBe(join(repo, ".flow", "config.toml"));
     expect(resolved.input.options).toMatchObject({
       pager: true,
       mode: "stack",
@@ -97,14 +97,14 @@ describe("config resolution", () => {
     expect(resolved.repoConfigPath).toBeUndefined();
     expect(resolved.input.options.theme).toBe("zed");
     expect(resolved.input.options.mode).toBe("stack");
-    expect(resolved.input.options.lineNumbers).toBe(false);
+    expect(resolved.input.options.lineNumbers).toBe(true);
   });
 
   test("command-specific config sections also apply to show mode", () => {
     const home = createTempDir("hunk-config-home-");
-    mkdirSync(join(home, ".config", "dunk"), { recursive: true });
+    mkdirSync(join(home, ".config", "flow"), { recursive: true });
     writeFileSync(
-      join(home, ".config", "dunk", "config.toml"),
+      join(home, ".config", "flow", "config.toml"),
       ["[show]", 'mode = "stack"', "line_numbers = false"].join("\n"),
     );
 
@@ -123,8 +123,8 @@ describe("config resolution", () => {
 
   test("defaults git diff to include untracked files and honors config plus CLI overrides", () => {
     const home = createTempDir("hunk-config-home-");
-    mkdirSync(join(home, ".config", "dunk"), { recursive: true });
-    writeFileSync(join(home, ".config", "dunk", "config.toml"), "exclude_untracked = true\n");
+    mkdirSync(join(home, ".config", "flow"), { recursive: true });
+    writeFileSync(join(home, ".config", "flow", "config.toml"), "exclude_untracked = true\n");
 
     const cwd = createTempDir("hunk-config-cwd-");
     const defaultResolved = resolveConfiguredCliInput(
@@ -160,8 +160,8 @@ describe("config resolution", () => {
 
   test("honors the watch key from config and lets the CLI override it", () => {
     const home = createTempDir("hunk-config-home-");
-    mkdirSync(join(home, ".config", "dunk"), { recursive: true });
-    writeFileSync(join(home, ".config", "dunk", "config.toml"), "watch = true\n");
+    mkdirSync(join(home, ".config", "flow"), { recursive: true });
+    writeFileSync(join(home, ".config", "flow", "config.toml"), "watch = true\n");
 
     const cwd = createTempDir("hunk-config-cwd-");
     const enabledFromConfig = resolveConfiguredCliInput(
@@ -173,7 +173,7 @@ describe("config resolution", () => {
       { cwd, env: { HOME: home } },
     );
     const noConfigHome = createTempDir("hunk-config-home-");
-    const defaultsToFalse = resolveConfiguredCliInput(
+    const defaultsToWatching = resolveConfiguredCliInput(
       { kind: "vcs", staged: false, options: {} },
       { cwd, env: { HOME: noConfigHome } },
     );
@@ -182,8 +182,8 @@ describe("config resolution", () => {
     // `watch = true`, repo `watch = false` → false.
     const repo = createTempDir("hunk-config-repo-");
     createRepo(repo);
-    mkdirSync(join(repo, ".dunk"), { recursive: true });
-    writeFileSync(join(repo, ".dunk", "config.toml"), "watch = false\n");
+    mkdirSync(join(repo, ".flow"), { recursive: true });
+    writeFileSync(join(repo, ".flow", "config.toml"), "watch = false\n");
     const repoOverridesGlobal = resolveConfiguredCliInput(
       { kind: "vcs", staged: false, options: {} },
       { cwd: repo, env: { HOME: home } },
@@ -191,7 +191,7 @@ describe("config resolution", () => {
 
     expect(enabledFromConfig.input.options.watch).toBe(true);
     expect(cliDisablesOverConfig.input.options.watch).toBe(false);
-    expect(defaultsToFalse.input.options.watch).toBe(false);
+    expect(defaultsToWatching.input.options.watch).toBe(true);
     expect(repoOverridesGlobal.input.options.watch).toBe(false);
   });
 
@@ -200,14 +200,15 @@ describe("config resolution", () => {
     const repo = createTempDir("hunk-config-repo-");
     createRepo(repo);
 
-    mkdirSync(join(home, ".config", "dunk"), { recursive: true });
+    mkdirSync(join(home, ".config", "flow"), { recursive: true });
     writeFileSync(
-      join(home, ".config", "dunk", "config.toml"),
+      join(home, ".config", "flow", "config.toml"),
       [
         'theme = "paper"',
         "line_numbers = false",
         "wrap_lines = true",
         "hunk_headers = false",
+        "file_tree = false",
         "comments = true",
       ].join("\n"),
     );
@@ -233,6 +234,9 @@ describe("config resolution", () => {
     expect(bootstrap.initialShowLineNumbers).toBe(false);
     expect(bootstrap.initialWrapLines).toBe(true);
     expect(bootstrap.initialShowHunkHeaders).toBe(false);
+    expect(bootstrap.initialShowFileTree).toBe(false);
+    // Unset in config, so it keeps its default: open.
+    expect(bootstrap.initialShowOverview).toBe(true);
   });
 
   test("loadAppBootstrap exposes zed when no theme is configured", async () => {
@@ -257,6 +261,9 @@ describe("config resolution", () => {
     const bootstrap = await loadAppBootstrap(resolved.input);
 
     expect(bootstrap.initialTheme).toBe("zed");
-    expect(bootstrap.initialShowLineNumbers).toBe(false);
+    expect(bootstrap.initialShowLineNumbers).toBe(true);
+    // The file tree and the ticket Overview start open by default.
+    expect(bootstrap.initialShowFileTree).toBe(true);
+    expect(bootstrap.initialShowOverview).toBe(true);
   });
 });

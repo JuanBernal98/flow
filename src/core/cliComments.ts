@@ -1,21 +1,26 @@
 /**
- * `dunk comments` — agent-facing command surface for `.dunk/comments.json`.
+ * `flow comments` — agent-facing command surface for `.flow/comments.json`.
  *
  * Provides list/show/resolve commands so agents can inspect and prune review
  * comments without hand-editing the persisted JSON.
  */
 import { findRepoRoot } from "./config";
 import {
+  type PersistedComment,
+  type ResolvedComment,
+  computeAnchorForFile,
+  isAgentComment,
   mutateCommentsFile,
   readCommentsFile,
   readPostImagesForComments,
   resolveComments,
+  withAddedComment,
+  withCommentReply,
   withRemovedComments,
-  type PersistedComment,
-  type ResolvedComment,
 } from "./comments";
-import { DUNK_COMMENTS_RELATIVE_PATH } from "./dunkPaths";
-import { DunkUserError } from "./errors";
+import { FLOW_COMMENTS_RELATIVE_PATH } from "./flowPaths";
+import { FlowUserError } from "./errors";
+import type { LineRange } from "./types";
 
 export type CommentsOutputFormat = "text" | "json";
 
@@ -32,8 +37,8 @@ interface CommentsShowOptions extends CommentsListOptions {
 function requireRepoRoot(cwd?: string): string {
   const repoRoot = findRepoRoot(cwd ?? process.cwd());
   if (!repoRoot) {
-    throw new DunkUserError("Not inside a git repository.", [
-      "`dunk comments` reads `.dunk/comments.json` from the repo root; run it from inside a checkout.",
+    throw new FlowUserError("Not inside a git repository.", [
+      "`flow comments` reads `.flow/comments.json` from the repo root; run it from inside a checkout.",
     ]);
   }
   return repoRoot;
@@ -67,12 +72,23 @@ function driftSuffix(comment: ResolvedComment): string {
   return comment.state === "drifted" ? `  drifted: ${comment.reason}` : "";
 }
 
+/** Mark the agent's own comments on their header line; the user's stay unmarked. */
+function authorSuffix(comment: ResolvedComment): string {
+  return isAgentComment(comment) ? "  (agent)" : "";
+}
+
 /** Indent every body line so multi-line comments line up under the header. */
 function indentBody(body: string): string {
   return body
     .split("\n")
     .map((line) => `    ${line}`)
     .join("\n");
+}
+
+/** Body plus any agent replies, indented under the comment header. */
+function renderCommentBody(comment: ResolvedComment): string {
+  const replies = (comment.replies ?? []).map((reply) => indentBody(`↳ ${reply.body}`));
+  return [indentBody(comment.body), ...replies].join("\n");
 }
 
 /** Render the list view as compact text blocks, one per comment. */
@@ -83,8 +99,8 @@ function renderListText(resolved: ResolvedComment[]): string {
 
   const noun = resolved.length === 1 ? "comment" : "comments";
   const blocks = resolved.map((comment) => {
-    const header = `#${comment.id}  ${comment.file}:${formatRange(comment)}${driftSuffix(comment)}`;
-    return `${header}\n${indentBody(comment.body)}`;
+    const header = `#${comment.id}  ${comment.file}:${formatRange(comment)}${authorSuffix(comment)}${driftSuffix(comment)}`;
+    return `${header}\n${renderCommentBody(comment)}`;
   });
   return `${resolved.length} ${noun}:\n\n${blocks.join("\n\n")}\n`;
 }
@@ -103,7 +119,7 @@ function renderListJson(resolved: ResolvedComment[]): string {
   return `${JSON.stringify({ schema: 1, comments: resolved.map(jsonShape) }, null, 2)}\n`;
 }
 
-/** `dunk comments list` — list every pending comment with drift status. */
+/** `flow comments list` — list every pending comment with drift status. */
 export function runCommentsList(
   format: CommentsOutputFormat,
   options: CommentsListOptions = {},
@@ -113,7 +129,7 @@ export function runCommentsList(
   return format === "json" ? renderListJson(resolved) : renderListText(resolved);
 }
 
-/** Default surrounding-context window for `dunk comments show`. Tuned for LLM legibility. */
+/** Default surrounding-context window for `flow comments show`. Tuned for LLM legibility. */
 const DEFAULT_SHOW_CONTEXT = 10;
 
 /** A single rendered line with its absolute file line number and whether it falls inside the hunk. */
@@ -159,8 +175,8 @@ function renderShowText(
   comment: ResolvedComment,
   hunk: { lines: ContextLine[]; total: number } | null,
 ): string {
-  const header = `#${comment.id}  ${comment.file}:${formatRange(comment)}${driftSuffix(comment)}`;
-  const body = indentBody(comment.body);
+  const header = `#${comment.id}  ${comment.file}:${formatRange(comment)}${authorSuffix(comment)}${driftSuffix(comment)}`;
+  const body = renderCommentBody(comment);
   if (!hunk) {
     const note = "    (file unavailable; resolve drift before fixing)";
     return `${header}\n${body}\n\n${note}\n`;
@@ -214,7 +230,7 @@ function renderShowJson(
   return `${JSON.stringify(payload, null, 2)}\n`;
 }
 
-/** `dunk comments show <id>` — print one comment with the hunk lines and surrounding context. */
+/** `flow comments show <id>` — print one comment with the hunk lines and surrounding context. */
 export function runCommentsShow(
   id: number,
   format: CommentsOutputFormat,
@@ -224,8 +240,8 @@ export function runCommentsShow(
   const { resolved, contentByPath } = loadResolvedCommentsWithContent(repoRoot);
   const comment = resolved.find((entry) => entry.id === id);
   if (!comment) {
-    throw new DunkUserError(`No dunk comment with id ${id}.`, [
-      `Run \`dunk comments list\` to see pending ids in ${DUNK_COMMENTS_RELATIVE_PATH}.`,
+    throw new FlowUserError(`No flow comment with id ${id}.`, [
+      `Run \`flow comments list\` to see pending ids in ${FLOW_COMMENTS_RELATIVE_PATH}.`,
     ]);
   }
 
@@ -239,16 +255,16 @@ function formatIdList(ids: number[]): string {
   return ids.map((id) => `#${id}`).join(", ");
 }
 
-/** `dunk comments resolve <id>...` — atomically remove one or more comments. */
+/** `flow comments resolve <id>...` — atomically remove one or more comments. */
 export function runCommentsResolve(ids: number[], options: CommentsListOptions = {}): string {
   if (ids.length === 0) {
-    throw new DunkUserError("`dunk comments resolve` requires at least one id.");
+    throw new FlowUserError("`flow comments resolve` requires at least one id.");
   }
 
   // Reject duplicates up-front so the friendly summary doesn't lie about counts.
   const unique = Array.from(new Set(ids));
   if (unique.length !== ids.length) {
-    throw new DunkUserError(`Duplicate ids in \`dunk comments resolve\`: ${formatIdList(ids)}.`);
+    throw new FlowUserError(`Duplicate ids in \`flow comments resolve\`: ${formatIdList(ids)}.`);
   }
 
   const repoRoot = requireRepoRoot(options.cwd);
@@ -257,14 +273,14 @@ export function runCommentsResolve(ids: number[], options: CommentsListOptions =
   // file state we're actually about to write. mutateCommentsFile may re-run
   // this callback after a concurrent writer landed, so an id that was
   // present at first read but already resolved by another process correctly
-  // surfaces as "no dunk comment with id" instead of a silent no-op.
+  // surfaces as "no flow comment with id" instead of a silent no-op.
   mutateCommentsFile(repoRoot, (file) => {
     const knownIds = new Set(file.comments.map((comment) => comment.id));
     const missing = unique.filter((id) => !knownIds.has(id));
     if (missing.length > 0) {
       const noun = missing.length === 1 ? "id" : "ids";
-      throw new DunkUserError(`No dunk comment with ${noun} ${formatIdList(missing)}.`, [
-        "Run `dunk comments list` to see pending ids. No changes were written.",
+      throw new FlowUserError(`No flow comment with ${noun} ${formatIdList(missing)}.`, [
+        "Run `flow comments list` to see pending ids. No changes were written.",
       ]);
     }
     return withRemovedComments(file, unique);
@@ -274,20 +290,89 @@ export function runCommentsResolve(ids: number[], options: CommentsListOptions =
   return `Resolved ${unique.length} ${noun}: ${formatIdList(unique)}.\n`;
 }
 
-/** Build the `dunk comments` help text shown by bare invocation and `--help`. */
+/**
+ * `flow comments add <file> <start-end> <text>` — leave a comment as the agent, anchored to the
+ * file's current content like a comment added in the TUI. Use it to flag something for the user
+ * in the review; it shows as `Agente:` and the watcher does not echo it back to the agent.
+ */
+export function runCommentsAdd(
+  filePath: string,
+  range: LineRange,
+  body: string,
+  options: CommentsListOptions = {},
+): string {
+  const text = body.trim();
+  if (!text) {
+    throw new FlowUserError("`flow comments add` needs a comment text.");
+  }
+  const [start, end] = range;
+  if (start <= 0 || end < start) {
+    throw new FlowUserError("`flow comments add` expects a range like `12-20` or `12`.");
+  }
+  const repoRoot = requireRepoRoot(options.cwd);
+  const anchor = computeAnchorForFile(repoRoot, filePath, start);
+  if (!anchor) {
+    throw new FlowUserError(`Cannot anchor a comment at ${filePath}:${start}.`, [
+      "Pass a repo-relative path to an existing file and a line inside it.",
+    ]);
+  }
+  let id = 0;
+  mutateCommentsFile(repoRoot, (file) => {
+    const result = withAddedComment(file, {
+      file: filePath,
+      line: start,
+      range,
+      anchor,
+      body: text,
+      author: "agent",
+    });
+    id = result.comment.id;
+    return result.file;
+  });
+  return `Added comment ${id} on ${filePath}:${start}-${end}.\n`;
+}
+
+/**
+ * `flow comments reply <id> <text>` — answer a comment as the agent. The comment stays open: the
+ * user reads the reply beside the code and closes the comment in the TUI.
+ */
+export function runCommentsReply(
+  id: number,
+  body: string,
+  options: CommentsListOptions = {},
+): string {
+  const text = body.trim();
+  if (!text) {
+    throw new FlowUserError("`flow comments reply` needs a reply text.");
+  }
+  const repoRoot = requireRepoRoot(options.cwd);
+  mutateCommentsFile(repoRoot, (file) => {
+    if (!file.comments.some((comment) => comment.id === id)) {
+      throw new FlowUserError(`No flow comment with id ${id}.`, [
+        "Run `flow comments list` to see pending ids. No changes were written.",
+      ]);
+    }
+    return withCommentReply(file, id, text);
+  });
+  return `Replied to comment ${id}.\n`;
+}
+
+/** Build the `flow comments` help text shown by bare invocation and `--help`. */
 export function renderCommentsHelp(): string {
   return [
-    "Usage: dunk comments <subcommand> [options]",
+    "Usage: flow comments <subcommand> [options]",
     "",
-    "Inspect and resolve review comments stored in `.dunk/comments.json`.",
+    "Inspect and resolve review comments stored in `.flow/comments.json`.",
     "Designed for coding agents driving a review without entering the TUI.",
     "",
     "Subcommands:",
     "  list [--json]                       list every pending comment with drift status",
     "  show <id> [--json] [--context <N>]  print one comment plus the hunk and surrounding code",
     "  resolve <id> [<id>...]              remove one or more comments by id (atomic)",
+    "  reply <id> <text>                   answer a comment as the agent; the user closes it",
+    "  add <file> <start-end> <text>       leave a comment as the agent, anchored automatically",
     "",
-    "Bare `dunk comments` is equivalent to `dunk comments list`.",
+    "Bare `flow comments` is equivalent to `flow comments list`.",
     "Use `--json` on list/show for a stable machine-readable shape.",
     "`show` defaults to 10 lines of surrounding context; `--context <N>` overrides it.",
     "",

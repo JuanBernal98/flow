@@ -1,66 +1,30 @@
 import { fileRowId } from "../../lib/ids";
-import type { FileGroupEntry, FileListEntry } from "../../lib/files";
+import type { SidebarEntry } from "../../lib/files";
 import { fitText, padText } from "../../lib/text";
 import type { AppTheme } from "../../themes";
 
-/** Get icon and color for file state using standard git status codes. */
-function getFileStateIcon(entry: FileListEntry, theme: AppTheme): { icon: string; color: string } {
+/**
+ * Icon and color for a file's change state. Shapes come from the same geometric family as the
+ * workspace's ticket states, so each state reads without relying on color alone.
+ */
+function getFileStateIcon(entry: SidebarEntry, theme: AppTheme): { icon: string; color: string } {
   if (entry.isUntracked) {
-    return { icon: "?", color: theme.fileUntracked };
+    return { icon: "◌", color: theme.fileUntracked };
   }
 
   switch (entry.changeType) {
     case "new":
-      return { icon: "A", color: theme.fileNew };
+      return { icon: "+", color: theme.fileNew };
     case "deleted":
-      return { icon: "D", color: theme.fileDeleted };
+      return { icon: "−", color: theme.fileDeleted };
     case "rename-pure":
     case "rename-changed":
-      return { icon: "R", color: theme.fileRenamed };
+      return { icon: "→", color: theme.fileRenamed };
     case "change":
-      return { icon: "M", color: theme.fileModified };
+      return { icon: "○", color: theme.fileModified };
     default:
       return { icon: "", color: theme.text };
   }
-}
-
-/** Render one folder header in the navigation sidebar. */
-export function FileGroupHeader({
-  entry,
-  collapsed = false,
-  selected = false,
-  onToggle,
-  textWidth,
-  theme,
-}: {
-  entry: FileGroupEntry;
-  collapsed?: boolean;
-  selected?: boolean;
-  onToggle?: () => void;
-  textWidth: number;
-  theme: AppTheme;
-}) {
-  const indent = Math.min(entry.depth * 2, Math.max(0, textWidth - 5));
-  const rowBackground = selected ? theme.panelAlt : theme.panel;
-  return (
-    <box
-      id={fileRowId(entry.id)}
-      style={{
-        width: "100%",
-        height: 1,
-        flexShrink: 0,
-        paddingLeft: 1 + indent,
-        paddingRight: 1,
-        backgroundColor: rowBackground,
-      }}
-      onMouseUp={onToggle}
-    >
-      <text fg={selected ? theme.text : theme.muted} bg={rowBackground}>
-        {collapsed ? "▸ " : "▾ "}
-        {fitText(entry.label, Math.max(1, textWidth - indent - 2))}
-      </text>
-    </box>
-  );
 }
 
 /** Render one file row in the navigation sidebar. */
@@ -71,21 +35,24 @@ export function FileListItem({
   theme,
   onSelect,
 }: {
-  entry: FileListEntry;
+  entry: SidebarEntry;
   selected: boolean;
   textWidth: number;
   theme: AppTheme;
   onSelect: () => void;
 }) {
-  const rowBackground = selected ? theme.panelAlt : theme.panel;
+  const rowBackground = selected ? theme.panelAlt : theme.background;
   const { icon, color } = getFileStateIcon(entry, theme);
   const iconWidth = icon ? 2 : 0; // icon + space
   const statsSectionWidth = entry.agentCommentsText ? entry.agentCommentsText.length + 1 : 0;
-  const indent = Math.min(
-    entry.depth * 2,
-    Math.max(0, textWidth - iconWidth - statsSectionWidth - 7),
-  );
-  const nameWidth = Math.max(1, textWidth - indent - iconWidth - statsSectionWidth);
+  // One blank column keeps the selection rail off the icon, as in the workspace's ticket rows.
+  const railGapWidth = 1;
+  const labelWidth = Math.max(1, textWidth - railGapWidth - iconWidth - statsSectionWidth);
+  const name = fitText(entry.name, labelWidth);
+  // Ambiguous names get their folder, muted, in whatever room the name leaves.
+  const hint = entry.folderHint
+    ? fitText(`  ${entry.folderHint}`, Math.max(0, labelWidth - name.length))
+    : "";
 
   return (
     <box
@@ -106,18 +73,19 @@ export function FileListItem({
         flexShrink={0}
         backgroundColor={selected ? theme.accent : rowBackground}
       />
+      <box width={railGapWidth} height={1} flexShrink={0} backgroundColor={rowBackground} />
       <box
         style={{
           flexGrow: 1,
           height: 1,
-          paddingLeft: indent,
           flexDirection: "row",
           backgroundColor: rowBackground,
         }}
       >
         {icon && <text fg={color}>{icon} </text>}
-        <text width={nameWidth} flexShrink={0} fg={theme.text}>
-          {padText(fitText(entry.name, nameWidth), nameWidth)}
+        <text width={labelWidth} flexShrink={0} fg={theme.text}>
+          {name}
+          <span fg={theme.muted}>{padText(hint, labelWidth - name.length)}</span>
         </text>
         {statsSectionWidth > 0 && (
           <box

@@ -3,29 +3,18 @@ import type { FileDiffMetadata } from "@pierre/diffs";
 import { normalizeDiffPath } from "../../core/diffPaths";
 import type { DiffFile } from "../../core/types";
 
-export interface FileListEntry {
-  kind: "file";
+/** One file row in the flat sidebar list. */
+export interface SidebarEntry {
   id: string;
   name: string;
-  depth: number;
-  parentPath: string;
+  /** Folder shown beside the name only when another changed file shares that name. */
+  folderHint: string | null;
   agentCommentsText: string | null;
   stats: DiffFile["stats"];
   statsTruncated: boolean;
   changeType: FileDiffMetadata["type"];
   isUntracked: boolean;
 }
-
-export interface FileGroupEntry {
-  kind: "group";
-  id: string;
-  label: string;
-  path: string;
-  parentPath: string;
-  depth: number;
-}
-
-export type SidebarEntry = FileListEntry | FileGroupEntry;
 
 /** Build the filename-first label shown inside one sidebar row. */
 function sidebarFileName(file: DiffFile) {
@@ -57,65 +46,32 @@ export function filterReviewFiles(files: DiffFile[], query: string): DiffFile[] 
   });
 }
 
-/** Build the grouped sidebar entries while preserving the review stream order. */
+/**
+ * Build the flat sidebar list in review stream order: filenames only, with the folder added as a
+ * hint just for names that would otherwise be ambiguous.
+ */
 export function buildSidebarEntries(files: DiffFile[]): SidebarEntry[] {
-  const entries: SidebarEntry[] = [];
-  let activeParts: string[] = [];
+  const paths = files.map((file) => normalizeDiffPath(file.path) ?? file.path);
+  const nameCounts = new Map<string, number>();
+  for (const path of paths) {
+    nameCounts.set(basename(path), (nameCounts.get(basename(path)) ?? 0) + 1);
+  }
 
-  files.forEach((file, index) => {
-    const path = normalizeDiffPath(file.path) ?? file.path;
-    const group = dirname(path);
-    const parts = group === "." ? [] : group.split("/");
-    let sharedDepth = 0;
-    while (sharedDepth < parts.length && activeParts[sharedDepth] === parts[sharedDepth]) {
-      sharedDepth += 1;
-    }
-    for (let depth = sharedDepth; depth < parts.length; depth += 1) {
-      const directoryPath = parts.slice(0, depth + 1).join("/");
-      entries.push({
-        kind: "group",
-        id: `group:${directoryPath}:${index}`,
-        label: `${parts[depth]}/`,
-        path: directoryPath,
-        parentPath: parts.slice(0, depth).join("/"),
-        depth,
-      });
-    }
-    activeParts = parts;
-
+  return files.map((file, index) => {
+    const path = paths[index] ?? file.path;
+    const folder = dirname(path);
     const agentCommentCount = file.annotations.length;
-
-    entries.push({
-      kind: "file",
+    return {
       id: file.id,
       name: sidebarFileName(file),
-      depth: parts.length,
-      parentPath: parts.join("/"),
+      folderHint: (nameCounts.get(basename(path)) ?? 0) > 1 && folder !== "." ? folder : null,
       agentCommentsText: agentCommentCount > 0 ? `*${agentCommentCount}` : null,
       stats: file.stats,
       statsTruncated: file.statsTruncated ?? false,
       changeType: file.metadata.type,
       isUntracked: file.isUntracked ?? false,
-    });
+    };
   });
-
-  return entries;
-}
-
-/** List directory ancestors from the root to the entry's immediate parent. */
-export function sidebarAncestorPaths(entry: SidebarEntry): string[] {
-  const parts = entry.parentPath ? entry.parentPath.split("/") : [];
-  return parts.map((_, index) => parts.slice(0, index + 1).join("/"));
-}
-
-/** Fold navigation rows without changing the files in the review stream. */
-export function visibleSidebarEntries(
-  entries: SidebarEntry[],
-  collapsedPaths: ReadonlySet<string>,
-): SidebarEntry[] {
-  return entries.filter(
-    (entry) => !sidebarAncestorPaths(entry).some((path) => collapsedPaths.has(path)),
-  );
 }
 
 /** Split file label into filename and state label for styled rendering. */

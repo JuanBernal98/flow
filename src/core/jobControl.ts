@@ -44,7 +44,7 @@ function isCtrlZ(key: KeyEvent) {
  * Install Ctrl-C handling that routes through the app's full shutdown path.
  *
  * With `exitOnCtrlC: false`, OpenTUI delivers Ctrl-C as a parsed keypress
- * instead of hard-exiting. Route it through `onInterrupt` so dunk tears the
+ * instead of hard-exiting. Route it through `onInterrupt` so flow tears the
  * renderer down via its own ordered shutdown instead of leaving the terminal
  * in raw mode.
  */
@@ -80,7 +80,7 @@ export function installJobControlInterruptSupport(
  * OpenTUI receives Ctrl-Z as a parsed keypress instead of letting the terminal
  * driver turn it into SIGTSTP. Treat Ctrl-Z as an app command: ask OpenTUI to
  * restore the terminal, then send SIGTSTP to the foreground process group so
- * the shell can manage dunk as a normal suspended job. SIGCONT resumes the
+ * the shell can manage flow as a normal suspended job. SIGCONT resumes the
  * renderer after `fg`.
  */
 export function installJobControlSuspendSupport(

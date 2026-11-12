@@ -5,7 +5,7 @@ A realistic multi-file demo where a tiny morning-summary app gets reorganized in
 ## Run
 
 ```bash
-dunk patch examples/2-mini-app-refactor/change.patch
+flow patch examples/2-mini-app-refactor/change.patch
 ```
 
 ## What to look for

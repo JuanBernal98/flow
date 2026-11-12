@@ -12,6 +12,23 @@ async function main() {
     process.exit(0);
   }
 
+  if (startupPlan.kind === "agent-watch") {
+    // Long-running but UI-free: keep it off the renderer path like the other agent commands.
+    const [{ findRepoRoot }, { runAgentWatch }, { FlowUserError }] = await Promise.all([
+      import("./core/config"),
+      import("./core/agentWatch"),
+      import("./core/errors"),
+    ]);
+    const repoRoot = findRepoRoot(process.cwd());
+    if (!repoRoot) {
+      throw new FlowUserError("Not inside a git repository.", [
+        "`flow watch` follows `.flow/` at the repo root; run it from inside a checkout.",
+      ]);
+    }
+    await runAgentWatch(repoRoot);
+    process.exit(0);
+  }
+
   if (startupPlan.kind === "plain-text-pager") {
     const { pagePlainText } = await import("./core/pager");
     await pagePlainText(startupPlan.text);
@@ -48,14 +65,20 @@ async function main() {
     { shutdownSession },
     jobControl,
     { shouldUseMouseForApp },
-    { resolveStartupUpdateNotice },
+    { loadYouTrackTasks, moveMergedTicket, youTrackIssueUrl },
+    { createGlabRun, loadMyMergeRequests, loadSquadReviews },
+    { findRepoRoot },
+    { readRepoIntegrations, hasWorkspaceIntegrations },
     { AppHost },
   ] = await Promise.all([
     import("@opentui/react"),
     import("./core/shutdown"),
     import("./core/jobControl"),
     import("./core/terminal"),
-    import("./core/updateNotice"),
+    import("./core/youtrack"),
+    import("./core/gitlab"),
+    import("./core/config"),
+    import("./core/repoIntegrations"),
     import("./ui/AppHost"),
   ]);
 
@@ -68,8 +91,12 @@ async function main() {
       hasControllingTerminal: Boolean(controllingTerminal),
     }),
     screenMode: "alternate-screen",
+    // flow routes every key itself and focuses inputs explicitly. OpenTUI's click-to-focus would
+    // hand a clicked scroll box the arrow keys too, so the diff scrolled while you moved through
+    // tickets after clicking it.
+    autoFocus: false,
     // Ctrl-C is routed through the job-control interrupt handler below so it
-    // runs dunk's ordered shutdown instead of OpenTUI's hard exit.
+    // runs flow's ordered shutdown instead of OpenTUI's hard exit.
     exitOnCtrlC: false,
     openConsoleOnError: true,
     onDestroy: () => controllingTerminal?.close(),
@@ -102,12 +129,35 @@ async function main() {
   jobControlInterruptSupport = jobControl.installJobControlInterruptSupport(renderer, shutdown);
   jobControlSuspendSupport = jobControl.installJobControlSuspendSupport(renderer);
 
+  // Each repository decides what it connects to in its own `.flow/config.toml`; one without
+  // integrations gets no loaders, so flow makes no YouTrack or GitLab calls there.
+  const integrations = readRepoIntegrations(findRepoRoot(process.cwd()));
+  const youtrackUrl = integrations.youtrackUrl;
+  const mergedState = integrations.mergedState;
+
   // The app owns the full alternate screen session from this point on.
   root.render(
     <AppHost
       bootstrap={bootstrap}
       onQuit={shutdown}
-      startupNoticeResolver={resolveStartupUpdateNotice}
+      workspaceConnected={hasWorkspaceIntegrations(integrations)}
+      workspaceTasksLoader={youtrackUrl ? () => loadYouTrackTasks({ url: youtrackUrl }) : undefined}
+      issueUrl={youtrackUrl ? (ticketId) => youTrackIssueUrl(youtrackUrl, ticketId) : undefined}
+      projectKeys={integrations.projectKeys}
+      closeMergedTicket={
+        youtrackUrl && mergedState
+          ? (ticketId) => moveMergedTicket(ticketId, mergedState, { url: youtrackUrl })
+          : undefined
+      }
+      loadMergeRequests={
+        integrations.gitlab ? (repoRoot) => loadMyMergeRequests(createGlabRun(repoRoot)) : undefined
+      }
+      loadReviews={
+        integrations.gitlab
+          ? (repoRoot) =>
+              loadSquadReviews(createGlabRun(repoRoot), { label: integrations.reviewLabel })
+          : undefined
+      }
     />,
   );
 }

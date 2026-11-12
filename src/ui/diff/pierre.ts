@@ -9,38 +9,41 @@ import { formatHunkHeader } from "../../core/hunkHeader";
 import type { DiffFile } from "../../core/types";
 import { blendHex, hexColorDistance } from "../lib/color";
 import type { AppTheme } from "../themes";
+import { registerClaudeCodeThemes } from "./claudeCodeThemes";
 import { expandDiffTabs } from "./codeColumns";
+
+// Make the Claude Code syntax themes resolvable by name before any highlight runs.
+registerClaudeCodeThemes();
 
 const PIERRE_THEME = {
   light: "pierre-light",
   dark: "pierre-dark",
 } as const;
 
-/** Resolve the single Pierre theme name needed for the current appearance. */
-function pierreThemeName(appearance: AppTheme["appearance"]) {
-  return PIERRE_THEME[appearance];
+/**
+ * Name of the syntax theme that highlights code for an app theme: its own `codeTheme` when it
+ * picks one (any theme Pierre resolves by name, such as `monokai`), else Pierre's for its mode.
+ */
+export function codeThemeName(theme: Pick<AppTheme, "appearance" | "codeTheme">) {
+  return theme.codeTheme ?? PIERRE_THEME[theme.appearance];
 }
 
-const PIERRE_RENDER_OPTIONS_BY_APPEARANCE = {
-  light: {
-    theme: pierreThemeName("light"),
-    useTokenTransformer: false,
-    tokenizeMaxLineLength: 1_000,
-    lineDiffType: "word-alt" as const,
-    maxLineDiffLength: 10_000,
-  },
-  dark: {
-    theme: pierreThemeName("dark"),
-    useTokenTransformer: false,
-    tokenizeMaxLineLength: 1_000,
-    lineDiffType: "word-alt" as const,
-    maxLineDiffLength: 10_000,
-  },
-} as const;
+const renderOptionsByCodeTheme = new Map<string, Parameters<typeof renderDiffWithHighlighter>[2]>();
 
-/** Reuse the render options for one appearance so startup work avoids extra object churn. */
-function pierreRenderOptions(appearance: AppTheme["appearance"]) {
-  return PIERRE_RENDER_OPTIONS_BY_APPEARANCE[appearance];
+/** Reuse the render options for one code theme so startup work avoids extra object churn. */
+function pierreRenderOptions(codeTheme: string) {
+  let options = renderOptionsByCodeTheme.get(codeTheme);
+  if (!options) {
+    options = {
+      theme: codeTheme,
+      useTokenTransformer: false,
+      tokenizeMaxLineLength: 1_000,
+      lineDiffType: "word-alt",
+      maxLineDiffLength: 10_000,
+    };
+    renderOptionsByCodeTheme.set(codeTheme, options);
+  }
+  return options;
 }
 
 type HighlightOptions = ReturnType<typeof getHighlighterOptions>;
@@ -264,6 +267,32 @@ function mergeSpan(target: RenderSpan[], next: RenderSpan) {
   target.push(next);
 }
 
+// Word emphasis only helps when part of a line changed. Past this share of the line's visible
+// characters the whole line changed, so it keeps the plain row tint instead of a solid block of
+// the stronger word color, the way Claude Code and GitHub show rewritten lines.
+const MAX_WORD_EMPHASIS_SHARE = 0.5;
+
+/** Drop word emphasis from a line whose emphasized text covers most of it. */
+function limitWordEmphasis(spans: RenderSpan[], emphasisBg: string) {
+  let visible = 0;
+  let emphasized = 0;
+  for (const span of spans) {
+    const length = span.text.trim().length;
+    visible += length;
+    if (span.bg === emphasisBg) {
+      emphasized += length;
+    }
+  }
+  if (emphasized === 0 || emphasized <= visible * MAX_WORD_EMPHASIS_SHARE) {
+    return spans;
+  }
+  const plain: RenderSpan[] = [];
+  for (const span of spans) {
+    mergeSpan(plain, span.bg === emphasisBg ? { ...span, bg: undefined } : { ...span });
+  }
+  return plain;
+}
+
 /** Flatten one highlighted HAST line into terminal-friendly styled text spans. */
 function flattenHighlightedLine(node: HastNode | undefined, theme: AppTheme, emphasisBg: string) {
   if (!node) {
@@ -318,14 +347,15 @@ function flattenHighlightedLine(node: HastNode | undefined, theme: AppTheme, emp
   };
 
   visit(node, {});
+  const limited = limitWordEmphasis(spans, emphasisBg);
 
   const nextCachedByTheme = cachedByTheme ?? new Map<string, RenderSpan[]>();
-  nextCachedByTheme.set(cacheKey, spans);
+  nextCachedByTheme.set(cacheKey, limited);
   if (!cachedByTheme) {
     flattenedHighlightedLineCache.set(node, nextCachedByTheme);
   }
 
-  return spans;
+  return limited;
 }
 
 /** Normalize one raw diff line before rendering. */
@@ -430,17 +460,14 @@ function trailingCollapsedLines(metadata: FileDiffMetadata) {
   return Math.max(additionRemaining, 0);
 }
 
-/** Prepare syntax highlighting for one language/appearance pair using Pierre's shared highlighter. */
-async function prepareHighlighter(
-  language: string | undefined,
-  appearance: AppTheme["appearance"],
-) {
+/** Prepare syntax highlighting for one language/code-theme pair using Pierre's shared highlighter. */
+async function prepareHighlighter(language: string | undefined, codeTheme: string) {
   const resolvedLanguage = language ?? "text";
-  const cacheKey = `${appearance}:${resolvedLanguage}`;
+  const cacheKey = `${codeTheme}:${resolvedLanguage}`;
   const options =
     highlighterOptionsByKey.get(cacheKey) ??
     getHighlighterOptions(resolvedLanguage, {
-      theme: pierreThemeName(appearance),
+      theme: codeTheme,
     });
 
   if (!highlighterOptionsByKey.has(cacheKey)) {
@@ -517,15 +544,15 @@ function aliasHighlightedContextLines(file: DiffFile, highlighted: HighlightedDi
 /** Highlight a diff file and return just the rendered line trees the UI needs. */
 export async function loadHighlightedDiff(
   file: DiffFile,
-  appearance: AppTheme["appearance"] = "dark",
+  codeTheme: string = PIERRE_THEME.dark,
 ): Promise<HighlightedDiffCode> {
   try {
-    const highlighter = await prepareHighlighter(file.language, appearance);
+    const highlighter = await prepareHighlighter(file.language, codeTheme);
     return queueHighlightedDiff(() => {
       const highlighted = renderDiffWithHighlighter(
         file.metadata,
         highlighter,
-        pierreRenderOptions(appearance),
+        pierreRenderOptions(codeTheme),
       );
       return aliasHighlightedContextLines(file, {
         deletionLines: highlighted.code.deletionLines as Array<HastNode | undefined>,
@@ -533,12 +560,12 @@ export async function loadHighlightedDiff(
       });
     });
   } catch {
-    const highlighter = await prepareHighlighter("text", appearance);
+    const highlighter = await prepareHighlighter("text", codeTheme);
     return queueHighlightedDiff(() => {
       const highlighted = renderDiffWithHighlighter(
         { ...file.metadata, lang: "text" },
         highlighter,
-        pierreRenderOptions(appearance),
+        pierreRenderOptions(codeTheme),
       );
       return aliasHighlightedContextLines(file, {
         deletionLines: highlighted.code.deletionLines as Array<HastNode | undefined>,
@@ -577,79 +604,61 @@ export function buildSplitRows(
       text: formatHunkHeader(hunk),
     });
 
+    // Each side lists its own lines back to back, so a deletion leaves no gap on the right and an
+    // addition none on the left; the shorter side pads only at the bottom of the hunk.
+    const leftCells: SplitLineCell[] = [];
+    const rightCells: SplitLineCell[] = [];
     let deletionLineIndex = hunk.deletionLineIndex;
     let additionLineIndex = hunk.additionLineIndex;
     let deletionLineNumber = hunk.deletionStart;
     let additionLineNumber = hunk.additionStart;
 
     for (const content of hunk.hunkContent) {
-      if (content.type === "context") {
-        for (let offset = 0; offset < content.lines; offset += 1) {
-          rows.push({
-            type: "split-line",
-            key: `${file.id}:split:${hunkIndex}:context:${deletionLineIndex + offset}:${additionLineIndex + offset}`,
-            fileId: file.id,
-            hunkIndex,
-            left: makeSplitCell(
-              "context",
-              deletionLineNumber + offset,
-              file.metadata.deletionLines[deletionLineIndex + offset],
-              deletionLines[deletionLineIndex + offset],
-              theme,
-            ),
-            right: makeSplitCell(
-              "context",
-              additionLineNumber + offset,
-              file.metadata.additionLines[additionLineIndex + offset],
-              additionLines[additionLineIndex + offset],
-              theme,
-            ),
-          });
-        }
-
-        deletionLineIndex += content.lines;
-        additionLineIndex += content.lines;
-        deletionLineNumber += content.lines;
-        additionLineNumber += content.lines;
-        continue;
+      const deletions = content.type === "context" ? content.lines : content.deletions;
+      const additions = content.type === "context" ? content.lines : content.additions;
+      const kind = content.type === "context" ? "context" : undefined;
+      for (let offset = 0; offset < deletions; offset += 1) {
+        leftCells.push(
+          makeSplitCell(
+            kind ?? "deletion",
+            deletionLineNumber + offset,
+            file.metadata.deletionLines[deletionLineIndex + offset],
+            deletionLines[deletionLineIndex + offset],
+            theme,
+          ),
+        );
       }
-
-      // Split mode keeps deletions and additions visually paired, padding the shorter side with empty cells.
-      const pairedLines = Math.max(content.deletions, content.additions);
-      for (let offset = 0; offset < pairedLines; offset += 1) {
-        const hasDeletion = offset < content.deletions;
-        const hasAddition = offset < content.additions;
-
-        rows.push({
-          type: "split-line",
-          key: `${file.id}:split:${hunkIndex}:change:${deletionLineIndex + offset}:${additionLineIndex + offset}`,
-          fileId: file.id,
-          hunkIndex,
-          left: hasDeletion
-            ? makeSplitCell(
-                "deletion",
-                deletionLineNumber + offset,
-                file.metadata.deletionLines[deletionLineIndex + offset],
-                deletionLines[deletionLineIndex + offset],
-                theme,
-              )
-            : makeSplitCell("empty", undefined, undefined, undefined, theme),
-          right: hasAddition
-            ? makeSplitCell(
-                "addition",
-                additionLineNumber + offset,
-                file.metadata.additionLines[additionLineIndex + offset],
-                additionLines[additionLineIndex + offset],
-                theme,
-              )
-            : makeSplitCell("empty", undefined, undefined, undefined, theme),
-        });
+      for (let offset = 0; offset < additions; offset += 1) {
+        rightCells.push(
+          makeSplitCell(
+            kind ?? "addition",
+            additionLineNumber + offset,
+            file.metadata.additionLines[additionLineIndex + offset],
+            additionLines[additionLineIndex + offset],
+            theme,
+          ),
+        );
       }
+      deletionLineIndex += deletions;
+      additionLineIndex += additions;
+      deletionLineNumber += deletions;
+      additionLineNumber += additions;
+    }
 
-      deletionLineIndex += content.deletions;
-      additionLineIndex += content.additions;
-      deletionLineNumber += content.deletions;
-      additionLineNumber += content.additions;
+    for (let index = 0; index < Math.max(leftCells.length, rightCells.length); index += 1) {
+      const left =
+        leftCells[index] ?? makeSplitCell("empty", undefined, undefined, undefined, theme);
+      const right =
+        rightCells[index] ?? makeSplitCell("empty", undefined, undefined, undefined, theme);
+      rows.push({
+        type: "split-line",
+        // One side always has a line, and line numbers are unique per side within a hunk.
+        key: `${file.id}:split:${hunkIndex}:${left.lineNumber ?? "-"}:${right.lineNumber ?? "-"}`,
+        fileId: file.id,
+        hunkIndex,
+        left,
+        right,
+      });
     }
   }
 

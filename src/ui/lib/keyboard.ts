@@ -21,7 +21,8 @@ export function isPageDownKey(key: KeyEvent) {
 
 /** Match any key alias that should scroll backward by a full viewport. */
 export function isPageUpKey(key: KeyEvent) {
-  return key.name === "pageup" || key.name === "b" || key.sequence === "b";
+  // `name` is lowercase even with Shift held, so exclude it: uppercase `B` switches branch review.
+  return key.name === "pageup" || (key.name === "b" && !key.shift) || key.sequence === "b";
 }
 
 /** Match any key alias that should scroll forward by a single diff row. */

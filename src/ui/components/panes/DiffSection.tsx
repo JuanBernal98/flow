@@ -4,8 +4,8 @@ import { PierreDiffView } from "../../diff/PierreDiffView";
 import type { VisibleBodyBounds } from "../../diff/rowWindowing";
 import type { DiffSectionGeometry } from "../../lib/diffSectionGeometry";
 import { getAnnotatedHunkIndices, type VisibleAgentNote } from "../../lib/agentAnnotations";
+import { FILE_SEPARATOR_ROWS } from "../../lib/fileSectionLayout";
 import { diffSectionId } from "../../lib/ids";
-import { fitText } from "../../lib/text";
 import type { AppTheme } from "../../themes";
 import { DiffFileHeaderRow } from "./DiffFileHeaderRow";
 
@@ -19,7 +19,6 @@ interface DiffSectionProps {
   muteHunkSelectionHighlight?: boolean;
   shouldLoadHighlight: boolean;
   sectionGeometry?: DiffSectionGeometry;
-  separatorWidth: number;
   showLineNumbers: boolean;
   showHunkHeaders: boolean;
   wrapLines: boolean;
@@ -44,7 +43,6 @@ function DiffSectionComponent({
   muteHunkSelectionHighlight = false,
   shouldLoadHighlight,
   sectionGeometry,
-  separatorWidth,
   showLineNumbers,
   showHunkHeaders,
   wrapLines,
@@ -65,7 +63,7 @@ function DiffSectionComponent({
       style={{
         width: "100%",
         flexDirection: "column",
-        backgroundColor: theme.panel,
+        backgroundColor: theme.background,
         overflow: "visible",
       }}
     >
@@ -73,14 +71,10 @@ function DiffSectionComponent({
         <box
           style={{
             width: "100%",
-            height: 1,
-            paddingLeft: 1,
-            paddingRight: 1,
+            height: FILE_SEPARATOR_ROWS,
             backgroundColor: theme.background,
           }}
-        >
-          <text bg={theme.background}>{fitText(" ".repeat(separatorWidth), separatorWidth)}</text>
-        </box>
+        />
       ) : null}
 
       {showHeader ? (
@@ -130,7 +124,6 @@ export const DiffSection = memo(DiffSectionComponent, (previous, next) => {
     previous.muteHunkSelectionHighlight === next.muteHunkSelectionHighlight &&
     previous.shouldLoadHighlight === next.shouldLoadHighlight &&
     previous.sectionGeometry === next.sectionGeometry &&
-    previous.separatorWidth === next.separatorWidth &&
     previous.showLineNumbers === next.showLineNumbers &&
     previous.showHunkHeaders === next.showHunkHeaders &&
     previous.wrapLines === next.wrapLines &&

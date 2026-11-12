@@ -2,6 +2,22 @@ import type { DiffFile, LayoutMode } from "../../core/types";
 
 const DIFF_CODE_TAB_WIDTH = 2;
 const DIFF_RAIL_PREFIX_WIDTH = 1;
+// Line-number columns every gutter reserves, shown or not, so code starts at the same column in
+// every file (and lines up with the file title) for files up to 9999 lines.
+const MIN_LINE_NUMBER_DIGITS = 4;
+
+/** Digits one file's gutter reserves for line numbers. */
+export function resolveLineNumberDigits(maxLineNumber: number) {
+  return Math.max(MIN_LINE_NUMBER_DIGITS, String(maxLineNumber).length);
+}
+
+/**
+ * Column where the tinted code block starts in a stack row or the left half of a split row: past
+ * the lead and the line-number margin. File titles and hunk rules start here too.
+ */
+export function resolveCodeBlockColumn(lineNumberDigits: number) {
+  return DIFF_RAIL_PREFIX_WIDTH + lineNumberDigits + 1;
+}
 const DIFF_SPLIT_SEPARATOR_WIDTH = 1;
 
 /** Expand tabs the same way the diff renderer does before measuring visible columns. */
@@ -84,11 +100,12 @@ export function resolveSplitPaneWidths(width: number) {
 export function resolveSplitCellGeometry(
   width: number,
   lineNumberDigits: number,
-  showLineNumbers: boolean,
   prefixWidth = DIFF_RAIL_PREFIX_WIDTH,
 ) {
   const availableWidth = Math.max(0, width - prefixWidth);
-  const gutterWidth = Math.min(availableWidth, showLineNumbers ? lineNumberDigits + 3 : 2);
+  // `<number> <sign> `; the gutter keeps its width when numbers are hidden, so code never shifts
+  // when toggling them and stays aligned with the file title.
+  const gutterWidth = Math.min(availableWidth, lineNumberDigits + 3);
 
   return {
     gutterWidth,
@@ -100,11 +117,13 @@ export function resolveSplitCellGeometry(
 export function resolveStackCellGeometry(
   width: number,
   lineNumberDigits: number,
-  showLineNumbers: boolean,
   prefixWidth = DIFF_RAIL_PREFIX_WIDTH,
 ) {
   const availableWidth = Math.max(0, width - prefixWidth);
-  const gutterWidth = Math.min(availableWidth, showLineNumbers ? lineNumberDigits * 2 + 5 : 2);
+  // One line-number column, like split view: `<number> <sign> `.
+  // `<number> <sign> `; the gutter keeps its width when numbers are hidden, so code never shifts
+  // when toggling them and stays aligned with the file title.
+  const gutterWidth = Math.min(availableWidth, lineNumberDigits + 3);
 
   return {
     gutterWidth,
@@ -117,15 +136,14 @@ export function resolveCodeViewportWidth(
   layout: Exclude<LayoutMode, "auto">,
   width: number,
   lineNumberDigits: number,
-  showLineNumbers: boolean,
 ) {
   if (layout === "split") {
     const { leftWidth, rightWidth } = resolveSplitPaneWidths(width);
     return Math.min(
-      resolveSplitCellGeometry(leftWidth, lineNumberDigits, showLineNumbers).contentWidth,
-      resolveSplitCellGeometry(rightWidth, lineNumberDigits, showLineNumbers).contentWidth,
+      resolveSplitCellGeometry(leftWidth, lineNumberDigits).contentWidth,
+      resolveSplitCellGeometry(rightWidth, lineNumberDigits).contentWidth,
     );
   }
 
-  return resolveStackCellGeometry(width, lineNumberDigits, showLineNumbers).contentWidth;
+  return resolveStackCellGeometry(width, lineNumberDigits).contentWidth;
 }

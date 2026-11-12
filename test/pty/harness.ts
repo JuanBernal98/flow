@@ -97,7 +97,13 @@ function runGit(args: string[], cwd: string, allowExitCodeOne = false) {
   const proc = spawnSync("git", args, {
     cwd,
     encoding: "utf8",
-    env: process.env,
+    // A globally enabled commit signer would wait on a prompt and time the fixture out.
+    env: {
+      ...process.env,
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "commit.gpgsign",
+      GIT_CONFIG_VALUE_0: "false",
+    },
   });
 
   const expected = allowExitCodeOne ? [0, 1] : [0];
@@ -128,7 +134,7 @@ export function createPtyHarness() {
   }
 
   function createLongWrapFilePair() {
-    const dir = makeTempDir("dunk-tuistory-wrap-");
+    const dir = makeTempDir("flow-tuistory-wrap-");
     const before = join(dir, "before.ts");
     const after = join(dir, "after.ts");
 
@@ -142,7 +148,7 @@ export function createPtyHarness() {
   }
 
   function createMultiHunkFilePair() {
-    const dir = makeTempDir("dunk-tuistory-hunks-");
+    const dir = makeTempDir("flow-tuistory-hunks-");
     const before = join(dir, "before.ts");
     const after = join(dir, "after.ts");
 
@@ -166,7 +172,7 @@ export function createPtyHarness() {
   }
 
   function createScrollableFilePair() {
-    const dir = makeTempDir("dunk-tuistory-scroll-");
+    const dir = makeTempDir("flow-tuistory-scroll-");
     const before = join(dir, "before.ts");
     const after = join(dir, "after.ts");
 
@@ -188,7 +194,7 @@ export function createPtyHarness() {
   }
 
   function createGitRepoFixture(files: ChangedFileSpec[]) {
-    const dir = makeTempDir("dunk-tuistory-repo-");
+    const dir = makeTempDir("flow-tuistory-repo-");
 
     runGit(["init"], dir);
     runGit(["config", "user.name", "Pi"], dir);
@@ -205,6 +211,37 @@ export function createPtyHarness() {
       writeText(join(dir, file.path), file.after);
     }
 
+    return { dir };
+  }
+
+  /**
+   * A git repository whose `.flow/config.toml` connects it to integrations. Fixture repos without
+   * one connect to nothing, which keeps every other PTY session off YouTrack and GitLab.
+   */
+  function createConnectedRepoFixture(config: string) {
+    const dir = makeTempDir("flow-tuistory-connected-");
+    runGit(["init"], dir);
+    writeText(join(dir, ".flow", "config.toml"), config);
+    return { dir };
+  }
+
+  /**
+   * A `feature` branch off `main` with one committed file and one uncommitted edit, so branch
+   * review and working-tree review show different files.
+   */
+  function createBranchRepoFixture() {
+    const dir = makeTempDir("flow-tuistory-branch-");
+    runGit(["init", "-b", "main"], dir);
+    runGit(["config", "user.name", "Pi"], dir);
+    runGit(["config", "user.email", "pi@example.com"], dir);
+    writeText(join(dir, "dirty.ts"), "export const dirty = 1;\n");
+    runGit(["add", "."], dir);
+    runGit(["commit", "-m", "initial"], dir);
+    runGit(["switch", "-c", "feature"], dir);
+    writeText(join(dir, "committed.ts"), "export const committedOnBranch = true;\n");
+    runGit(["add", "."], dir);
+    runGit(["commit", "-m", "branch work"], dir);
+    writeText(join(dir, "dirty.ts"), "export const dirty = 2;\n");
     return { dir };
   }
 
@@ -340,12 +377,12 @@ export function createPtyHarness() {
     }
 
     const shortBeforeLines = [
-      "// hunk 0 - at the very top of the file",
+      "// hunk 0   at the very top of the file",
       "export const top = 1;",
       "",
       "",
       ...Array.from({ length: 25 }, (_, index) => `// filler ${index + 1}`),
-      "// hunk 1 - mid-file",
+      "// hunk 1   mid-file",
       "export const mid = 3;",
     ];
     const shortAfterLines = [...shortBeforeLines];
@@ -367,7 +404,7 @@ export function createPtyHarness() {
   }
 
   function createPagerPatchFixture(lines = 40) {
-    const dir = makeTempDir("dunk-tuistory-pager-");
+    const dir = makeTempDir("flow-tuistory-pager-");
     const beforeDir = join(dir, "before");
     const afterDir = join(dir, "after");
     const patchFile = join(dir, "input.patch");
@@ -396,7 +433,7 @@ export function createPtyHarness() {
     return { dir, patchFile };
   }
 
-  /** Build the source-run dunk command so PTY tests can reuse it inside shell pipelines. */
+  /** Build the source-run flow command so PTY tests can reuse it inside shell pipelines. */
   function buildHunkCommand(args: string[]) {
     return [
       shellQuote(bunExecutable),
@@ -421,12 +458,40 @@ export function createPtyHarness() {
       (arg) => arg === "--line-numbers" || arg === "--no-line-numbers",
     );
     const passesWrapFlag = options.args.some((arg) => arg === "--wrap" || arg === "--no-wrap");
+    const passesFileTreeFlag = options.args.some(
+      (arg) => arg === "--file-tree" || arg === "--no-file-tree",
+    );
+    const passesOverviewFlag = options.args.some(
+      (arg) => arg === "--overview" || arg === "--no-overview",
+    );
     const stableLayoutDefaults: string[] = [];
     if (!passesLineNumberFlag) {
       stableLayoutDefaults.push("--line-numbers");
     }
     if (!passesWrapFlag) {
       stableLayoutDefaults.push("--no-wrap");
+    }
+    // `flow diff` reviews the branch and watches by default; PTY tests keep the plain working-tree
+    // review and a still session unless they cover those defaults.
+    const [commandName] = options.args;
+    if (
+      ["diff", "show", "difftool", "stash"].includes(commandName ?? "") &&
+      !options.args.some((arg) => arg === "--watch" || arg === "--no-watch")
+    ) {
+      stableLayoutDefaults.push("--no-watch");
+    }
+    if (
+      commandName === "diff" &&
+      !options.args.some((arg) => arg === "--no-branch" || arg.startsWith("--branch"))
+    ) {
+      stableLayoutDefaults.push("--no-branch");
+    }
+    // Side panes start closed in PTY tests, so snapshots only grow them when a test opens them.
+    if (!passesFileTreeFlag) {
+      stableLayoutDefaults.push("--no-file-tree");
+    }
+    if (!passesOverviewFlag) {
+      stableLayoutDefaults.push("--no-overview");
     }
 
     return launchTerminal({
@@ -466,8 +531,8 @@ export function createPtyHarness() {
   }
 
   /**
-   * Launch dunk with a file-backed stdin while keeping stdout/stderr attached to the PTY.
-   * Uses `exec cmd < file` so bash replaces itself with dunk, preserving the PTY on stdout/stderr
+   * Launch flow with a file-backed stdin while keeping stdout/stderr attached to the PTY.
+   * Uses `exec cmd < file` so bash replaces itself with flow, preserving the PTY on stdout/stderr
    * and the controlling terminal while giving the child a non-TTY stdin.
    */
   async function launchHunkWithFileBackedStdin(options: {
@@ -519,6 +584,8 @@ export function createPtyHarness() {
     countMatches,
     createBottomClampedRepoFixture,
     createCollapsedTopRepoFixture,
+    createConnectedRepoFixture,
+    createBranchRepoFixture,
     createCrossFileHunkNavigationRepoFixture,
     createLongWrapFilePair,
     createMultiHunkFilePair,

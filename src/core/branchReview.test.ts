@@ -31,6 +31,10 @@ function git(cwd: string, ...args: string[]) {
       GIT_AUTHOR_EMAIL: "test@example.com",
       GIT_COMMITTER_NAME: "test",
       GIT_COMMITTER_EMAIL: "test@example.com",
+      // A globally enabled commit signer would wait on a prompt and time the test out.
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "commit.gpgsign",
+      GIT_CONFIG_VALUE_0: "false",
     },
     stdin: "ignore",
     stdout: "pipe",
@@ -83,7 +87,7 @@ function buildVcsInput(overrides: Partial<VcsCommandInput> = {}): VcsCommandInpu
 
 describe("resolveGitBranchBase", () => {
   test("uses the explicit CLI base and returns the merge-base SHA", () => {
-    const { cwd, sharedSha } = setupBranchedRepo("dunk-branch-explicit-");
+    const { cwd, sharedSha } = setupBranchedRepo("flow-branch-explicit-");
 
     const resolved = resolveGitBranchBase(
       buildVcsInput({ branchReview: { explicitBase: "main" } }),
@@ -94,8 +98,30 @@ describe("resolveGitBranchBase", () => {
     expect(resolved.gitMergeBaseSha).toBe(sharedSha);
   });
 
+  test("uses the base flow recorded for the branch, such as a stacked MR's target", () => {
+    const { cwd } = setupBranchedRepo("flow-branch-recorded-");
+    const featureSha = git(cwd, "rev-parse", "HEAD");
+    git(cwd, "checkout", "-q", "-b", "stacked");
+    writeFileSync(join(cwd, "stacked.txt"), "stacked\n");
+    git(cwd, "add", "stacked.txt");
+    git(cwd, "commit", "-q", "-m", "stacked commit");
+    git(cwd, "config", "branch.stacked.flowBase", "feature");
+
+    // It wins over the repo-wide configured base, but an explicit CLI base still wins over it.
+    const resolved = resolveGitBranchBase(
+      buildVcsInput({ branchReview: {}, options: { mode: "auto", branchReviewBase: "main" } }),
+      { cwd },
+    );
+    expect(resolved.displayBase).toBe("feature");
+    expect(resolved.gitMergeBaseSha).toBe(featureSha);
+    expect(
+      resolveGitBranchBase(buildVcsInput({ branchReview: { explicitBase: "main" } }), { cwd })
+        .displayBase,
+    ).toBe("main");
+  });
+
   test("prefers the configured base when no explicit base is passed", () => {
-    const { cwd, sharedSha } = setupBranchedRepo("dunk-branch-configured-");
+    const { cwd, sharedSha } = setupBranchedRepo("flow-branch-configured-");
 
     const resolved = resolveGitBranchBase(
       buildVcsInput({
@@ -112,7 +138,7 @@ describe("resolveGitBranchBase", () => {
   test("walks the standard fallback list when no remote is configured", () => {
     // setupBranchedRepo creates a repo with no `origin` remote, so the resolver skips both
     // origin/HEAD lookup and the origin/* fallback candidates and lands on local `main`.
-    const { cwd, sharedSha } = setupBranchedRepo("dunk-branch-fallback-");
+    const { cwd, sharedSha } = setupBranchedRepo("flow-branch-fallback-");
 
     const resolved = resolveGitBranchBase(buildVcsInput({ branchReview: {} }), { cwd });
 
@@ -121,7 +147,7 @@ describe("resolveGitBranchBase", () => {
   });
 
   test("raises a friendly error when the explicit base cannot be resolved", () => {
-    const { cwd } = setupBranchedRepo("dunk-branch-unknown-");
+    const { cwd } = setupBranchedRepo("flow-branch-unknown-");
 
     expect(() =>
       resolveGitBranchBase(buildVcsInput({ branchReview: { explicitBase: "does-not-exist" } }), {
@@ -132,7 +158,7 @@ describe("resolveGitBranchBase", () => {
 
   test("distinguishes 'no common ancestor' from 'unknown base'", () => {
     // Build an unrelated-history branch so `git merge-base` finds the ref but no shared commits.
-    const cwd = createTempDir("dunk-branch-no-ancestor-");
+    const cwd = createTempDir("flow-branch-no-ancestor-");
     git(cwd, "init", "-q", "-b", "main");
     writeFileSync(join(cwd, "a.txt"), "main\n");
     git(cwd, "add", "a.txt");

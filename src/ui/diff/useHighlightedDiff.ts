@@ -89,8 +89,8 @@ function patchFingerprint(file: DiffFile) {
 
 /** Cache key that includes a content fingerprint so stale entries are never served
  *  after reload. Unchanged files keep their cache hit across reloads. */
-function buildCacheKey(appearance: string, file: DiffFile) {
-  return `${appearance}:${file.id}:${patchFingerprint(file)}`;
+function buildCacheKey(codeTheme: string, file: DiffFile) {
+  return `${codeTheme}:${file.id}:${patchFingerprint(file)}`;
 }
 
 /** Only commit a highlight result if the promise is still the active one for that key.
@@ -113,8 +113,8 @@ function commitHighlightResult(
 /** Start one shared highlight request unless the cache or an in-flight promise already has it. */
 function ensureHighlightedDiffLoaded(
   file: DiffFile,
-  appearance: "light" | "dark",
-  cacheKey = buildCacheKey(appearance, file),
+  codeTheme: string,
+  cacheKey = buildCacheKey(codeTheme, file),
 ) {
   const cached = SHARED_HIGHLIGHTED_DIFF_CACHE.get(cacheKey);
   if (cached) {
@@ -127,7 +127,7 @@ function ensureHighlightedDiffLoaded(
   }
 
   let pending: Promise<HighlightedDiffCode>;
-  pending = loadHighlightedDiff(file, appearance)
+  pending = loadHighlightedDiff(file, codeTheme)
     .then((nextHighlighted) => {
       commitHighlightResult(cacheKey, pending, nextHighlighted);
       return nextHighlighted;
@@ -148,66 +148,66 @@ function ensureHighlightedDiffLoaded(
 /** Queue syntax highlighting for one file without mounting its diff rows first. */
 export function prefetchHighlightedDiff({
   file,
-  appearance,
+  codeTheme,
 }: {
   file: DiffFile;
-  appearance: "light" | "dark";
+  codeTheme: string;
 }) {
-  return ensureHighlightedDiffLoaded(file, appearance);
+  return ensureHighlightedDiffLoaded(file, codeTheme);
 }
 
 /** Read the best already-available highlight result without starting async work during render. */
 function resolveHighlightedSnapshot({
-  appearanceCacheKey,
+  codeThemeCacheKey,
   highlighted,
   highlightedCacheKey,
 }: {
-  appearanceCacheKey: string | null;
+  codeThemeCacheKey: string | null;
   highlighted: HighlightedDiffCode | null;
   highlightedCacheKey: string | null;
 }) {
-  if (!appearanceCacheKey) {
+  if (!codeThemeCacheKey) {
     return null;
   }
 
-  if (highlightedCacheKey === appearanceCacheKey) {
+  if (highlightedCacheKey === codeThemeCacheKey) {
     return highlighted;
   }
 
-  return SHARED_HIGHLIGHTED_DIFF_CACHE.get(appearanceCacheKey) ?? null;
+  return SHARED_HIGHLIGHTED_DIFF_CACHE.get(codeThemeCacheKey) ?? null;
 }
 
 /** Resolve highlighted diff content with shared caching and background prefetch support. */
 export function useHighlightedDiff({
   file,
-  appearance,
+  codeTheme,
   shouldLoadHighlight,
 }: {
   file: DiffFile | undefined;
-  appearance: "light" | "dark";
+  codeTheme: string;
   shouldLoadHighlight?: boolean;
 }) {
   const [highlighted, setHighlighted] = useState<HighlightedDiffCode | null>(null);
   const [highlightedCacheKey, setHighlightedCacheKey] = useState<string | null>(null);
-  const appearanceCacheKey = file ? buildCacheKey(appearance, file) : null;
+  const codeThemeCacheKey = file ? buildCacheKey(codeTheme, file) : null;
 
   // Use a layout effect so a newly available cached result can replace the plain-text fallback
   // before the next diff paint whenever possible. That reduces flash/stutter as files enter view.
   useLayoutEffect(() => {
-    if (!file || !appearanceCacheKey) {
+    if (!file || !codeThemeCacheKey) {
       setHighlighted(null);
       setHighlightedCacheKey(null);
       return;
     }
 
-    if (highlightedCacheKey === appearanceCacheKey) {
+    if (highlightedCacheKey === codeThemeCacheKey) {
       return;
     }
 
-    const cached = SHARED_HIGHLIGHTED_DIFF_CACHE.get(appearanceCacheKey);
+    const cached = SHARED_HIGHLIGHTED_DIFF_CACHE.get(codeThemeCacheKey);
     if (cached) {
       setHighlighted(cached);
-      setHighlightedCacheKey(appearanceCacheKey);
+      setHighlightedCacheKey(codeThemeCacheKey);
       return;
     }
 
@@ -218,23 +218,23 @@ export function useHighlightedDiff({
     let cancelled = false;
     setHighlighted(null);
 
-    ensureHighlightedDiffLoaded(file, appearance, appearanceCacheKey).then((nextHighlighted) => {
+    ensureHighlightedDiffLoaded(file, codeTheme, codeThemeCacheKey).then((nextHighlighted) => {
       if (cancelled) {
         return;
       }
 
       setHighlighted(nextHighlighted);
-      setHighlightedCacheKey(appearanceCacheKey);
+      setHighlightedCacheKey(codeThemeCacheKey);
     });
 
     return () => {
       cancelled = true;
     };
-  }, [appearance, appearanceCacheKey, file, highlightedCacheKey, shouldLoadHighlight]);
+  }, [codeTheme, codeThemeCacheKey, file, highlightedCacheKey, shouldLoadHighlight]);
 
   // Prefer cached highlights during render so revisiting a file can paint immediately.
   return resolveHighlightedSnapshot({
-    appearanceCacheKey,
+    codeThemeCacheKey,
     highlighted,
     highlightedCacheKey,
   });

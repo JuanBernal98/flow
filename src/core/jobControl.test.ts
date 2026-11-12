@@ -293,6 +293,6 @@ describe("installJobControlSuspendSupport", () => {
 // observable in an interactive shell with a controlling-TTY foreground
 // process group. It cannot be faithfully reproduced in a non-interactive
 // test runner (a synthetic self-SIGTSTP outside a foreground TTY job does not
-// stop under Bun), so the dunk-owned logic is covered by the mocked unit
+// stop under Bun), so the flow-owned logic is covered by the mocked unit
 // tests above and the interactive path is verified by manual smoke. This
 // matches upstream hunk, which also unit-tests `jobControl` only.

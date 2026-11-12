@@ -11,6 +11,9 @@ export interface FileSectionLayout {
   sectionBottom: number;
 }
 
+/** Blank rows between two files in the review stream, so each file card stands on its own. */
+export const FILE_SEPARATOR_ROWS = 2;
+
 /** Return the in-stream header height for one review section. */
 function getInStreamFileHeaderHeight(sectionIndex: number) {
   return sectionIndex === 0 ? 0 : 1;
@@ -36,7 +39,7 @@ export function buildFileSectionLayouts(
   let cursor = 0;
 
   files.forEach((file, index) => {
-    const separatorHeight = index > 0 ? 1 : 0;
+    const separatorHeight = index > 0 ? FILE_SEPARATOR_ROWS : 0;
     const headerHeight = Math.max(0, headerHeights?.[index] ?? getInStreamFileHeaderHeight(index));
     const bodyHeight = Math.max(0, bodyHeights[index] ?? 0);
     const sectionTop = cursor;

@@ -6,6 +6,9 @@ import { testRender } from "@opentui/react/test-utils";
 import { BoxRenderable } from "@opentui/core";
 import { act } from "react";
 import type { AppBootstrap, LayoutMode } from "../core/types";
+import type { FocusRequest } from "../core/focusRequests";
+import type { GitRun } from "../core/ticketSwitch";
+import type { WorkspaceTasksResult } from "../core/youtrack";
 import { createTestVcsAppBootstrap } from "../../test/helpers/app-bootstrap";
 import { createTestDiffFile as buildTestDiffFile, lines } from "../../test/helpers/diff-helpers";
 
@@ -14,7 +17,7 @@ const { AppHost } = await import("./AppHost");
 
 const PAGE_UP_SEQUENCE = "\x1B[5~";
 
-test("nested file tree folds with keyboard and mouse while preserving the full review", async () => {
+test("the flat file list selects files with keyboard and mouse while preserving the full review", async () => {
   const onQuit = mock(() => {});
   const bootstrap = createTestVcsAppBootstrap({
     changesetId: "changeset:tree",
@@ -34,38 +37,35 @@ test("nested file tree folds with keyboard and mouse while preserving the full r
       await setup.mockInput.typeText("F");
     });
     await flush(setup);
-    expect(setup.captureCharFrame()).toContain("▾ src/");
-    expect(setup.captureCharFrame()).toContain("▾ ui/");
+    const tree = setup.renderer.root.findDescendantById("file-tree-pane");
+    if (!(tree instanceof BoxRenderable)) throw new Error("Missing file list");
+    let frame = setup.captureCharFrame();
+    // Filenames only: no folder headings and no folding.
+    expect(frame).toContain("○ alpha.ts");
+    expect(frame).toContain("○ beta.ts");
+    expect(frame).not.toContain("src/ui/ ");
+    expect(frame).not.toContain("▸");
+    expect(frame).toContain("2 Changes");
+    expect(frame).toContain("+2 −2");
+
+    // Keyboard: End then Enter selects the last file; the review still shows every file.
     await act(async () => {
-      await setup.mockInput.pressKey("HOME");
+      await setup.mockInput.pressKey("END");
     });
     await flush(setup);
     await act(async () => {
       await setup.mockInput.pressEnter();
     });
     await flush(setup);
-    let frame = setup.captureCharFrame();
-    expect(frame).toContain("2 Changes");
-    expect(frame.match(/2 Changes/g)).toHaveLength(1);
-    expect(frame).toContain("▸ src/");
-    expect(frame).toContain("+2 −2");
-    expect(frame).not.toContain("▾ ui/");
+    frame = setup.captureCharFrame();
     expect(frame).toContain("const alpha = 2;");
     expect(frame).toContain("const beta = 2;");
+
+    // Escape from the focused list returns to the review instead of quitting.
     await act(async () => {
-      await setup.mockMouse.click(38, 3);
+      await setup.mockInput.typeText("F");
     });
     await flush(setup);
-    expect(setup.captureCharFrame()).toContain("▾ ui/");
-    await act(async () => {
-      await setup.mockInput.pressArrow("right");
-    });
-    await flush(setup);
-    await act(async () => {
-      await setup.mockInput.pressArrow("left");
-    });
-    await flush(setup);
-    expect(setup.captureCharFrame()).toContain("▸ ui/");
     await act(async () => {
       await setup.mockInput.pressEscape();
       await Bun.sleep(40);
@@ -81,7 +81,7 @@ test("nested file tree folds with keyboard and mouse while preserving the full r
     });
     await flush(setup);
     frame = setup.captureCharFrame();
-    expect(frame).toContain("▾ ui/");
+    expect(frame).toContain("○ alpha.ts");
     expect(frame).toContain("1 Changes");
     expect(frame).not.toContain("const beta = 2;");
   } finally {
@@ -92,31 +92,87 @@ test("nested file tree folds with keyboard and mouse while preserving the full r
 });
 
 test("workspace mouse and keyboard selection preserve the active review", async () => {
-  const setup = await testRender(<AppHost bootstrap={createSidebarBootstrap()} />, {
-    width: 160,
-    height: 24,
-  });
+  let loads = 0;
+  const loadTestWorkspaceTasks = async (): Promise<WorkspaceTasksResult> => {
+    loads += 1;
+    return {
+      kind: "ready",
+      tasks: [
+        {
+          id: "PROJ-101",
+          summary: "Workspace sidebar",
+          state: "In Progress",
+          url: "https://youtrack.example.test/issue/PROJ-101",
+        },
+        {
+          id: "PROJ-102",
+          summary: "Review navigation",
+          state: "Open",
+          url: "https://youtrack.example.test/issue/PROJ-102",
+        },
+        {
+          id: "PROJ-103",
+          summary: "Badge overlay",
+          state: "Review",
+          url: "https://youtrack.example.test/issue/PROJ-103",
+        },
+      ],
+    };
+  };
+  const openedUrls: string[] = [];
+  const ticketGit = createTestTicketGit("");
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      workspaceTasksLoader={loadTestWorkspaceTasks}
+      onOpenUrl={(url) => openedUrls.push(url)}
+      createTicketGit={() => ticketGit.git}
+      requestTicketContext={(_root, ticketId) => ticketGit.contextRequests.push(ticketId)}
+      loadMergeRequests={async () => [
+        {
+          iid: 3601,
+          state: "opened",
+          sourceBranch: "PROJ-101-workspace",
+          url: "https://gitlab.example.test/mr/3601",
+          updatedAt: "2026-11-10T10:00:00Z",
+          approved: false,
+        },
+      ]}
+    />,
+    { width: 160, height: 24 },
+  );
   try {
     await flush(setup);
-    expect(setup.captureCharFrame()).toContain("+48 −12");
+    await flush(setup);
+    expect(setup.captureCharFrame()).toContain("PROJ-101 · !3601");
     expect(setup.captureCharFrame()).toContain("◐ Workspace sidebar");
     expect(setup.captureCharFrame()).toContain("○ Review navigation");
-    expect(setup.captureCharFrame()).toContain("◇ Simplify diff");
-    expect(setup.captureCharFrame()).toContain("✓ Stable comment");
-    expect(setup.renderer.root.findDescendantById("workspace-heading-Tasks")?.height).toBe(3);
-    expect(setup.renderer.root.findDescendantById("workspace-heading-Reviews")?.height).toBe(3);
+    expect(setup.captureCharFrame()).toContain("Reviews are not connected");
+    expect(setup.captureCharFrame()).toContain("◇ Badge overlay");
+    const approval = setup.renderer.root.findDescendantById("workspace-section-approval");
+    expect(approval?.findDescendantById("workspace-2")).toBeDefined();
+    expect(setup.renderer.root.findDescendantById("workspace-heading-todo")?.height).toBe(3);
+    expect(setup.renderer.root.findDescendantById("workspace-heading-reviews")?.height).toBe(3);
+    const unfocusedColor = findWorkspaceRow(setup, 0).backgroundColor;
+    // The pane starts open but unfocused: the first S focuses it and marks the selection.
     await act(async () => {
       await setup.mockInput.typeText("S");
     });
     await flush(setup);
-    expect(setup.captureCharFrame()).not.toContain("Tasks");
+    expect(setup.captureCharFrame()).toContain("To do");
+    expect(findWorkspaceRow(setup, 0).backgroundColor).not.toEqual(unfocusedColor);
     await act(async () => {
       await setup.mockInput.typeText("S");
     });
     await flush(setup);
-    const firstItem = setup.renderer.root.findDescendantById("workspace-row-0");
-    if (!(firstItem instanceof BoxRenderable)) throw new Error("Missing workspace item");
+    expect(setup.captureCharFrame()).not.toContain("To do");
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await flush(setup);
+    const firstItem = findWorkspaceRow(setup, 0);
     const selectedColor = firstItem.backgroundColor;
+    expect(selectedColor).not.toEqual(unfocusedColor);
     await act(async () => {
       await setup.mockInput.typeText("j");
     });
@@ -127,19 +183,1149 @@ test("workspace mouse and keyboard selection preserve the active review", async 
     });
     await flush(setup);
     expect(firstItem.backgroundColor).toEqual(selectedColor);
+    await act(async () => {
+      await setup.mockInput.typeText("r");
+    });
+    await flush(setup);
+    await flush(setup);
+    expect(loads).toBe(2);
+    await act(async () => {
+      await setup.mockInput.typeText("h");
+    });
+    expect(openedUrls).toEqual(["https://youtrack.example.test/issue/PROJ-101"]);
+    await act(async () => {
+      await setup.mockInput.typeText("g");
+    });
+    expect(openedUrls).toEqual([
+      "https://youtrack.example.test/issue/PROJ-101",
+      "https://gitlab.example.test/mr/3601",
+    ]);
+    expect(setup.captureCharFrame()).toContain("◐ Workspace sidebar");
     expect(setup.captureCharFrame()).toContain("alpha.ts");
+
+    // r reloads the workspace from the diff too, and the loaded tickets stay up meanwhile.
+    await act(async () => {
+      await setup.mockInput.pressEscape();
+      await Bun.sleep(40);
+    });
+    await act(async () => {
+      await setup.mockInput.typeText("r");
+    });
+    expect(setup.captureCharFrame()).not.toContain("Loading tasks");
+    await flush(setup);
+    await flush(setup);
+    expect(loads).toBe(3);
+    expect(setup.captureCharFrame()).toContain("◐ Workspace sidebar");
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
     expect(setup.captureCharFrame()).toContain("beta.ts");
     await act(async () => {
       await setup.mockInput.pressEnter();
-      await setup.mockInput.typeText("S");
     });
     await flush(setup);
-    expect(setup.captureCharFrame()).not.toContain("Tasks");
+    expect(await waitForFrame(setup, (frame) => frame.includes("On PROJ-101"))).toContain(
+      "On PROJ-101 · new branch",
+    );
+    expect(ticketGit.calls).toContainEqual([
+      "switch",
+      "--no-track",
+      "-c",
+      "PROJ-101",
+      "origin/main",
+    ]);
+    // Enter hands focus back to the review, so S focuses the workspace before it can hide it.
     await act(async () => {
       await setup.mockInput.typeText("S");
     });
     await flush(setup);
-    expect(setup.captureCharFrame()).toContain("Tasks");
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await flush(setup);
+    expect(setup.captureCharFrame()).not.toContain("To do");
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await flush(setup);
+    expect(setup.captureCharFrame()).toContain("To do");
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("Reviews list squad MRs, and Enter checks one out like a ticket, parking my work", async () => {
+  const reviewGit = createTestTicketGit(" M src/app.ts");
+  const baseGit = reviewGit.git;
+  // origin has the review branch; there is no local copy yet.
+  const git: GitRun = async (args) => {
+    if (args.join(" ") === "rev-parse --verify --quiet refs/heads/PROJ-55-their-fix") {
+      return { ok: false, stdout: "", stderr: "" };
+    }
+    return baseGit(args);
+  };
+  const openedUrls: string[] = [];
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      workspaceTasksLoader={async () => ({ kind: "ready", tasks: [] })}
+      onOpenUrl={(url) => openedUrls.push(url)}
+      createTicketGit={() => git}
+      requestTicketContext={(_root, ticketId) => reviewGit.contextRequests.push(ticketId)}
+      issueUrl={(ticketId) => `https://youtrack.example.test/issue/${ticketId}`}
+      loadReviews={async () => ({
+        kind: "ready",
+        reviews: [
+          {
+            iid: 4100,
+            title: "Fix the feeder selector",
+            author: "teammate",
+            sourceBranch: "PROJ-55-their-fix",
+            targetBranch: "PROJ-54-base",
+            url: "https://gitlab.example.test/mr/4100",
+          },
+          {
+            iid: 4101,
+            title: "PROJ-77 Close the busbar gap",
+            author: "teammate",
+            sourceBranch: "busbar-gap",
+            targetBranch: "main",
+            url: "https://gitlab.example.test/mr/4101",
+          },
+        ],
+      })}
+    />,
+    { width: 160, height: 24 },
+  );
+  try {
+    const frame = await waitForFrame(setup, (current) => current.includes("Fix the feeder"));
+    expect(frame).toContain("◇ Fix the feeder selector");
+    // Each review names its ticket beside the MR: from the branch, else from the title.
+    expect(frame).toContain("!4100 · PROJ-55 · teammate");
+    expect(frame).toContain("!4101 · PROJ-77 · teammate");
+    expect(frame).toContain("Nothing to do");
+
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    // `h` is always the ticket (read from the review's branch) and `g` always the MR.
+    await act(async () => {
+      await setup.mockInput.typeText("h");
+    });
+    await act(async () => {
+      await setup.mockInput.typeText("g");
+    });
+    expect(openedUrls).toEqual([
+      "https://youtrack.example.test/issue/PROJ-55",
+      "https://gitlab.example.test/mr/4100",
+    ]);
+
+    await act(async () => {
+      await setup.mockInput.pressEnter();
+    });
+    expect(await waitForFrame(setup, (current) => current.includes("On PROJ-55"))).toContain(
+      "On PROJ-55-their-fix · tracking origin · main changes stashed",
+    );
+    expect(reviewGit.calls).toContainEqual([
+      "stash",
+      "push",
+      "--include-untracked",
+      "-m",
+      "flow:main",
+    ]);
+    expect(reviewGit.calls).toContainEqual([
+      "switch",
+      "--track",
+      "-C",
+      "PROJ-55-their-fix",
+      "origin/PROJ-55-their-fix",
+    ]);
+    // The diff compares against the MR's target, not origin/main.
+    expect(reviewGit.calls).toContainEqual([
+      "config",
+      "branch.PROJ-55-their-fix.flowBase",
+      "origin/PROJ-54-base",
+    ]);
+    // Reviews are read in flow; only my own tickets ask the agent for context.
+    expect(reviewGit.contextRequests).toEqual([]);
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("Enter on a ticket with uncommitted changes stashes them without asking", async () => {
+  const ticketGit = createTestTicketGit(" M src/app.ts");
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      workspaceTasksLoader={async () => ({
+        kind: "ready",
+        tasks: [
+          {
+            id: "PROJ-7",
+            summary: "Parked work",
+            state: "Open",
+            url: "https://youtrack.example.test/issue/PROJ-7",
+          },
+        ],
+      })}
+      createTicketGit={() => ticketGit.git}
+      requestTicketContext={(_root, ticketId) => ticketGit.contextRequests.push(ticketId)}
+    />,
+    { width: 160, height: 24 },
+  );
+  try {
+    await flush(setup);
+    await flush(setup);
+    await act(async () => {
+      await setup.mockMouse.click(8, 4);
+    });
+    await act(async () => {
+      await setup.mockInput.pressEnter();
+    });
+    expect(await waitForFrame(setup, (frame) => frame.includes("On PROJ-7"))).toContain(
+      "On PROJ-7 · new branch · main changes stashed",
+    );
+    expect(ticketGit.calls).toContainEqual([
+      "stash",
+      "push",
+      "--include-untracked",
+      "-m",
+      "flow:main",
+    ]);
+    expect(ticketGit.calls).toContainEqual(["switch", "--no-track", "-c", "PROJ-7", "origin/main"]);
+    expect(ticketGit.contextRequests).toEqual(["PROJ-7"]);
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("switching to a ticket that already has an overview does not ask the agent again", async () => {
+  const ticketGit = createTestTicketGit("");
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      workspaceTasksLoader={async () => ({
+        kind: "ready",
+        tasks: [
+          {
+            id: "PROJ-7",
+            summary: "Known ticket",
+            state: "Open",
+            url: "https://youtrack.example.test/issue/PROJ-7",
+          },
+        ],
+      })}
+      createTicketGit={() => ticketGit.git}
+      requestTicketContext={(_root, ticketId) => ticketGit.contextRequests.push(ticketId)}
+      readOverview={(_root, ticketId) => ({
+        schema: 1,
+        ticket: ticketId,
+        writtenAt: new Date().toISOString(),
+        overview: {
+          summary: "Already understood.",
+          why: [],
+          todo: [],
+          acceptance: [],
+          code: [],
+          questions: [],
+          plan: [],
+        },
+      })}
+    />,
+    { width: 160, height: 24 },
+  );
+  try {
+    await flush(setup);
+    await flush(setup);
+    await act(async () => {
+      await setup.mockMouse.click(8, 4);
+    });
+    await act(async () => {
+      await setup.mockInput.pressEnter();
+    });
+    await waitForFrame(setup, (frame) => frame.includes("On PROJ-7"));
+    expect(ticketGit.calls).toContainEqual(["switch", "--no-track", "-c", "PROJ-7", "origin/main"]);
+    // The overview is already there, so the switch costs the agent nothing; X still asks.
+    expect(ticketGit.contextRequests).toEqual([]);
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("the checked-out ticket keeps the rail while the cursor moves and the pane loses focus", async () => {
+  const branchGit: GitRun = async (args) => ({
+    ok: true,
+    stdout: args.join(" ") === "branch --show-current" ? "PROJ-102-work" : "",
+    stderr: "",
+  });
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      workspaceTasksLoader={async () => ({
+        kind: "ready",
+        tasks: [
+          { id: "PROJ-101", summary: "First", state: "Open", url: "https://example.test/PROJ-101" },
+          {
+            id: "PROJ-102",
+            summary: "Current",
+            state: "Open",
+            url: "https://example.test/PROJ-102",
+          },
+        ],
+      })}
+      createTicketGit={() => branchGit}
+      requestTicketContext={() => {}}
+    />,
+    { width: 160, height: 24 },
+  );
+  try {
+    const railColor = (index: number) => {
+      const rail = setup.renderer.root.findDescendantById(`workspace-rail-${index}`);
+      if (!(rail instanceof BoxRenderable)) throw new Error(`Missing rail ${index}`);
+      return rail.backgroundColor;
+    };
+    await waitForFrame(setup, (frame) => frame.includes("PROJ-102"));
+    await flush(setup);
+    await flush(setup);
+    // The pane is unfocused, yet the current branch's ticket keeps its rail and the first
+    // ticket, where selection would otherwise start, stays unmarked.
+    expect(railColor(0)).toEqual(findWorkspaceRow(setup, 0).backgroundColor);
+    expect(railColor(1)).not.toEqual(railColor(0));
+    expect(findWorkspaceRow(setup, 1).backgroundColor).toEqual(
+      findWorkspaceRow(setup, 0).backgroundColor,
+    );
+    const activeRail = railColor(1);
+    const plainRow = findWorkspaceRow(setup, 0).backgroundColor;
+
+    // Moving the cursor to another ticket only tints that row; the rail stays on the branch.
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await flush(setup);
+    await act(async () => {
+      await setup.mockInput.typeText("k");
+    });
+    await flush(setup);
+    expect(railColor(1)).toEqual(activeRail);
+    expect(railColor(0)).not.toEqual(activeRail);
+    expect(findWorkspaceRow(setup, 0).backgroundColor).not.toEqual(plainRow);
+    expect(findWorkspaceRow(setup, 1).backgroundColor).toEqual(plainRow);
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("ticket cards show their branch line totals at the right edge", async () => {
+  const statsGit: GitRun = async (args) => {
+    const joined = args.join(" ");
+    const reply = (stdout: string) => ({ ok: true, stdout, stderr: "" });
+    if (joined === "branch --show-current") return reply("main");
+    if (joined.startsWith("for-each-ref") && args.includes("refs/heads/PROJ-101")) {
+      return reply("refs/heads/PROJ-101-work");
+    }
+    if (joined.startsWith("for-each-ref") && args.includes("refs/heads/PROJ-102")) {
+      return reply("refs/heads/PROJ-102");
+    }
+    if (joined === "diff --shortstat origin/main...PROJ-101-work") {
+      return reply(" 2 files changed, 5 insertions(+), 2 deletions(-)");
+    }
+    if (joined === "diff --shortstat origin/main...PROJ-102") {
+      return reply(" 1 file changed, 3 insertions(+)");
+    }
+    return reply("");
+  };
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      workspaceTasksLoader={async () => ({
+        kind: "ready",
+        tasks: [
+          { id: "PROJ-101", summary: "First", state: "Open", url: "https://example.test/PROJ-101" },
+          {
+            id: "PROJ-102",
+            summary: "Second",
+            state: "Open",
+            url: "https://example.test/PROJ-102",
+          },
+          {
+            id: "PROJ-103",
+            summary: "No branch",
+            state: "Open",
+            url: "https://example.test/PROJ-103",
+          },
+        ],
+      })}
+      createTicketGit={() => statsGit}
+      requestTicketContext={() => {}}
+    />,
+    { width: 160, height: 30 },
+  );
+  try {
+    const frame = await waitForFrame(setup, (text) => text.includes("+5 −2"));
+    // Each card pushes its totals to the right edge, away from the id.
+    expect(frame).toMatch(/PROJ-101 {6,}\+5 −2/);
+    expect(frame).toMatch(/PROJ-102 {6,}\+3 −0/);
+    expect(frame).not.toMatch(/PROJ-103 +\+/);
+    // Section headings keep only their ticket count.
+    expect(frame).toMatch(/To do {6,}3/);
+    expect(frame).not.toContain("+8 −2");
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("an agent focus request jumps the review to that file and says so", async () => {
+  const bootstrap = createTestVcsAppBootstrap({
+    changesetId: "changeset:focus",
+    files: [
+      createTestDiffFile("alpha", "src/alpha.ts", "const alpha = 1;\n", "const alpha = 2;\n"),
+      createTestDiffFile("beta", "src/beta.ts", "const beta = 1;\n", "const beta = 2;\n"),
+    ],
+  });
+  let pending: FocusRequest | null = null;
+  const setup = await testRender(
+    <AppHost bootstrap={bootstrap} readAgentFocusRequest={() => pending} />,
+    { width: 120, height: 20 },
+  );
+  try {
+    await flush(setup);
+    pending = { id: "focus-1", file: "src/beta.ts", line: 1 };
+    const frame = await waitForFrame(
+      setup,
+      (text) => text.includes("Agent: look at src/beta.ts:1"),
+      40,
+    );
+    expect(frame).toContain("Agent: look at src/beta.ts:1");
+
+    pending = { id: "focus-2", file: "src/gone.ts" };
+    expect(await waitForFrame(setup, (text) => text.includes("not in this review"), 40)).toContain(
+      "Agent pointed at src/gone.ts, which is not in this review",
+    );
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+/** Find one rendered workspace row by its selection index. */
+function findWorkspaceRow(setup: Awaited<ReturnType<typeof testRender>>, index: number) {
+  const row = setup.renderer.root.findDescendantById(`workspace-row-${index}`);
+  if (!(row instanceof BoxRenderable)) throw new Error(`Missing workspace row ${index}`);
+  return row;
+}
+
+/** Fake git that reports `main` with the given porcelain status and records every call. */
+function createTestTicketGit(porcelainStatus: string) {
+  const calls: string[][] = [];
+  const contextRequests: string[] = [];
+  const git: GitRun = async (args) => {
+    calls.push(args);
+    const joined = args.join(" ");
+    if (joined === "branch --show-current") return { ok: true, stdout: "main", stderr: "" };
+    if (joined === "status --porcelain") return { ok: true, stdout: porcelainStatus, stderr: "" };
+    return { ok: true, stdout: "", stderr: "" };
+  };
+  return { calls, contextRequests, git };
+}
+
+test("h and g open the checked-out ticket and its MR without workspace focus, and gg still jumps", async () => {
+  const branchGit: GitRun = async (args) => ({
+    ok: true,
+    stdout: args.join(" ") === "branch --show-current" ? "PROJ-102-work" : "",
+    stderr: "",
+  });
+  const openedUrls: string[] = [];
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      workspaceTasksLoader={async () => ({
+        kind: "ready",
+        tasks: [
+          { id: "PROJ-101", summary: "First", state: "Open", url: "https://example.test/PROJ-101" },
+          {
+            id: "PROJ-102",
+            summary: "Current",
+            state: "Open",
+            url: "https://example.test/PROJ-102",
+          },
+        ],
+      })}
+      onOpenUrl={(url) => openedUrls.push(url)}
+      createTicketGit={() => branchGit}
+      requestTicketContext={() => {}}
+      loadMergeRequests={async () => [
+        {
+          iid: 3602,
+          state: "opened",
+          sourceBranch: "PROJ-102-work",
+          url: "https://gitlab.example.test/mr/3602",
+          updatedAt: "2026-11-10T10:00:00Z",
+          approved: false,
+        },
+      ]}
+    />,
+    { width: 160, height: 24 },
+  );
+  try {
+    await waitForFrame(setup, (frame) => frame.includes("PROJ-102 · !3602"));
+    await flush(setup);
+    await act(async () => {
+      await setup.mockInput.typeText("h");
+    });
+    expect(openedUrls).toEqual(["https://example.test/PROJ-102"]);
+
+    // `gg` completes the hunk chord, so it must not open the MR as well.
+    await act(async () => {
+      await setup.mockInput.typeText("gg");
+      await Bun.sleep(700);
+    });
+    expect(openedUrls).toEqual(["https://example.test/PROJ-102"]);
+
+    await act(async () => {
+      await setup.mockInput.typeText("g");
+      await Bun.sleep(700);
+    });
+    expect(openedUrls).toEqual([
+      "https://example.test/PROJ-102",
+      "https://gitlab.example.test/mr/3602",
+    ]);
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("g asks GitLab again when the ticket has no MR yet, and opens the one opened since", async () => {
+  const branchGit: GitRun = async (args) => ({
+    ok: true,
+    stdout: args.join(" ") === "branch --show-current" ? "PROJ-102-work" : "",
+    stderr: "",
+  });
+  const openedUrls: string[] = [];
+  let mergeRequestLoads = 0;
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      workspaceTasksLoader={async () => ({
+        kind: "ready",
+        tasks: [
+          {
+            id: "PROJ-102",
+            summary: "Current",
+            state: "In Progress",
+            url: "https://example.test/PROJ-102",
+          },
+        ],
+      })}
+      onOpenUrl={(url) => openedUrls.push(url)}
+      createTicketGit={() => branchGit}
+      requestTicketContext={() => {}}
+      // The MR is pushed after flow started: the first load finds nothing.
+      loadMergeRequests={async () =>
+        ++mergeRequestLoads === 1
+          ? []
+          : [
+              {
+                iid: 3602,
+                state: "opened",
+                sourceBranch: "PROJ-102-work",
+                url: "https://gitlab.example.test/mr/3602",
+                updatedAt: "2026-11-10T10:00:00Z",
+                approved: false,
+              },
+            ]
+      }
+    />,
+    { width: 160, height: 24 },
+  );
+  try {
+    await waitForFrame(setup, (frame) => frame.includes("PROJ-102"));
+    await flush(setup);
+    expect(mergeRequestLoads).toBe(1);
+
+    await act(async () => {
+      await setup.mockInput.typeText("g");
+      await Bun.sleep(700);
+    });
+    expect(openedUrls).toEqual(["https://gitlab.example.test/mr/3602"]);
+    // The card picks the MR up too.
+    expect(await waitForFrame(setup, (frame) => frame.includes("PROJ-102 · !3602"))).toContain(
+      "!3602",
+    );
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("a ticket in review moves to Ready to merge with a check once someone approves its MR", async () => {
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      workspaceTasksLoader={async () => ({
+        kind: "ready",
+        tasks: [
+          {
+            id: "PROJ-201",
+            summary: "Still waiting",
+            state: "Review",
+            url: "https://example.test/1",
+          },
+          {
+            id: "PROJ-202",
+            summary: "Approved one",
+            state: "Review",
+            url: "https://example.test/2",
+          },
+        ],
+      })}
+      createTicketGit={() => createTestTicketGit("").git}
+      requestTicketContext={() => {}}
+      loadMergeRequests={async () => [
+        {
+          iid: 501,
+          state: "opened",
+          sourceBranch: "PROJ-201-wait",
+          url: "https://gitlab.example.test/mr/501",
+          updatedAt: "2026-11-10T10:00:00Z",
+          approved: false,
+        },
+        {
+          iid: 502,
+          state: "opened",
+          sourceBranch: "PROJ-202-done",
+          url: "https://gitlab.example.test/mr/502",
+          updatedAt: "2026-11-10T10:00:00Z",
+          approved: true,
+        },
+      ]}
+    />,
+    { width: 160, height: 30 },
+  );
+  try {
+    const frame = await waitForFrame(setup, (current) => current.includes("Ready to merge"));
+    const lines = frame.split("\n");
+    const row = (text: string) => lines.findIndex((line) => line.includes(text));
+    // Needs approval keeps the waiting one; the approved one sits under Ready to merge.
+    expect(row("Needs approval")).toBeLessThan(row("Still waiting"));
+    expect(row("Still waiting")).toBeLessThan(row("Ready to merge"));
+    expect(row("Ready to merge")).toBeLessThan(row("Approved one"));
+    expect(lines[row("Approved one")]).toContain("✓ Approved one");
+    expect(frame).toContain("PROJ-202 · !502");
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("a ticket in review whose MR was merged moves on once per session, with a status note", async () => {
+  const closed: string[] = [];
+  let taskLoads = 0;
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      workspaceTasksLoader={async () => {
+        taskLoads += 1;
+        return {
+          kind: "ready",
+          tasks: [
+            {
+              id: "PROJ-301",
+              summary: "Merged work",
+              state: "Review",
+              url: "https://example.test/1",
+            },
+            {
+              id: "PROJ-302",
+              summary: "Still open",
+              state: "Review",
+              url: "https://example.test/2",
+            },
+          ],
+        };
+      }}
+      createTicketGit={() => createTestTicketGit("").git}
+      requestTicketContext={() => {}}
+      loadMergeRequests={async () => [
+        {
+          iid: 601,
+          state: "merged",
+          sourceBranch: "PROJ-301-done",
+          url: "https://gitlab.example.test/mr/601",
+          updatedAt: "2026-11-10T10:00:00Z",
+          approved: false,
+        },
+        {
+          iid: 602,
+          state: "opened",
+          sourceBranch: "PROJ-302-wip",
+          url: "https://gitlab.example.test/mr/602",
+          updatedAt: "2026-11-10T10:00:00Z",
+          approved: false,
+        },
+      ]}
+      closeMergedTicket={async (ticketId) => {
+        closed.push(ticketId);
+        return { kind: "moved", state: "Done" };
+      }}
+    />,
+    { width: 160, height: 24 },
+  );
+  try {
+    expect(
+      await waitForFrame(setup, (frame) => frame.includes("MR merged: PROJ-301 → Done")),
+    ).toContain("MR merged: PROJ-301 → Done");
+    expect(closed).toEqual(["PROJ-301"]);
+    // Moving it reloads the tasks; the fixture still lists it, but it is not tried again.
+    await flush(setup);
+    expect(taskLoads).toBeGreaterThan(1);
+    await act(async () => {
+      await setup.mockInput.typeText("r");
+    });
+    await flush(setup);
+    await flush(setup);
+    expect(closed).toEqual(["PROJ-301"]);
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("C and P ask the agent to commit and open the MR for the checked-out ticket", async () => {
+  const branchGit: GitRun = async (args) => ({
+    ok: true,
+    stdout: args.join(" ") === "branch --show-current" ? "PROJ-102-work" : "",
+    stderr: "",
+  });
+  const commitRequests: (string | undefined)[] = [];
+  const mergeRequestRequests: (string | undefined)[] = [];
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      workspaceTasksLoader={async () => ({
+        kind: "ready",
+        tasks: [
+          { id: "PROJ-101", summary: "Other", state: "Open", url: "https://example.test/1" },
+          {
+            id: "PROJ-102",
+            summary: "Current",
+            state: "In Progress",
+            url: "https://example.test/2",
+          },
+        ],
+      })}
+      createTicketGit={() => branchGit}
+      requestTicketContext={() => {}}
+      requestCommit={(_root, ticketId) => commitRequests.push(ticketId)}
+      requestMergeRequestOpen={(_root, ticketId) => mergeRequestRequests.push(ticketId)}
+    />,
+    { width: 160, height: 24 },
+  );
+  try {
+    await waitForFrame(setup, (frame) => frame.includes("PROJ-102"));
+    await flush(setup);
+    // The cursor sits on another ticket; both still act on the checked-out branch.
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await act(async () => {
+      await setup.mockInput.typeText("k");
+    });
+    await act(async () => {
+      await setup.mockInput.typeText("C");
+    });
+    expect(commitRequests).toEqual(["PROJ-102"]);
+    expect(
+      await waitForFrame(setup, (frame) => frame.includes("Asked the agent to propose commits")),
+    ).toContain("Asked the agent to propose commits");
+    await act(async () => {
+      await setup.mockInput.typeText("P");
+    });
+    expect(mergeRequestRequests).toEqual(["PROJ-102"]);
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("x opens the checked-out ticket's overview and X asks the agent to write one", async () => {
+  const branchGit: GitRun = async (args) => ({
+    ok: true,
+    stdout: args.join(" ") === "branch --show-current" ? "PROJ-102-work" : "",
+    stderr: "",
+  });
+  const contextRequests: string[] = [];
+  const reviewRequests: [string, number | undefined][] = [];
+  const overviewReads: string[] = [];
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      workspaceTasksLoader={async () => ({
+        kind: "ready",
+        tasks: [
+          { id: "PROJ-101", summary: "First", state: "Open", url: "https://example.test/PROJ-101" },
+          {
+            id: "PROJ-102",
+            summary: "Current",
+            state: "In Progress",
+            url: "https://example.test/PROJ-102",
+          },
+        ],
+      })}
+      createTicketGit={() => branchGit}
+      requestTicketContext={(_root, ticketId) => contextRequests.push(ticketId)}
+      requestReview={(_root, ticketId, mergeRequestIid) =>
+        reviewRequests.push([ticketId, mergeRequestIid])
+      }
+      readOverview={(_root, ticketId) => {
+        overviewReads.push(ticketId);
+        return ticketId === "PROJ-102"
+          ? {
+              schema: 1,
+              ticket: "PROJ-102",
+              writtenAt: new Date().toISOString(),
+              overview: {
+                summary: "Keep the badge on one line for planners.",
+                why: ["It wraps today"],
+                todo: ["Clamp the badge width"],
+                acceptance: ["Badge never wraps"],
+                code: [{ path: "src/badge.tsx", note: "renders the badge" }],
+                questions: ["Assumed only the map view"],
+                plan: ["Measure the badge"],
+              },
+            }
+          : null;
+      }}
+    />,
+    { width: 180, height: 50 },
+  );
+  try {
+    await waitForFrame(setup, (frame) => frame.includes("PROJ-102"));
+    await flush(setup);
+    expect(setup.captureCharFrame()).not.toContain("In one sentence");
+    // Closed, the pane reads nothing from disk.
+    expect(overviewReads).toEqual([]);
+
+    await act(async () => {
+      await setup.mockInput.typeText("x");
+    });
+    const frame = await waitForFrame(setup, (current) => current.includes("In one sentence"));
+    expect(frame).toContain("PROJ-102 · In Progress");
+    expect(frame).toContain("Keep the badge on one line for planners.");
+    expect(frame).toContain("Acceptance criteria");
+    expect(frame).toContain("src/badge.tsx");
+    expect(frame).toContain("? Assumed only the map view");
+    expect(frame).toContain("1. Measure the badge");
+
+    // Moving the cursor never replaces the checked-out ticket's overview, and X still asks for it.
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await act(async () => {
+      await setup.mockInput.typeText("k");
+    });
+    await flush(setup);
+    expect(setup.captureCharFrame()).toContain("Keep the badge on one line for planners.");
+    await act(async () => {
+      await setup.mockInput.typeText("X");
+    });
+    expect(contextRequests).toEqual(["PROJ-102"]);
+    // R acts on the cursor's card, and reviews my own ticket too; with no MR the agent reads its branch.
+    await act(async () => {
+      await setup.mockInput.typeText("R");
+    });
+    expect(reviewRequests).toEqual([["PROJ-101", undefined]]);
+
+    await act(async () => {
+      await setup.mockInput.typeText("x");
+    });
+    await flush(setup);
+    expect(setup.captureCharFrame()).not.toContain("In one sentence");
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("a checked-out review shows the overview of the ticket it names, whatever the cursor does", async () => {
+  const contextRequests: string[] = [];
+  const reviewRequests: [string, number | undefined][] = [];
+  const setup = await testRender(
+    <AppHost
+      bootstrap={{ ...createSidebarBootstrap(), initialShowOverview: true }}
+      workspaceTasksLoader={async () => ({ kind: "ready", tasks: [] })}
+      // The review's branch is checked out, so the Overview shows its ticket.
+      createTicketGit={() => async (args) => ({
+        ok: true,
+        stdout: args.join(" ") === "branch --show-current" ? "PROJ-55-their-fix" : "",
+        stderr: "",
+      })}
+      requestTicketContext={(_root, ticketId) => contextRequests.push(ticketId)}
+      requestReview={(_root, ticketId, mergeRequestIid) =>
+        reviewRequests.push([ticketId, mergeRequestIid])
+      }
+      readOverview={(_root, ticketId) =>
+        ticketId === "PROJ-55"
+          ? {
+              schema: 1,
+              ticket: "PROJ-55",
+              writtenAt: new Date().toISOString(),
+              overview: {
+                summary: "Close the feeder selector to the supplied busbar.",
+                why: [],
+                todo: [],
+                acceptance: ["The selector closes onto the supplied busbar."],
+                code: [{ path: "src/feeder.ts", note: "Selector logic." }],
+                questions: [],
+                plan: ["Patch the selector."],
+              },
+            }
+          : null
+      }
+      loadReviews={async () => ({
+        kind: "ready",
+        reviews: [
+          {
+            iid: 4100,
+            title: "Fix the feeder selector",
+            author: "teammate",
+            sourceBranch: "PROJ-55-their-fix",
+            targetBranch: "main",
+            url: "https://gitlab.example.test/mr/4100",
+          },
+          {
+            iid: 4101,
+            title: "chore: bump deps",
+            author: "teammate",
+            sourceBranch: "bump-deps",
+            targetBranch: "main",
+            url: "https://gitlab.example.test/mr/4101",
+          },
+        ],
+      })}
+    />,
+    { width: 180, height: 40 },
+  );
+  try {
+    await waitForFrame(setup, (frame) => frame.includes("Fix the feeder"));
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    const frame = await waitForFrame(setup, (current) => current.includes("In one sentence"));
+    expect(frame).toContain("!4100 · PROJ-55");
+    expect(frame).toContain("Close the feeder selector to the supplied busbar.");
+    // A review is judged against the ticket's goal, not how this checkout would build it.
+    expect(frame).toContain("Acceptance criteria");
+    expect(frame).not.toContain("Where in the code");
+    expect(frame).not.toContain("Plan");
+
+    await act(async () => {
+      await setup.mockInput.typeText("X");
+    });
+    expect(contextRequests).toEqual(["PROJ-55"]);
+    // R asks for a review of this MR, measured against the ticket it names.
+    await act(async () => {
+      await setup.mockInput.typeText("R");
+    });
+    expect(reviewRequests).toEqual([["PROJ-55", 4100]]);
+
+    // The cursor moves to a review without a ticket; the Overview keeps the checked-out one.
+    await act(async () => {
+      await setup.mockInput.typeText("j");
+    });
+    await flush(setup);
+    expect(setup.captureCharFrame()).toContain("Close the feeder selector to the supplied busbar.");
+    // Without a ticket there is nothing to review against.
+    await act(async () => {
+      await setup.mockInput.typeText("R");
+    });
+    expect(reviewRequests).toEqual([["PROJ-55", 4100]]);
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("/ in the workspace narrows the cards, and Enter ends the search on the chosen card without switching", async () => {
+  const openedUrls: string[] = [];
+  const ticketGit = createTestTicketGit("");
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      onOpenUrl={(url) => openedUrls.push(url)}
+      createTicketGit={() => ticketGit.git}
+      issueUrl={(ticketId) => `https://youtrack.example.test/issue/${ticketId}`}
+      workspaceTasksLoader={async () => ({
+        kind: "ready",
+        tasks: [
+          {
+            id: "PROJ-101",
+            summary: "Clamp the badge",
+            state: "Open",
+            url: "https://example.test/PROJ-101",
+          },
+        ],
+      })}
+      loadReviews={async () => ({
+        kind: "ready",
+        reviews: [
+          {
+            iid: 4100,
+            title: "Fix the feeder selector",
+            author: "teammate",
+            sourceBranch: "PROJ-55-their-fix",
+            targetBranch: "main",
+            url: "https://gitlab.example.test/mr/4100",
+          },
+          {
+            iid: 4200,
+            title: "OPS-12 Close the busbar gap",
+            author: "other",
+            sourceBranch: "busbar-gap",
+            targetBranch: "main",
+            url: "https://gitlab.example.test/mr/4200",
+          },
+        ],
+      })}
+    />,
+    { width: 160, height: 30 },
+  );
+  try {
+    await waitForFrame(setup, (frame) => frame.includes("!4200 · OPS-12"));
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await act(async () => {
+      await setup.mockInput.typeText("/");
+    });
+    await flush(setup);
+    await act(async () => {
+      await setup.mockInput.typeText("ops");
+    });
+    let frame = await waitForFrame(setup, (current) => !current.includes("Clamp the badge"));
+    expect(frame).toContain("!4200 · OPS-12 · other");
+    expect(frame).not.toContain("Fix the feeder selector");
+    expect(frame).toContain("No matches");
+
+    // Enter ends the search: every card comes back, the cursor stays on the match, and no switch.
+    await act(async () => {
+      await setup.mockInput.pressEnter();
+    });
+    frame = await waitForFrame(setup, (current) => current.includes("Clamp the badge"));
+    expect(frame).toContain("Fix the feeder selector");
+    expect(frame).not.toContain("filter=ops");
+    await act(async () => {
+      await setup.mockInput.typeText("h");
+    });
+    expect(openedUrls).toEqual(["https://youtrack.example.test/issue/OPS-12"]);
+    expect(ticketGit.calls.some((args) => args[0] === "switch")).toBe(false);
+
+    // The next Enter switches to it like any other card.
+    await act(async () => {
+      await setup.mockInput.pressEnter();
+    });
+    await waitForFrame(setup, () => ticketGit.calls.some((args) => args.includes("busbar-gap")));
+    expect(ticketGit.calls.some((args) => args.includes("busbar-gap"))).toBe(true);
+
+    // Arrows pick among several matches while typing, and Escape keeps the cursor on the pick.
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await act(async () => {
+      await setup.mockInput.typeText("/");
+    });
+    await flush(setup);
+    await act(async () => {
+      // Every title has "the": the badge task, then both reviews.
+      await setup.mockInput.typeText("the");
+    });
+    await act(async () => {
+      await setup.mockInput.pressArrow("down");
+    });
+    await act(async () => {
+      await setup.mockInput.pressEscape();
+      await Bun.sleep(40);
+    });
+    await act(async () => {
+      await setup.mockInput.pressEscape();
+      await Bun.sleep(40);
+    });
+    await flush(setup);
+    await act(async () => {
+      await setup.mockInput.typeText("h");
+    });
+    expect(openedUrls.at(-1)).toBe("https://youtrack.example.test/issue/PROJ-55");
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("a repository without integrations opens with the workspace and Overview closed", async () => {
+  const setup = await testRender(
+    <AppHost
+      bootstrap={{ ...createSidebarBootstrap(), initialShowOverview: true }}
+      workspaceConnected={false}
+    />,
+    { width: 220, height: 24 },
+  );
+  try {
+    await flush(setup);
+    expect(setup.renderer.root.findDescendantById("workspace-pane")).toBeUndefined();
+    expect(setup.renderer.root.findDescendantById("overview-pane")).toBeUndefined();
+    expect(setup.captureCharFrame()).toContain("alpha.ts");
+
+    // Closed by default, not gone: S still opens the workspace.
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await flush(setup);
+    expect(setup.captureCharFrame()).toContain("To do");
+  } finally {
+    await act(async () => {
+      setup.renderer.destroy();
+    });
+  }
+});
+
+test("workspace explains why tasks are missing instead of showing an empty list", async () => {
+  const setup = await testRender(
+    <AppHost
+      bootstrap={createSidebarBootstrap()}
+      workspaceTasksLoader={async () => ({
+        kind: "unconfigured",
+        message: "Set youtrack.url in config",
+      })}
+    />,
+    { width: 160, height: 24 },
+  );
+  try {
+    await flush(setup);
+    await flush(setup);
+    expect(setup.captureCharFrame()).toContain("Set youtrack.url in config");
+    expect(setup.captureCharFrame()).toContain("Reviews are not connected");
   } finally {
     await act(async () => {
       setup.renderer.destroy();
@@ -314,17 +1500,21 @@ function createCrossFileHunkNavigationBootstrap(): AppBootstrap {
   }
 
   const shortBeforeLines = [
-    "// hunk 0 - at the very top of the file",
+    "// hunk 0   at the very top of the file",
     "export const top = 1;",
     "",
     "",
     ...Array.from({ length: 25 }, (_, index) => `// filler ${index + 1}`),
-    "// hunk 1 - mid-file",
+    "// hunk 1   mid-file",
     "export const mid = 3;",
+    ...Array.from({ length: 25 }, (_, index) => `// tail filler ${index + 1}`),
+    "// hunk 2   keeps the file tall enough to own the pane once its hunk rows are compact",
+    "export const end = 5;",
   ];
   const shortAfterLines = [...shortBeforeLines];
   shortAfterLines[1] = "export const top = 2;";
   shortAfterLines[30] = "export const mid = 4;";
+  shortAfterLines[57] = "export const end = 6;";
 
   return createTestVcsAppBootstrap({
     changesetId: "changeset:cross-file-hunk-navigation",
@@ -477,8 +1667,12 @@ function firstVisibleSourceLineNumber(frame: string) {
   return frame.match(/line(\d{2}) =/)?.[1] ?? null;
 }
 
-function firstVisibleAddedLineNumber(frame: string) {
-  return frame.match(/▌\s*(\d+)\s+\+/)?.[1] ?? null;
+/**
+ * Line number of the first numbered row on screen. It lives in the gutter, which horizontal code
+ * scrolling never moves, so it pins the vertical position even after shift-scrolling.
+ */
+function firstVisibleGutterLineNumber(frame: string) {
+  return frame.match(/^\s*(\d+) {3}/m)?.[1] ?? null;
 }
 
 describe("App interactions", () => {
@@ -551,24 +1745,27 @@ describe("App interactions", () => {
       // Comments are always rendered now; there's no toggle to flip them off.
       expect(frame).toContain("Annotation for alpha.ts");
       expect(frame).toContain("Why alpha.ts changed");
+      expect(frame).toContain("1   export const alpha = 1;");
 
+      // `l` hides the numbers but keeps their margin, so the code does not move.
       await act(async () => {
         await setup.mockInput.typeText("l");
       });
       await flush(setup);
 
       frame = setup.captureCharFrame();
-      expect(frame).not.toContain("1 - export const alpha = 1;");
-      expect(frame).toContain("- export const alpha = 1;");
+      expect(frame).not.toContain("1   export const alpha = 1;");
+      expect(frame).toContain("    export const alpha = 1;");
 
       await act(async () => {
         await setup.mockInput.typeText("m");
       });
       await flush(setup);
 
+      // Hunk ranges are hidden by default; `m` brings the metadata rows back.
       frame = setup.captureCharFrame();
-      expect(frame).not.toContain("@@ -1,1 +1,2 @@");
-      expect(frame).toContain("- export const alpha = 1;");
+      expect(frame).toContain("@@ -1,1 +1,2 @@");
+      expect(frame).toContain("    export const alpha = 1;");
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -594,7 +1791,7 @@ describe("App interactions", () => {
       await flush(setup);
 
       frame = setup.captureCharFrame();
-      expect(frame).toContain("this is a very");
+      expect(frame).toContain("this is a");
       expect(frame).toContain("long wrapped line");
       expect(frame).toContain("coverage");
     } finally {
@@ -622,7 +1819,7 @@ describe("App interactions", () => {
       await flush(setup);
 
       frame = setup.captureCharFrame();
-      expect(frame).toContain("this is a very");
+      expect(frame).toContain("this is a");
       expect(frame).toContain("long wrapped line");
       expect(frame).toContain("coverage");
     } finally {
@@ -653,7 +1850,7 @@ describe("App interactions", () => {
       // Assert on a suffix fragment that only appears once the long line has actually wrapped;
       // this is more stable than expecting the full sentence to remain on one terminal row.
       expect(frame).toContain("wrapped line");
-      expect(frame).toContain("coverage';");
+      expect(frame).toContain("age';");
 
       await act(async () => {
         await setup.mockInput.typeText("w");
@@ -670,7 +1867,7 @@ describe("App interactions", () => {
 
       frame = await waitForFrame(setup, (nextFrame) => nextFrame.includes("coverage';"));
       expect(frame).toContain("wrapped line");
-      expect(frame).toContain("coverage';");
+      expect(frame).toContain("age';");
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -688,7 +1885,7 @@ describe("App interactions", () => {
       await flush(setup);
 
       let frame = setup.captureCharFrame();
-      expect(frame).toContain("this is a very");
+      expect(frame).toContain("this is a");
       expect(frame).not.toContain("interaction coverage");
 
       for (let index = 0; index < 64; index += 1) {
@@ -703,7 +1900,7 @@ describe("App interactions", () => {
       }
 
       expect(frame).toContain("interaction coverage");
-      expect(frame).not.toContain("this is a very");
+      expect(frame).not.toContain("this is a");
 
       for (let index = 0; index < 64; index += 1) {
         await act(async () => {
@@ -711,12 +1908,12 @@ describe("App interactions", () => {
         });
         await flush(setup);
         frame = setup.captureCharFrame();
-        if (frame.includes("this is a very")) {
+        if (frame.includes("this is a")) {
           break;
         }
       }
 
-      expect(frame).toContain("this is a very");
+      expect(frame).toContain("this is a");
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -734,7 +1931,7 @@ describe("App interactions", () => {
       await flush(setup);
 
       let frame = setup.captureCharFrame();
-      expect(frame).toContain("this is a very");
+      expect(frame).toContain("this is a");
       expect(frame).not.toContain("interaction coverage");
 
       for (let index = 0; index < 8; index += 1) {
@@ -749,7 +1946,7 @@ describe("App interactions", () => {
       }
 
       expect(frame).toContain("interaction coverage");
-      expect(frame).not.toContain("this is a very");
+      expect(frame).not.toContain("this is a");
 
       for (let index = 0; index < 8; index += 1) {
         await act(async () => {
@@ -757,12 +1954,12 @@ describe("App interactions", () => {
         });
         await flush(setup);
         frame = setup.captureCharFrame();
-        if (frame.includes("this is a very")) {
+        if (frame.includes("this is a")) {
           break;
         }
       }
 
-      expect(frame).toContain("this is a very");
+      expect(frame).toContain("this is a");
       expect(frame).not.toContain("interaction coverage");
     } finally {
       await act(async () => {
@@ -781,7 +1978,7 @@ describe("App interactions", () => {
       await flush(setup);
 
       let frame = setup.captureCharFrame();
-      expect(frame).toContain("this is a very");
+      expect(frame).toContain("this is a");
       expect(frame).not.toContain("interaction coverage");
 
       for (let index = 0; index < 8; index += 1) {
@@ -796,7 +1993,7 @@ describe("App interactions", () => {
       }
 
       expect(frame).toContain("interaction coverage");
-      expect(frame).not.toContain("this is a very");
+      expect(frame).not.toContain("this is a");
 
       for (let index = 0; index < 8; index += 1) {
         await act(async () => {
@@ -804,12 +2001,12 @@ describe("App interactions", () => {
         });
         await flush(setup);
         frame = setup.captureCharFrame();
-        if (frame.includes("this is a very")) {
+        if (frame.includes("this is a")) {
           break;
         }
       }
 
-      expect(frame).toContain("this is a very");
+      expect(frame).toContain("this is a");
       expect(frame).not.toContain("interaction coverage");
     } finally {
       await act(async () => {
@@ -828,7 +2025,7 @@ describe("App interactions", () => {
       await flush(setup);
 
       let frame = setup.captureCharFrame();
-      const initialTopLine = firstVisibleAddedLineNumber(frame);
+      const initialTopLine = firstVisibleGutterLineNumber(frame);
       expect(initialTopLine).toBeTruthy();
       expect(frame).not.toContain("viewport anchoring");
 
@@ -844,7 +2041,7 @@ describe("App interactions", () => {
       }
 
       expect(frame).toContain("viewport anchoring");
-      expect(firstVisibleAddedLineNumber(frame)).toBe(initialTopLine);
+      expect(firstVisibleGutterLineNumber(frame)).toBe(initialTopLine);
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -862,7 +2059,7 @@ describe("App interactions", () => {
       await flush(setup);
 
       let frame = setup.captureCharFrame();
-      const initialTopLine = firstVisibleAddedLineNumber(frame);
+      const initialTopLine = firstVisibleGutterLineNumber(frame);
       expect(initialTopLine).toBeTruthy();
       expect(frame).not.toContain("viewport anchoring");
 
@@ -878,7 +2075,7 @@ describe("App interactions", () => {
       }
 
       expect(frame).toContain("viewport anchoring");
-      expect(firstVisibleAddedLineNumber(frame)).toBe(initialTopLine);
+      expect(firstVisibleGutterLineNumber(frame)).toBe(initialTopLine);
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -896,7 +2093,7 @@ describe("App interactions", () => {
       await flush(setup);
 
       let frame = setup.captureCharFrame();
-      expect(frame).toContain("this is a very");
+      expect(frame).toContain("this is a");
 
       for (let index = 0; index < 8; index += 1) {
         await act(async () => {
@@ -910,7 +2107,7 @@ describe("App interactions", () => {
       }
 
       expect(frame).toContain("interaction coverage");
-      expect(frame).not.toContain("this is a very");
+      expect(frame).not.toContain("this is a");
 
       await act(async () => {
         await setup.mockInput.typeText("w");
@@ -918,7 +2115,7 @@ describe("App interactions", () => {
       await settleWrapToggle(setup);
 
       frame = await waitForFrame(setup, (nextFrame) => nextFrame.includes("overage';"));
-      expect(frame).toContain("this is a very");
+      expect(frame).toContain("this is a");
       expect(frame).toContain("long wrapped line");
       expect(frame).toContain("overage';");
 
@@ -930,9 +2127,9 @@ describe("App interactions", () => {
       frame = await waitForFrame(
         setup,
         (nextFrame) =>
-          nextFrame.includes("this is a very") && !nextFrame.includes("interaction coverage"),
+          nextFrame.includes("this is a") && !nextFrame.includes("interaction coverage"),
       );
-      expect(frame).toContain("this is a very");
+      expect(frame).toContain("this is a");
       expect(frame).not.toContain("interaction coverage");
     } finally {
       await act(async () => {
@@ -984,7 +2181,7 @@ describe("App interactions", () => {
       expect(frame).toContain("Annotation for prefs.ts");
       expect(frame).toContain("Why prefs.ts changed");
       expect(frame).not.toContain("@@ -1,1 +1,2 @@");
-      expect(frame).not.toContain("1 - export const message");
+      expect(frame).not.toContain("1   export const message");
       // Notes anchor at the hunk bottom now, so the card sits below the last hunk row.
       expect(frame.indexOf("Annotation")).toBeGreaterThan(
         frame.indexOf("export const added = true;"),
@@ -1082,7 +2279,8 @@ describe("App interactions", () => {
       writeFileSync(right, "export const answer = 42;\nexport const added = true;\n");
 
       let refreshed = false;
-      for (let attempt = 0; attempt < 40; attempt += 1) {
+      // Watch mode checks once a second, off the UI thread; allow a few checks to land.
+      for (let attempt = 0; attempt < 120; attempt += 1) {
         await flush(setup);
         frame = setup.captureCharFrame();
         if (frame.includes("export const added = true;")) {
@@ -1175,7 +2373,7 @@ describe("App interactions", () => {
     }
   });
 
-  test("the first down-arrow step still advances content under the always-pinned file header above a collapsed gap", async () => {
+  test("the first down-arrow step advances content under the always-pinned file header when the file starts mid-way", async () => {
     const setup = await testRender(<AppHost bootstrap={createCollapsedTopBootstrap()} />, {
       width: 220,
       height: 8,
@@ -1190,8 +2388,9 @@ describe("App interactions", () => {
 
       let frame = setup.captureCharFrame();
       expect(frame).toContain("DiffPane.tsx");
-      expect(frame).toContain("··· 362 unchanged lines ···");
-      expect(frame).not.toContain("366 - export const line366 = 366;");
+      // Folds at a file's top take no rows, so the body starts right under the pinned header.
+      const firstBodyRow = frame.split("\n")[2];
+      expect(firstBodyRow).toContain("export const line363 = 363;");
 
       await act(async () => {
         await setup.mockInput.pressArrow("down");
@@ -1202,10 +2401,9 @@ describe("App interactions", () => {
         await setup.renderOnce();
       });
 
-      frame = await waitForFrame(setup, (nextFrame) =>
-        nextFrame.includes("366 - export const line366 = 366;"),
-      );
-      expect(frame).toContain("366 - export const line366 = 366;");
+      frame = await waitForFrame(setup, (nextFrame) => nextFrame.split("\n")[2] !== firstBodyRow);
+      expect(frame).toContain("DiffPane.tsx");
+      expect(frame.split("\n")[2]).toContain("export const line364 = 364;");
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -1213,7 +2411,7 @@ describe("App interactions", () => {
     }
   });
 
-  test("one-line down then up at the top restores the collapsed-gap view beneath the pinned file header", async () => {
+  test("one-line down then up at the top restores the first body row beneath the pinned file header", async () => {
     const setup = await testRender(<AppHost bootstrap={createCollapsedTopBootstrap()} />, {
       width: 220,
       height: 7,
@@ -1228,6 +2426,7 @@ describe("App interactions", () => {
 
       const initialFrame = setup.captureCharFrame();
       const initialHeaderCount = (initialFrame.match(/DiffPane\.tsx/g) ?? []).length;
+      const firstBodyRow = initialFrame.split("\n")[2];
 
       await act(async () => {
         await setup.mockInput.pressArrow("down");
@@ -1238,9 +2437,11 @@ describe("App interactions", () => {
         await setup.renderOnce();
       });
 
-      let frame = await waitForFrame(setup, (nextFrame) =>
-        nextFrame.includes("366 - export const line366 = 366;"),
+      let frame = await waitForFrame(
+        setup,
+        (nextFrame) => nextFrame.split("\n")[2] !== firstBodyRow,
       );
+      expect(frame.split("\n")[2]).not.toBe(firstBodyRow);
 
       await act(async () => {
         await setup.mockInput.pressArrow("up");
@@ -1254,11 +2455,10 @@ describe("App interactions", () => {
       frame = await waitForFrame(
         setup,
         (nextFrame) =>
-          nextFrame.includes("··· 362 unchanged lines ···") &&
+          nextFrame.split("\n")[2] === firstBodyRow &&
           (nextFrame.match(/DiffPane\.tsx/g) ?? []).length === initialHeaderCount,
       );
-      expect(frame).toContain("··· 362 unchanged lines ···");
-      expect(frame).not.toContain("366 - export const line366 = 366;");
+      expect(frame.split("\n")[2]).toBe(firstBodyRow);
       expect((frame.match(/DiffPane\.tsx/g) ?? []).length).toBe(initialHeaderCount);
     } finally {
       await act(async () => {
@@ -1689,7 +2889,32 @@ describe("App interactions", () => {
     }
   });
 
-  test("sidebar starts closed and can toggle on and back off", async () => {
+  test("the file tree and the Overview open at startup when the view asks for them", async () => {
+    const setup = await testRender(
+      <AppHost
+        bootstrap={{
+          ...createSidebarBootstrap(),
+          initialShowFileTree: true,
+          initialShowOverview: true,
+        }}
+      />,
+      { width: 240, height: 24 },
+    );
+
+    try {
+      await flush(setup);
+      const frame = setup.captureCharFrame();
+      expect((frame.match(/alpha\.ts/g) ?? []).length).toBe(2);
+      expect(setup.renderer.root.findDescendantById("overview-pane")).toBeDefined();
+      expect(frame).toContain("Overview");
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("sidebar can start closed and toggle on and back off", async () => {
     const setup = await testRender(<AppHost bootstrap={createSidebarBootstrap()} />, {
       width: 240,
       height: 24,
@@ -1925,9 +3150,11 @@ describe("App interactions", () => {
         await flush(setup);
       }
 
+      const tree = setup.renderer.root.findDescendantById("file-tree-pane");
+      if (!tree) throw new Error("Missing file tree");
       await act(async () => {
-        // Click inside the second file row in the left sidebar.
-        await setup.mockMouse.click(40, 4);
+        // Click inside the second file row of the file tree, which sits at the right edge.
+        await setup.mockMouse.click(tree.x + 3, 4);
       });
       await flush(setup);
 

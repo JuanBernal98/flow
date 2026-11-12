@@ -1,17 +1,17 @@
-export class DunkUserError extends Error {
+export class FlowUserError extends Error {
   readonly details: string[];
 
   constructor(message: string, details: string[] = []) {
     super(message);
-    this.name = "DunkUserError";
+    this.name = "FlowUserError";
     this.details = details;
   }
 }
 
 /** Format CLI and startup failures without exposing Bun internal stack frames for expected errors. */
 export function formatCliError(error: unknown) {
-  if (error instanceof DunkUserError) {
-    const lines = [`dunk: ${error.message}`];
+  if (error instanceof FlowUserError) {
+    const lines = [`flow: ${error.message}`];
 
     if (error.details.length > 0) {
       lines.push("", ...error.details);
@@ -21,12 +21,12 @@ export function formatCliError(error: unknown) {
   }
 
   if (error instanceof Error) {
-    if (process.env.DUNK_DEBUG === "1" && error.stack) {
+    if (process.env.FLOW_DEBUG === "1" && error.stack) {
       return `${error.stack}\n`;
     }
 
-    return `dunk: ${error.message}\n`;
+    return `flow: ${error.message}\n`;
   }
 
-  return `dunk: ${String(error)}\n`;
+  return `flow: ${String(error)}\n`;
 }

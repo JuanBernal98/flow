@@ -6,7 +6,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 function bundledSkillPath() {
-  return path.join(__dirname, "..", "skills", "dunk-review", "SKILL.md");
+  return path.join(__dirname, "..", "skills", "flow-comments-fix", "SKILL.md");
 }
 
 function ensureExecutable(target) {
@@ -53,16 +53,16 @@ function hostCandidates() {
 
   const platform = platformMap[os.platform()] || os.platform();
   const arch = archMap[os.arch()] || os.arch();
-  const binary = platform === "windows" ? "dunk.exe" : "dunk";
+  const binary = platform === "windows" ? "flow.exe" : "flow";
 
   if (platform === "darwin") {
-    if (arch === "arm64") return [{ packageName: "dunkdiff-darwin-arm64", binary }];
-    if (arch === "x64") return [{ packageName: "dunkdiff-darwin-x64", binary }];
+    if (arch === "arm64") return [{ packageName: "flow-darwin-arm64", binary }];
+    if (arch === "x64") return [{ packageName: "flow-darwin-x64", binary }];
   }
 
   if (platform === "linux") {
-    if (arch === "arm64") return [{ packageName: "dunkdiff-linux-arm64", binary }];
-    if (arch === "x64") return [{ packageName: "dunkdiff-linux-x64", binary }];
+    if (arch === "arm64") return [{ packageName: "flow-linux-arm64", binary }];
+    if (arch === "x64") return [{ packageName: "flow-linux-x64", binary }];
   }
 
   return [];
@@ -94,7 +94,7 @@ const forwardedArgs = process.argv.slice(2);
 if (forwardedArgs.length === 2 && forwardedArgs[0] === "skill" && forwardedArgs[1] === "path") {
   const skillPath = bundledSkillPath();
   if (!fs.existsSync(skillPath)) {
-    console.error(`dunk: could not locate the bundled review skill at ${skillPath}`);
+    console.error(`flow: could not locate the bundled review skill at ${skillPath}`);
     process.exit(1);
   }
 
@@ -102,7 +102,7 @@ if (forwardedArgs.length === 2 && forwardedArgs[0] === "skill" && forwardedArgs[
   process.exit(0);
 }
 
-const overrideBinary = process.env.DUNK_BIN_PATH;
+const overrideBinary = process.env.FLOW_BIN_PATH;
 if (overrideBinary) {
   run(overrideBinary, forwardedArgs);
 }
@@ -118,7 +118,7 @@ const printablePackages = hostCandidates()
   .join(" or ");
 console.error(
   printablePackages.length > 0
-    ? `Failed to locate a matching prebuilt dunk binary. Try reinstalling dunkdiff or manually installing ${printablePackages}.`
-    : `Unsupported platform for prebuilt dunk binaries: ${os.platform()} ${os.arch()}`,
+    ? `Failed to locate a matching prebuilt flow binary. Try reinstalling flow or manually installing ${printablePackages}.`
+    : `Unsupported platform for prebuilt flow binaries: ${os.platform()} ${os.arch()}`,
 );
 process.exit(1);

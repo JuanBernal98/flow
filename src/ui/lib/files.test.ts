@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createTestDiffFile, lines } from "../../../test/helpers/diff-helpers";
-import { buildSidebarEntries, fileLabelParts, visibleSidebarEntries } from "./files";
+import { buildSidebarEntries, fileLabelParts } from "./files";
 
-test("nested sidebar folders fold descendants without reordering files", () => {
-  const paths = ["src/ui/alpha.ts", "src/core/beta.ts", "src/ui/gamma.ts", "README.md"];
+test("the sidebar lists filenames only, in review order", () => {
+  const paths = ["src/ui/alpha.ts", "src/core/beta.ts", "README.md"];
   const entries = buildSidebarEntries(
     paths.map((path) =>
       createTestDiffFile({
@@ -14,20 +14,23 @@ test("nested sidebar folders fold descendants without reordering files", () => {
       }),
     ),
   );
-  expect(entries.filter((entry) => entry.kind === "file").map((entry) => entry.id)).toEqual(paths);
-  expect(entries.slice(0, 3)).toMatchObject([
-    { kind: "group", path: "src", parentPath: "", depth: 0 },
-    { kind: "group", path: "src/ui", parentPath: "src", depth: 1 },
-    { kind: "file", parentPath: "src/ui", depth: 2 },
+  expect(entries.map((entry) => entry.id)).toEqual(paths);
+  expect(entries.map((entry) => entry.name)).toEqual(["alpha.ts", "beta.ts", "README.md"]);
+  expect(entries.every((entry) => entry.folderHint === null)).toBe(true);
+});
+
+test("files that share a name get their folder as a hint", () => {
+  const entries = buildSidebarEntries(
+    ["src/ui/index.ts", "src/core/index.ts", "index.ts", "src/app.ts"].map((path) =>
+      createTestDiffFile({ id: path, path, before: "a\n", after: "b\n" }),
+    ),
+  );
+  expect(entries.map((entry) => [entry.name, entry.folderHint])).toEqual([
+    ["index.ts", "src/ui"],
+    ["index.ts", "src/core"],
+    ["index.ts", null],
+    ["app.ts", null],
   ]);
-  const collapsed = visibleSidebarEntries(entries, new Set(["src"]));
-  expect(collapsed.map((entry) => entry.id)).toEqual(["group:src:0", "README.md"]);
-  const nested = visibleSidebarEntries(entries, new Set(["src/ui"]));
-  expect(nested.filter((entry) => entry.kind === "file").map((entry) => entry.id)).toEqual([
-    "src/core/beta.ts",
-    "README.md",
-  ]);
-  expect(visibleSidebarEntries(entries, new Set())).toEqual(entries);
 });
 
 describe("files helpers", () => {
@@ -67,9 +70,7 @@ describe("files helpers", () => {
       stats: { additions: 0, deletions: 0 },
     };
 
-    const entries = buildSidebarEntries([onlyAdd, onlyRemove, renamedWithoutContentChanges]).filter(
-      (entry) => entry.kind === "file",
-    );
+    const entries = buildSidebarEntries([onlyAdd, onlyRemove, renamedWithoutContentChanges]);
 
     expect(entries).toHaveLength(3);
     expect(entries[0]).toMatchObject({
@@ -102,7 +103,7 @@ describe("files helpers", () => {
       ],
     });
 
-    const [entry] = buildSidebarEntries([withComments]).filter((item) => item.kind === "file");
+    const [entry] = buildSidebarEntries([withComments]);
 
     expect(entry).toMatchObject({
       name: "commented.ts",
@@ -125,7 +126,7 @@ describe("files helpers", () => {
       ],
     });
 
-    const [entry] = buildSidebarEntries([withComments]).filter((item) => item.kind === "file");
+    const [entry] = buildSidebarEntries([withComments]);
 
     expect(entry).toMatchObject({
       name: "all-comments.ts",

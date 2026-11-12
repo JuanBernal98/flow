@@ -49,8 +49,8 @@ describe("UI scroll regression", () => {
       });
 
       const initialFrame = setup.captureCharFrame();
-      expect(initialFrame).toContain("36 - line 36 old value");
-      expect(initialFrame).toContain("36 + line 36 new value with long long te");
+      expect(initialFrame).toContain("36   line 36 old value");
+      expect(initialFrame).toContain("36   line 36 new value with long long te");
 
       await act(async () => {
         await setup.mockMouse.scroll(50, 10, "down");
@@ -59,10 +59,10 @@ describe("UI scroll regression", () => {
       });
 
       const scrolledFrame = setup.captureCharFrame();
-      expect(scrolledFrame).toContain("36 - line 36 old value");
-      expect(scrolledFrame).toContain("36 + line 36 new value with long long te");
+      expect(scrolledFrame).toContain("36   line 36 old value");
+      expect(scrolledFrame).toContain("36   line 36 new value with long long te");
       expect(scrolledFrame).not.toContain("lold value");
-      expect(scrolledFrame).not.toContain("36 +  with long long te");
+      expect(scrolledFrame).not.toContain("36    with long long te");
     } finally {
       await act(async () => {
         setup.renderer.destroy();

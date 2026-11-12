@@ -1,7 +1,7 @@
-# `.dunk/comments.json`
+# `.flow/comments.json`
 
 A single JSON file holds every review comment for the repo. It lives at
-`.dunk/comments.json`, is local to the checkout (`.dunk/` is gitignored), and
+`.flow/comments.json`, is local to the checkout (`.flow/` is gitignored), and
 is deleted when the last comment is resolved, so an empty review leaves no
 file behind.
 
@@ -11,13 +11,13 @@ file behind.
 - Across branches: if a comment references a file that no longer exists or
   has changed, drift detection pins it to the top of the diff. No special
   "current branch" logic.
-- The TUI and the `dunk comments` CLI read and write the same file, so a
+- The TUI and the `flow comments` CLI read and write the same file, so a
   human reviewer and a coding agent can ping-pong on one review.
 
 ## Layout
 
 ```
-.dunk/
+.flow/
   comments.json     # review comments (absent when there are none)
   config.toml       # optional repo-local view config
 ```
@@ -50,7 +50,7 @@ file behind.
 - `line`: 1-based line number in the post-image at write time. Drift-detection
   anchor — typically the hunk's last post-image row.
 - `range`: inclusive `[start, end]` 1-based post-image line range of the hunk
-  the comment is attached to. dunk only supports hunk-level comments; this
+  the comment is attached to. flow only supports hunk-level comments; this
   range tells agents which lines the user was actually pointing at.
 - `anchor`: lowercase hex, **16 chars** (truncated SHA-256). Hashed input is
   the line at `line`, prefixed by the line above and suffixed by the line
@@ -85,9 +85,9 @@ hunk of the current diff is shown as drifted with reason `not-in-hunk`.
 
 ## Atomic write
 
-Write to a unique per-writer temp file in `.dunk/`
+Write to a unique per-writer temp file in `.flow/`
 (`.comments.json.<pid>.<time>.<random>.tmp`), then `rename(2)` it over
-`.dunk/comments.json`. Same filesystem, so the rename is atomic and readers
+`.flow/comments.json`. Same filesystem, so the rename is atomic and readers
 never see a half-written file. Writers re-read and compare a content hash
 before renaming, retrying a few times if another writer landed first.
 

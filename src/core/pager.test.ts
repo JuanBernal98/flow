@@ -101,17 +101,17 @@ describe("plain text pager fallback", () => {
     expect(resolveTextPagerCommand({})).toBe("less -R");
   });
 
-  test("prefers DUNK_TEXT_PAGER and avoids recursive dunk launches", () => {
-    expect(resolveTextPagerCommand({ DUNK_TEXT_PAGER: "bat --paging=always" })).toBe(
+  test("prefers FLOW_TEXT_PAGER and avoids recursive flow launches", () => {
+    expect(resolveTextPagerCommand({ FLOW_TEXT_PAGER: "bat --paging=always" })).toBe(
       "bat --paging=always",
     );
-    expect(resolveTextPagerCommand({ DUNK_TEXT_PAGER: "dunk pager" })).toBe("less -R");
-    expect(resolveTextPagerCommand({ PAGER: "env FOO=1 dunk pager" })).toBe("less -R");
-    expect(resolveTextPagerCommand({ PAGER: "/usr/local/bin/dunk pager" })).toBe("less -R");
-    expect(resolveTextPagerCommand({ PAGER: "dunkless" })).toBe("dunkless");
+    expect(resolveTextPagerCommand({ FLOW_TEXT_PAGER: "flow pager" })).toBe("less -R");
+    expect(resolveTextPagerCommand({ PAGER: "env FOO=1 flow pager" })).toBe("less -R");
+    expect(resolveTextPagerCommand({ PAGER: "/usr/local/bin/flow pager" })).toBe("less -R");
+    expect(resolveTextPagerCommand({ PAGER: "flowless" })).toBe("flowless");
   });
 
-  test("falls back to less when re-entered from dunk's own plain-text pager", async () => {
+  test("falls back to less when re-entered from flow's own plain-text pager", async () => {
     let childEnv: NodeJS.ProcessEnv | undefined;
     const pager = new EventEmitter() as EventEmitter & { stdin: PassThrough };
     pager.stdin = new PassThrough();
@@ -128,7 +128,7 @@ describe("plain text pager fallback", () => {
       }),
     );
 
-    // A wrapper that execs `dunk pager` would hand this env to the nested dunk.
+    // A wrapper that execs `flow pager` would hand this env to the nested flow.
     expect(resolveTextPagerCommand(childEnv)).toBe("less -R");
   });
 

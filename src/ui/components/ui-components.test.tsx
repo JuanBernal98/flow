@@ -6,6 +6,7 @@ import type { AppBootstrap, DiffFile } from "../../core/types";
 import { createTestVcsAppBootstrap } from "../../../test/helpers/app-bootstrap";
 import { createTestDiffFile as buildTestDiffFile, lines } from "../../../test/helpers/diff-helpers";
 import { hexColorDistance } from "../lib/color";
+import { FILE_SEPARATOR_ROWS } from "../lib/fileSectionLayout";
 import { resolveTheme } from "../themes";
 import { measureDiffSectionGeometry } from "../lib/diffSectionGeometry";
 
@@ -205,7 +206,6 @@ function createDiffPaneProps(
     scrollRef: createRef<ScrollBoxRenderable>(),
     selectedFileId: files[0]?.id,
     selectedHunkIndex: 0,
-    separatorWidth: 68,
     showLineNumbers: true,
     showHunkHeaders: true,
     wrapLines: false,
@@ -397,13 +397,50 @@ describe("UI components", () => {
     expect(frame).toContain("+1 -1");
   });
 
+  test.each(["split", "stack"] as const)(
+    "the line-number margin marks lines skipped between hunks with an ellipsis in %s",
+    async (layout) => {
+      // Lines 1 and 3 change and line 2 does not, so line 2 folds between two hunks.
+      const file = buildTestDiffFile({ id: "skipped", path: "skipped.ts" });
+      const theme = resolveTheme("zed", null);
+      const setup = await testRender(
+        <PierreDiffView
+          file={file}
+          layout={layout}
+          showLineNumbers={true}
+          showHunkHeaders={false}
+          theme={theme}
+          width={72}
+          selectedHunkIndex={0}
+          scrollable={false}
+        />,
+        { width: 76, height: 12 },
+      );
+      try {
+        await settleDiffPane(setup);
+        const frameLines = setup.captureCharFrame().split("\n");
+        const foldLine = frameLines.find((line) => line.includes("...")) ?? "";
+        // The ellipsis alone marks the fold: no rule across the card, just `...` where numbers sit.
+        // Split marks both halves, stack its single number column.
+        expect(foldLine.trim()).toMatch(layout === "split" ? /^\.\.\. +\.\.\.$/ : /^\.\.\.$/);
+        expect(frameLines.some((line) => line.includes("─"))).toBe(false);
+        const numberLine = frameLines.find((line) => line.includes("gamma")) ?? "";
+        expect(foldLine.indexOf("...") + 3).toBe(numberLine.indexOf("3") + 1);
+      } finally {
+        await act(async () => {
+          setup.renderer.destroy();
+        });
+      }
+    },
+  );
+
   test.each([
     { layout: "split", wrapLines: false },
     { layout: "split", wrapLines: true },
     { layout: "stack", wrapLines: false },
     { layout: "stack", wrapLines: true },
   ] as const)(
-    "diff gutters keep numbers neutral and signs semantic in $layout (wrap=$wrapLines)",
+    "diff gutters keep numbers neutral and rows tinted without signs in $layout (wrap=$wrapLines)",
     async ({ layout, wrapLines }) => {
       const file = createTestDiffFile(
         "gutters",
@@ -429,18 +466,10 @@ describe("UI components", () => {
       try {
         await settleDiffPane(setup);
         const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
-        expect(
-          spans.some(
-            (span) =>
-              span.text.includes("+") && capturedColorToHex(span.fg) === theme.addedSignColor,
-          ),
-        ).toBe(true);
-        expect(
-          spans.some(
-            (span) =>
-              span.text.includes("-") && capturedColorToHex(span.fg) === theme.removedSignColor,
-          ),
-        ).toBe(true);
+        // No +/- signs: the row tint alone marks additions and deletions.
+        expect(spans.some((span) => ["+", "-"].includes(span.text.trim()))).toBe(false);
+        expect(spans.some((span) => capturedColorToHex(span.bg) === theme.addedBg)).toBe(true);
+        expect(spans.some((span) => capturedColorToHex(span.bg) === theme.removedBg)).toBe(true);
         expect(
           spans.some(
             (span) =>
@@ -456,7 +485,150 @@ describe("UI components", () => {
     },
   );
 
-  test("SidebarPane renders indented filenames and global change totals in its heading", async () => {
+  test.each(["split", "stack"] as const)(
+    "only the active hunk keeps full-color line numbers in %s view",
+    async (layout) => {
+      const before = Array.from({ length: 30 }, (_, index) => `const line${index} = 0;`);
+      const after = before.map((line, index) =>
+        index === 1 ? "const first = 2;" : index === 27 ? "const second = 2;" : line,
+      );
+      const file = createTestDiffFile(
+        "active-hunk",
+        "active-hunk.ts",
+        `${before.join("\n")}\n`,
+        `${after.join("\n")}\n`,
+      );
+      const theme = resolveTheme("zed", null);
+      const setup = await testRender(
+        <PierreDiffView
+          file={file}
+          layout={layout}
+          showLineNumbers={true}
+          showHunkHeaders={false}
+          theme={theme}
+          width={96}
+          selectedHunkIndex={0}
+          scrollable={false}
+        />,
+        { width: 100, height: 40 },
+      );
+      try {
+        await settleDiffPane(setup);
+        const lines = setup.captureSpans().lines;
+        const lineNumberColor = (marker: string) => {
+          // Syntax highlighting may split the marker across spans, so match the whole row.
+          const line = lines.find((candidate) =>
+            candidate.spans
+              .map((span) => span.text)
+              .join("")
+              .includes(marker),
+          );
+          const number = line?.spans.find((span) => /^\s*\d+\s*$/.test(span.text));
+          return number ? capturedColorToHex(number.fg) : undefined;
+        };
+        expect(lineNumberColor("first = 2")).toBe(theme.lineNumberFg);
+        const inactive = lineNumberColor("second = 2");
+        expect(inactive).toBeDefined();
+        expect(inactive).not.toBe(theme.lineNumberFg);
+      } finally {
+        await act(async () => {
+          setup.renderer.destroy();
+        });
+      }
+    },
+  );
+
+  test("line numbers sit outside the code block while the block margin keeps the row tint", async () => {
+    const file = createTestDiffFile(
+      "gutter-split",
+      "gutter-split.ts",
+      "export const value = 1;\n",
+      "export const value = 2;\n",
+    );
+    const theme = resolveTheme("zed", null);
+    const setup = await testRender(
+      <PierreDiffView
+        file={file}
+        layout="stack"
+        showLineNumbers={true}
+        showHunkHeaders={false}
+        theme={theme}
+        width={60}
+        selectedHunkIndex={0}
+        scrollable={false}
+      />,
+      { width: 64, height: 6 },
+    );
+    try {
+      await settleDiffPane(setup);
+      const addedRow = setup.captureSpans().lines.find((line) =>
+        line.spans
+          .map((span) => span.text)
+          .join("")
+          .includes("value = 2"),
+      );
+      if (!addedRow) throw new Error("Missing the added row");
+      const numberIndex = addedRow.spans.findIndex((span) => span.text.trim() === "1");
+      // The span right after the number is the block's two-column margin, already tinted.
+      const marginSpan = addedRow.spans[numberIndex + 1];
+      expect(capturedColorToHex(addedRow.spans[numberIndex]?.bg)).toBe(theme.background);
+      expect(marginSpan?.text.trim()).toBe("");
+      expect(capturedColorToHex(marginSpan?.bg)).toBe(theme.addedBg);
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("split view leaves the side without a counterpart line blank", async () => {
+    const file = createTestDiffFile(
+      "blank-side",
+      "blank-side.ts",
+      "export const alpha = 1;\n",
+      "export const alpha = 2;\nexport const added = true;\n",
+    );
+    const theme = resolveTheme("zed", null);
+    const setup = await testRender(
+      <PierreDiffView
+        file={file}
+        layout="split"
+        showLineNumbers={true}
+        showHunkHeaders={false}
+        theme={theme}
+        width={96}
+        selectedHunkIndex={0}
+        scrollable={false}
+      />,
+      { width: 100, height: 12 },
+    );
+    try {
+      await settleDiffPane(setup);
+      const addedOnlyRow = setup.captureSpans().lines.find((line) =>
+        line.spans
+          .map((span) => span.text)
+          .join("")
+          .includes("added = true"),
+      );
+      if (!addedOnlyRow) throw new Error("Missing the addition-only row");
+      // The empty left half carries no tint: only the pane background (gutter) and the card's
+      // plain surface (code) appear before the right cell's addition tint starts.
+      const untinted = new Set<string | null>([theme.background, theme.contextBg]);
+      const firstFilled = addedOnlyRow.spans.findIndex(
+        (span) => !untinted.has(capturedColorToHex(span.bg)),
+      );
+      const blankWidth = addedOnlyRow.spans
+        .slice(0, firstFilled)
+        .reduce((width, span) => width + span.text.length, 0);
+      expect(blankWidth).toBeGreaterThanOrEqual(46);
+    } finally {
+      await act(async () => {
+        setup.renderer.destroy();
+      });
+    }
+  });
+
+  test("SidebarPane lists filenames only with global change totals in its heading", async () => {
     const theme = resolveTheme("midnight", null);
     const files = [
       createTestDiffFile(
@@ -514,9 +686,18 @@ describe("UI components", () => {
       16,
     );
 
-    expect(frame).toContain("▾ src/");
-    expect(frame).toContain("▾ ui/");
-    expect(frame).toContain("▾ core/");
+    // Filenames only, with no folder headings or indentation.
+    expect(frame).not.toContain("src/ui/");
+    expect(frame).not.toContain("src/core/");
+    const frameLines = frame.split("\n");
+    const appColumn = frameLines.find((line) => line.includes("App.tsx"))?.indexOf("○ ") ?? -1;
+    const watchColumn = frameLines.find((line) => line.includes("watch.ts"))?.indexOf("○ ") ?? -2;
+    // Pane padding, the selection rail, then one blank column before the icon.
+    expect(appColumn).toBe(3);
+    expect(appColumn).toBe(watchColumn);
+    // States read by shape, not only color: modified files get a hollow dot instead of a letter.
+    expect(frame).toContain("○ App.tsx");
+    expect(frame).not.toMatch(/\bM App\.tsx/);
     expect(frame).toContain(" App.tsx");
     expect(frame).toContain(" MenuDropdown.tsx");
     expect(frame).toContain(" watch.ts");
@@ -542,7 +723,6 @@ describe("UI components", () => {
         scrollRef={createRef()}
         selectedFileId="alpha"
         selectedHunkIndex={0}
-        separatorWidth={68}
         showLineNumbers={true}
         showHunkHeaders={true}
         wrapLines={false}
@@ -570,7 +750,6 @@ describe("UI components", () => {
     const props = createDiffPaneProps(files, theme, {
       diffContentWidth: 88,
       selectedFileId: files[5]?.id,
-      separatorWidth: 84,
       width: 92,
     });
     const setup = await testRender(<DiffPane {...props} />, {
@@ -612,7 +791,6 @@ describe("UI components", () => {
       headerLabelWidth: 48,
       selectedFileId: "target",
       selectedHunkIndex: 1,
-      separatorWidth: 92,
       showHunkHeaders: false,
       width: 100,
     });
@@ -625,13 +803,13 @@ describe("UI components", () => {
       await settleDiffPane(setup);
       const frame = await waitForFrame(
         setup,
-        (text) => text.includes("11 - export const line11 = 11;") && !text.includes("intro.ts"),
+        (text) => text.includes("11   export const line11 = 11;") && !text.includes("intro.ts"),
       );
 
-      expect(frame).toContain("11 - export const line11 = 11;");
-      expect(frame).toContain("11 + export const line11 = 1100;");
-      expect(frame).not.toContain("2 - export const line2 = 2;");
-      expect(frame).not.toContain("2 + export const line2 = 200;");
+      expect(frame).toContain("11   export const line11 = 11;");
+      expect(frame).toContain("11   export const line11 = 1100;");
+      expect(frame).not.toContain("2   export const line2 = 2;");
+      expect(frame).not.toContain("2   export const line2 = 200;");
       expect(frame).not.toContain("intro.ts");
       expect(frame).not.toContain("@@ -1,3 +1,3 @@");
     } finally {
@@ -651,7 +829,6 @@ describe("UI components", () => {
       headerLabelWidth: 48,
       headerStatsWidth: 16,
       scrollRef,
-      separatorWidth: 84,
       width: 92,
     });
     const setup = await testRender(<DiffPane {...props} />, {
@@ -669,7 +846,7 @@ describe("UI components", () => {
       true,
       false,
     ).bodyHeight;
-    const secondHeaderTop = firstBodyHeight + 1;
+    const secondHeaderTop = firstBodyHeight + FILE_SEPARATOR_ROWS;
     const separatorTop = firstBodyHeight;
     const settleStickyScroll = async () => {
       await act(async () => {
@@ -706,10 +883,10 @@ describe("UI components", () => {
         (nextFrame) =>
           nextFrame.includes("first.ts") &&
           nextFrame.includes("second.ts") &&
-          nextFrame.split("\n")[1]?.trim() === "",
+          nextFrame.split("\n")[2]?.trim() === "",
       );
       expect(frame).toContain("first.ts");
-      expect(frame.split("\n")[1]?.trim()).toBe("");
+      expect(frame.split("\n")[2]?.trim()).toBe("");
       expect(frame).not.toContain("────");
       expect(scrollRef.current?.viewport.height ?? 0).toBe(stickyViewportHeight);
 
@@ -759,7 +936,7 @@ describe("UI components", () => {
     }
   });
 
-  test("DiffPane advances the review stream under the always-pinned file header above a collapsed gap", async () => {
+  test("DiffPane advances the review stream under the always-pinned file header when the file starts mid-way", async () => {
     const theme = resolveTheme("midnight", null);
     const firstFile = createCollapsedTopDiffFile("late", "late.ts", 400, 366);
     const secondFile = createTallDiffFile("second", "second.ts", 4);
@@ -769,7 +946,6 @@ describe("UI components", () => {
       headerLabelWidth: 48,
       headerStatsWidth: 16,
       scrollRef,
-      separatorWidth: 84,
       width: 92,
     });
     const setup = await testRender(<DiffPane {...props} />, {
@@ -782,18 +958,17 @@ describe("UI components", () => {
 
       let frame = setup.captureCharFrame();
       expect(frame).toContain("late.ts");
-      expect(frame).toContain("··· 362 unchanged lines ···");
-      expect(frame).not.toContain("366 - export const line366 = 366;");
+      // Folds at a file's top take no rows, so the hunk header sits right under the file header.
+      expect(frame.split("\n")[2]).toContain("@@ -363,7 +363,7 @@");
 
       await act(async () => {
         scrollRef.current?.scrollTo(1);
       });
       await settleDiffPane(setup);
 
-      frame = await waitForFrame(setup, (nextFrame) =>
-        nextFrame.includes("366 - export const line366 = 366;"),
-      );
-      expect(frame).toContain("366 - export const line366 = 366;");
+      frame = await waitForFrame(setup, (nextFrame) => !nextFrame.includes("@@ -363,7 +363,7 @@"));
+      expect(frame).toContain("late.ts");
+      expect(frame.split("\n")[2]).toContain("export const line363 = 363;");
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -801,7 +976,7 @@ describe("UI components", () => {
     }
   });
 
-  test("DiffPane returns cleanly to the collapsed-gap view after scrolling back up under the pinned file header", async () => {
+  test("DiffPane returns cleanly to the first hunk after scrolling back up under the pinned file header", async () => {
     const theme = resolveTheme("midnight", null);
     const firstFile = createCollapsedTopDiffFile("late", "late.ts", 400, 366);
     const secondFile = createTallDiffFile("second", "second.ts", 4);
@@ -811,7 +986,6 @@ describe("UI components", () => {
       headerLabelWidth: 48,
       headerStatsWidth: 16,
       scrollRef,
-      separatorWidth: 84,
       width: 92,
     });
     const setup = await testRender(<DiffPane {...props} />, {
@@ -827,8 +1001,9 @@ describe("UI components", () => {
       });
       await settleDiffPane(setup);
 
-      let frame = await waitForFrame(setup, (nextFrame) =>
-        nextFrame.includes("366 - export const line366 = 366;"),
+      let frame = await waitForFrame(
+        setup,
+        (nextFrame) => !nextFrame.includes("@@ -363,7 +363,7 @@"),
       );
       expect((frame.match(/late\.ts/g) ?? []).length).toBe(1);
 
@@ -840,11 +1015,10 @@ describe("UI components", () => {
       frame = await waitForFrame(
         setup,
         (nextFrame) =>
-          nextFrame.includes("··· 362 unchanged lines ···") &&
+          nextFrame.includes("@@ -363,7 +363,7 @@") &&
           (nextFrame.match(/late\.ts/g) ?? []).length === 1,
       );
-      expect(frame).toContain("··· 362 unchanged lines ···");
-      expect(frame).not.toContain("366 - export const line366 = 366;");
+      expect(frame.split("\n")[2]).toContain("@@ -363,7 +363,7 @@");
       expect((frame.match(/late\.ts/g) ?? []).length).toBe(1);
     } finally {
       await act(async () => {
@@ -872,7 +1046,6 @@ describe("UI components", () => {
       headerStatsWidth: 16,
       scrollRef,
       selectedFileId: undefined,
-      separatorWidth: 84,
       width: 92,
     });
     const setup = await testRender(<DiffPane {...props} />, {
@@ -944,7 +1117,6 @@ describe("UI components", () => {
             selectedFileId: "second",
             selectedHunkIndex: 0,
             selectedFileTopAlignRequestId,
-            separatorWidth: 84,
             width: 92,
           })}
         />
@@ -985,7 +1157,6 @@ describe("UI components", () => {
         headerLabelWidth: 48,
         selectedFileId: "target",
         selectedHunkIndex: 1,
-        separatorWidth: 92,
         showHunkHeaders: false,
         width: 100,
       },
@@ -1000,17 +1171,17 @@ describe("UI components", () => {
       const frame = await waitForFrame(
         setup,
         (text) =>
-          text.includes("16 - export const line16 = 16;") &&
-          !text.includes("2 - export const line2 = 2;"),
+          text.includes("16   export const line16 = 16;") &&
+          !text.includes("2   export const line2 = 2;"),
       );
 
       expect(frame).toContain("export const line11 = 11;");
-      expect(frame).toContain("14 - export const line14 = 14;");
-      expect(frame).toContain("14 + export const line14 = 1400;");
-      expect(frame).toContain("16 - export const line16 = 16;");
-      expect(frame).toContain("16 + export const line16 = 1600;");
-      expect(frame).not.toContain("2 - export const line2 = 2;");
-      expect(frame).not.toContain("2 + export const line2 = 200;");
+      expect(frame).toContain("14   export const line14 = 14;");
+      expect(frame).toContain("14   export const line14 = 1400;");
+      expect(frame).toContain("16   export const line16 = 16;");
+      expect(frame).toContain("16   export const line16 = 1600;");
+      expect(frame).not.toContain("2   export const line2 = 2;");
+      expect(frame).not.toContain("2   export const line2 = 200;");
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -1028,7 +1199,6 @@ describe("UI components", () => {
         headerLabelWidth: 40,
         selectedFileId: "target",
         selectedHunkIndex: 1,
-        separatorWidth: 72,
         showHunkHeaders: false,
         width: 80,
         wrapLines: true,
@@ -1036,7 +1206,7 @@ describe("UI components", () => {
     );
     const setup = await testRender(<DiffPane {...props} />, {
       width: 84,
-      height: 16,
+      height: 17,
     });
 
     try {
@@ -1045,15 +1215,15 @@ describe("UI components", () => {
         setup,
         (text) =>
           text.includes("18   export const line18 = 18;") &&
-          !text.includes("2 - export const line2 = 2;"),
+          !text.includes("2   export const line2 = 2;"),
       );
 
       expect(frame).toContain("11   export const line11 = 11;");
-      expect(frame).toContain("14 + export const line14 = 'this is a");
-      expect(frame).toContain("15 + export const line15 = 'this is a");
+      expect(frame).toContain("14   export const line14 = 'this is");
+      expect(frame).toContain("15   export const line15 = 'this is");
       expect(frame).toContain("18   export const line18 = 18;");
-      expect(frame).not.toContain("2 - export const line2 = 2;");
-      expect(frame).not.toContain("2 + export const line2 = 200;");
+      expect(frame).not.toContain("2   export const line2 = 2;");
+      expect(frame).not.toContain("2   export const line2 = 200;");
     } finally {
       await act(async () => {
         setup.renderer.destroy();
@@ -1068,7 +1238,6 @@ describe("UI components", () => {
       headerLabelWidth: 48,
       selectedFileId: "target",
       selectedHunkIndex: 1,
-      separatorWidth: 92,
       width: 100,
     });
     const setup = await testRender(<DiffPane {...props} />, {
@@ -1103,7 +1272,6 @@ describe("UI components", () => {
       headerLabelWidth: 48,
       selectedFileId: "target",
       selectedHunkIndex: 1,
-      separatorWidth: 92,
       showHunkHeaders: false,
       width: 100,
     });
@@ -1122,7 +1290,7 @@ describe("UI components", () => {
       // the selected hunk and its inline comment visible together.
       expect(frame).toContain("Keep the selected hunk visible with its note.");
       expect(frame).toContain("11   export const line11 = 11;");
-      expect(frame).toContain("16 + export const line16 = 1600;");
+      expect(frame).toContain("16   export const line16 = 1600;");
       expect(frame).toContain("export const line19 = 19;");
     } finally {
       await act(async () => {
@@ -1141,9 +1309,9 @@ describe("UI components", () => {
       (_, index) => `export const line${index + 1} = ${index + 1};`,
     );
     const afterLines = [...beforeLines];
-    // dunk 0: change at line 1
+    // flow 0: change at line 1
     afterLines[0] = "export const line1 = 100;";
-    // dunk 1: changes at lines 60-65 to make a multi-line hunk
+    // flow 1: changes at lines 60-65 to make a multi-line hunk
     afterLines[59] = "export const line60 = 6000;";
     afterLines[60] = "export const line61 = 6100;";
     afterLines[61] = "export const line62 = 6200;";
@@ -1171,7 +1339,6 @@ describe("UI components", () => {
       headerLabelWidth: 48,
       selectedFileId: "deep-note",
       selectedHunkIndex: 1,
-      separatorWidth: 92,
       showHunkHeaders: true,
       width: 100,
     });
@@ -1184,7 +1351,7 @@ describe("UI components", () => {
       await settleDiffPane(setupWithout);
       const frameWithout = await waitForFrame(setupWithout, (text) => text.includes("line57"));
 
-      // dunk context (lines near 57-59) should be visible at the top.
+      // flow context (lines near 57-59) should be visible at the top.
       expect(frameWithout).toContain("line57");
       // Note card should NOT be visible — it's below the 12-row viewport.
       expect(frameWithout).not.toContain("Note anchored on second hunk.");
@@ -1201,7 +1368,6 @@ describe("UI components", () => {
       selectedFileId: "deep-note",
       selectedHunkIndex: 1,
       scrollToNote: true,
-      separatorWidth: 92,
       showHunkHeaders: true,
       width: 100,
     });
@@ -1225,12 +1391,46 @@ describe("UI components", () => {
     }
   });
 
-  test("CommentCard renders #id metadata, body, and close affordance with a left accent bar", async () => {
+  test("CommentCard shows agent replies under the comment and counts them in its height", async () => {
+    const theme = resolveTheme("midnight", null);
+    const { measureCommentCardHeight } = await import("./panes/CommentCard");
+    const annotation = {
+      id: "flow-comment:4",
+      summary: "rename this helper",
+      replies: ["done, it is now formatGutterText"],
+    };
+    const frame = await captureFrame(
+      <CommentCard annotation={annotation} theme={theme} width={60} />,
+      64,
+      8,
+    );
+
+    // Chat style: the user's comment, then the agent's reply, each under its speaker label.
+    expect(frame).toContain("Yo: rename this helper");
+    expect(frame).toContain("Agente: done, it is now formatGutterText");
+    // Title + summary + reply + spacer.
+    expect(measureCommentCardHeight({ annotation, width: 60 })).toBe(4);
+
+    // A comment the agent wrote itself opens with its own label.
+    const agentFrame = await captureFrame(
+      <CommentCard
+        annotation={{ id: "flow-comment:5", summary: "mira este bucle", author: "agent" }}
+        theme={theme}
+        width={60}
+      />,
+      64,
+      6,
+    );
+    expect(agentFrame).toContain("Agente: mira este bucle");
+    expect(agentFrame).not.toContain("Yo:");
+  });
+
+  test("CommentCard renders #id metadata, a Yo: body, and the close affordance", async () => {
     const theme = resolveTheme("midnight", null);
     const frame = await captureFrame(
       <CommentCard
         annotation={{
-          id: "dunk-comment:42",
+          id: "flow-comment:42",
           summary: "Summary line",
           rationale: "Rationale line.",
         }}
@@ -1243,11 +1443,12 @@ describe("UI components", () => {
     );
 
     const lines = frame.split("\n");
-    // First three rows: muted `#42` metadata (with accent bar + close affordance), then body lines.
-    expect(lines[0]).toContain("▎");
+    // First three rows: muted `#42` metadata with the close affordance, then body lines. Cards
+    // carry no accent bar.
+    expect(frame).not.toContain("▎");
     expect(lines[0]).toContain("#42");
     expect(lines[0]).toContain("[x]");
-    expect(lines[1]).toContain("Summary line");
+    expect(lines[1]).toContain("Yo: Summary line");
     expect(lines[2]).toContain("Rationale line.");
   });
 
@@ -1272,7 +1473,6 @@ describe("UI components", () => {
         scrollRef={createRef()}
         selectedFileId="alpha"
         selectedHunkIndex={0}
-        separatorWidth={84}
         showLineNumbers={true}
         showHunkHeaders={true}
         wrapLines={false}
@@ -1292,7 +1492,7 @@ describe("UI components", () => {
     // Inline cards render *below* their hunk, so the comment body should
     // appear after the last hunk line in the frame string.
     expect(frame.indexOf("Annotation for alpha.ts")).toBeGreaterThan(
-      frame.indexOf("2 + export const add = true;"),
+      frame.indexOf("2   export const add = true;"),
     );
     expect(frame).not.toContain("alpha.ts note");
     expect(frame).not.toContain("review");
@@ -1312,7 +1512,6 @@ describe("UI components", () => {
         scrollRef={createRef()}
         selectedFileId="alpha"
         selectedHunkIndex={0}
-        separatorWidth={84}
         showLineNumbers={true}
         showHunkHeaders={true}
         wrapLines={false}
@@ -1326,15 +1525,13 @@ describe("UI components", () => {
     );
 
     const lines = frame.split("\n");
-    // The card sits at the hunk bottom. The first card row after the last hunk
-    // row carries the `▎` accent bar, and the body rows below it carry the
-    // summary and rationale prose.
+    // The card sits at the hunk bottom: its `Yo:` comment row comes after the last hunk row.
     const lastHunkRowIndex = lines.findIndex((line) => line.includes("export const add = true;"));
-    const accentBarIndex = lines.findIndex(
-      (line, idx) => idx > lastHunkRowIndex && line.includes("▎"),
+    const cardRowIndex = lines.findIndex(
+      (line, idx) => idx > lastHunkRowIndex && line.includes("Yo: "),
     );
     expect(lastHunkRowIndex).toBeGreaterThanOrEqual(0);
-    expect(accentBarIndex).toBeGreaterThan(lastHunkRowIndex);
+    expect(cardRowIndex).toBeGreaterThan(lastHunkRowIndex);
     expect(frame).toContain("Annotation for alpha.ts");
 
     // The hunk's two changed rows still render at the same column.
@@ -1370,7 +1567,6 @@ describe("UI components", () => {
         scrollRef={createRef()}
         selectedFileId="alpha"
         selectedHunkIndex={0}
-        separatorWidth={84}
         showLineNumbers={true}
         showHunkHeaders={true}
         wrapLines={false}
@@ -1385,13 +1581,13 @@ describe("UI components", () => {
 
     expect(frame).toContain("First rationale.");
     expect(frame).toContain("Second rationale.");
-    // Two distinct cards mean at least two accent-barred rows below the hunk.
+    // Two distinct cards mean two `Yo:` comment rows below the hunk.
     const lines = frame.split("\n");
     const lastHunkRowIndex = lines.findIndex((line) => line.includes("export const alpha = 2;"));
-    const accentRowsBelowHunk = lines
+    const cardRowsBelowHunk = lines
       .slice(lastHunkRowIndex + 1)
-      .filter((line) => line.includes("▎")).length;
-    expect(accentRowsBelowHunk).toBeGreaterThanOrEqual(2);
+      .filter((line) => line.includes("Yo: ")).length;
+    expect(cardRowsBelowHunk).toBeGreaterThanOrEqual(2);
   });
 
   test("StatusBar renders filter mode affordance", async () => {
@@ -1419,7 +1615,7 @@ describe("UI components", () => {
       <StatusBar
         filter=""
         filterFocused={false}
-        noticeText="Update available: 9.9.9 • npm i -g dunkdiff"
+        noticeText="branch base: origin/main"
         terminalWidth={60}
         theme={theme}
         onFilterInput={() => {}}
@@ -1429,7 +1625,29 @@ describe("UI components", () => {
       3,
     );
 
-    expect(frame).toContain("Update available: 9.9.9");
+    expect(frame).toContain("branch base: origin/main");
+  });
+
+  test("StatusBar names the theme in use next to the notice", async () => {
+    const theme = resolveTheme("claude", "dark");
+    const frame = await captureFrame(
+      <StatusBar
+        filter=""
+        filterFocused={false}
+        noticeText="Press ? for help"
+        reviewMode="Branch vs origin/main"
+        terminalWidth={80}
+        theme={theme}
+        onFilterInput={() => {}}
+        onFilterSubmit={() => {}}
+      />,
+      80,
+      3,
+    );
+
+    const statusLine = frame.split("\n").find((line) => line.includes("Press ? for help")) ?? "";
+    expect(statusLine).toContain("Press ? for help");
+    expect(statusLine.trimEnd()).toEndWith("Diff mode: Branch vs origin/main · theme: Claude Dark");
   });
 
   test("StatusBar keeps filter input precedence over a notice", async () => {
@@ -1438,7 +1656,7 @@ describe("UI components", () => {
       <StatusBar
         filter="beta"
         filterFocused={true}
-        noticeText="Update available: 9.9.9 • npm i -g dunkdiff"
+        noticeText="branch base: origin/main"
         terminalWidth={60}
         theme={theme}
         onFilterInput={() => {}}
@@ -1450,7 +1668,7 @@ describe("UI components", () => {
 
     expect(frame).toContain("filter:");
     expect(frame).toContain("beta");
-    expect(frame).not.toContain("Update available:");
+    expect(frame).not.toContain("branch base:");
   });
 
   test("StatusBar keeps filter summary precedence over a notice", async () => {
@@ -1459,7 +1677,7 @@ describe("UI components", () => {
       <StatusBar
         filter="beta"
         filterFocused={false}
-        noticeText="Update available: 9.9.9 • npm i -g dunkdiff"
+        noticeText="branch base: origin/main"
         terminalWidth={60}
         theme={theme}
         onFilterInput={() => {}}
@@ -1470,21 +1688,15 @@ describe("UI components", () => {
     );
 
     expect(frame).toContain("filter=beta");
-    expect(frame).not.toContain("Update available:");
+    expect(frame).not.toContain("branch base:");
   });
 
   test("HelpDialog renders every documented control row without overlap", async () => {
     const theme = resolveTheme("midnight", null);
     const frame = await captureFrame(
-      <HelpDialog
-        canRefresh={true}
-        terminalHeight={48}
-        terminalWidth={76}
-        theme={theme}
-        onClose={() => {}}
-      />,
+      <HelpDialog terminalHeight={60} terminalWidth={76} theme={theme} onClose={() => {}} />,
       76,
-      48,
+      60,
     );
 
     const expectedRows = [
@@ -1512,6 +1724,16 @@ describe("UI components", () => {
       "1 / 2 / 0       split / stack / auto",
       "s / t           sidebar / theme",
       "l / w / m       lines / wrap / metadata",
+      "Workspace",
+      "Enter           switch to the ticket's branch (stashes changes)",
+      "Browser",
+      "h               open the ticket in YouTrack",
+      "g               open its merge request in GitLab",
+      "Agent actions",
+      "X               write or refresh the ticket overview",
+      "R               review the code against the ticket",
+      "C               propose commits, then make them",
+      "P               open the merge request",
       "Mouse",
       "Wheel           scroll vertically",
       "Shift+Wheel     scroll code horizontally",
@@ -1545,7 +1767,6 @@ describe("UI components", () => {
         file={bootstrap.changeset.files[0]!}
         headerLabelWidth={40}
         headerStatsWidth={16}
-        separatorWidth={68}
         showHeader={true}
         showSeparator={true}
         theme={theme}
@@ -1573,7 +1794,6 @@ describe("UI components", () => {
         scrollRef={createRef()}
         selectedFileId={undefined}
         selectedHunkIndex={0}
-        separatorWidth={68}
         showLineNumbers={true}
         showHunkHeaders={true}
         wrapLines={false}
@@ -1589,7 +1809,7 @@ describe("UI components", () => {
     expect(frame).toContain("No files match the current filter.");
   });
 
-  test("DiffPane can hide line numbers while keeping diff signs visible", async () => {
+  test("DiffPane can hide line numbers while keeping the code column", async () => {
     const bootstrap = createBootstrap();
     const theme = resolveTheme("midnight", null);
     const frame = await captureFrame(
@@ -1602,7 +1822,6 @@ describe("UI components", () => {
         scrollRef={createRef()}
         selectedFileId="alpha"
         selectedHunkIndex={0}
-        separatorWidth={68}
         showLineNumbers={false}
         showHunkHeaders={true}
         wrapLines={false}
@@ -1615,10 +1834,11 @@ describe("UI components", () => {
       18,
     );
 
-    expect(frame).not.toContain("1 - export const alpha = 1;");
-    expect(frame).not.toContain("1 + export const alpha = 2;");
-    expect(frame).toContain("- export const alpha = 1;");
-    expect(frame).toContain("+ export const alpha = 2;");
+    expect(frame).not.toContain("1   export const alpha = 1;");
+    expect(frame).not.toContain("1   export const alpha = 2;");
+    // The number margin stays reserved, so code keeps its column with numbers hidden.
+    expect(frame).toContain("        export const alpha = 1;");
+    expect(frame).toContain("        export const alpha = 2;");
   });
 
   test("DiffPane can wrap long diff lines onto continuation rows", async () => {
@@ -1634,7 +1854,6 @@ describe("UI components", () => {
         scrollRef={createRef()}
         selectedFileId="wrap"
         selectedHunkIndex={0}
-        separatorWidth={44}
         showLineNumbers={true}
         showHunkHeaders={true}
         wrapLines={true}
@@ -1647,10 +1866,11 @@ describe("UI components", () => {
       20,
     );
 
-    expect(frame).toContain("1 + export const messag");
-    expect(frame).toContain("e = 'this is a very");
-    expect(frame).toContain("long wrapped line");
-    expect(frame).toContain("coverage';");
+    // At this width the long line wraps across several continuation rows under a blank gutter.
+    expect(frame).toContain("1   export const mes");
+    expect(frame).toContain("a very long wrap");
+    expect(frame).toContain("ped line for dif");
+    expect(frame).toContain("rage';");
   });
 
   test("DiffPane can hide hunk metadata rows without hiding code lines", async () => {
@@ -1666,7 +1886,6 @@ describe("UI components", () => {
         scrollRef={createRef()}
         selectedFileId="alpha"
         selectedHunkIndex={0}
-        separatorWidth={68}
         showLineNumbers={true}
         showHunkHeaders={false}
         wrapLines={false}
@@ -1681,8 +1900,8 @@ describe("UI components", () => {
 
     expect(frame).not.toContain("@@ -1,1 +1,2 @@");
     expect(frame).not.toContain("@@ -1,1 +1,1 @@");
-    expect(frame).toContain("1 - export const alpha = 1;");
-    expect(frame).toContain("1 + export const alpha = 2;");
+    expect(frame).toContain("1   export const alpha = 1;");
+    expect(frame).toContain("1   export const alpha = 2;");
   });
 
   test("PierreDiffView renders stack-mode wrapped continuation rows", async () => {
@@ -1706,14 +1925,17 @@ describe("UI components", () => {
       .split("\n")
       .filter(
         (line) =>
-          line.includes("export const message = 'this is a very") || /^▌\s{6,}\S/.test(line),
+          !line.includes("@@") &&
+          (line.includes("export const message = 'this is") || /^\s{5,}\S/.test(line)),
       );
 
-    expect(frame).toContain("1   -  export const message = 'short';");
-    expect(addedLines[0]).toContain("1 +  export const message = 'this is a very l");
-    expect(addedLines.length).toBeGreaterThanOrEqual(3);
-    expect(addedLines.slice(1).some((line) => line.includes("ong wrapped line"))).toBe(true);
-    expect(addedLines.slice(1).some((line) => line.includes("age';"))).toBe(true);
+    expect(frame).toContain("1   export const message = 'short';");
+    expect(addedLines[0]).toContain("1   export const message = 'this is");
+    expect(addedLines.length).toBeGreaterThanOrEqual(2);
+    // Continuation rows carry the rest of the line under a blank gutter.
+    const continuation = addedLines.slice(1).join(" ");
+    expect(continuation).toContain("wrapped line");
+    expect(continuation).toContain("rage';");
   });
 
   test("PierreDiffView can reveal offscreen code columns in nowrap mode", async () => {
@@ -1786,11 +2008,13 @@ describe("UI components", () => {
       18,
     );
 
-    const splitContinuationRows = splitFrame.split("\n").filter((line) => /^▌\s+▌\s+\S/.test(line));
-    const stackContinuationRows = stackFrame.split("\n").filter((line) => /^▌\s{6,}\S/.test(line));
+    const splitContinuationRows = splitFrame.split("\n").filter((line) => /^\s{20,}\S/.test(line));
+    const stackContinuationRows = stackFrame
+      .split("\n")
+      .filter((line) => !line.includes("@@") && /^\s{5,}\S/.test(line));
 
-    expect(splitFrame).toContain("1 + export const message = 't");
-    expect(stackFrame).toContain("1 +  export const message = 'this is a very long wrapped line");
+    expect(splitFrame).toContain("1   export const message = '");
+    expect(stackFrame).toContain("1   export const message = 'this is a very long wrapped line");
     expect(splitContinuationRows.length).toBeGreaterThan(stackContinuationRows.length);
   });
 
@@ -1830,7 +2054,7 @@ describe("UI components", () => {
     // Range-less notes now anchor at the hunk bottom too, so the card sits
     // after the last hunk row rather than above the first one.
     expect(frame.indexOf("Falls back")).toBeGreaterThan(
-      frame.indexOf("1 - export const value = 1;"),
+      frame.indexOf("1   export const value = 1;"),
     );
   });
 
@@ -2045,7 +2269,6 @@ describe("UI components", () => {
       <DiffPane
         {...createDiffPaneProps(files, theme, {
           diffContentWidth: 92,
-          separatorWidth: 88,
           width: 96,
         })}
       />,
@@ -2103,8 +2326,8 @@ describe("UI components", () => {
     expect(frame).not.toContain("File  View  Navigate  Theme  Agent  Help");
     expect(frame).toContain("alpha.ts");
     expect(frame).toContain("beta.ts");
-    expect(frame).toContain("@@ -1,1 +1,2 @@");
-    expect(frame).toContain("@@ -1,1 +1,1 @@");
+    // Hunk ranges are metadata, hidden by default; file cards separate hunks visually.
+    expect(frame).not.toContain("@@");
     // The single bootstrap annotation renders as an inline comment card with
     // its rationale visible beneath the alpha.ts hunk.
     expect(frame).toContain("Annotation for alpha.ts");

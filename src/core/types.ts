@@ -12,6 +12,10 @@ export interface Annotation {
   newRange?: LineRange;
   summary?: string;
   rationale?: string;
+  /** Agent answers to a user comment, oldest first, shown under it. */
+  replies?: string[];
+  /** Who wrote a review comment; the card labels it `Yo:` or `Agente:`. */
+  author?: "user" | "agent";
 }
 
 export interface DiffFile {
@@ -49,15 +53,24 @@ export interface CommonOptions {
   lineNumbers?: boolean;
   wrapLines?: boolean;
   hunkHeaders?: boolean;
+  /** Open the file tree at startup. */
+  fileTree?: boolean;
+  /** Open the ticket Overview pane at startup. */
+  overview?: boolean;
   selectionAutoCopy?: boolean;
-  /** Default base ref for `dunk diff --branch` when no explicit base is passed. */
+  /** Default base ref for `flow diff --branch` when no explicit base is passed. */
   branchReviewBase?: string;
 }
 
-/** Branch-review request attached to a `dunk diff` invocation. */
+/** Branch-review request attached to a `flow diff` invocation. */
 export interface BranchReviewRequest {
   /** Base ref the user typed on the CLI, if any. */
   explicitBase?: string;
+  /**
+   * Set when branch review is only `flow diff`'s default rather than asked for: a repository
+   * with no resolvable base then falls back to the working tree instead of failing.
+   */
+  implicit?: boolean;
 }
 
 export interface PersistedViewPreferences {
@@ -66,12 +79,19 @@ export interface PersistedViewPreferences {
   showLineNumbers: boolean;
   wrapLines: boolean;
   showHunkHeaders: boolean;
+  showFileTree: boolean;
+  showOverview: boolean;
   selectionAutoCopy: boolean;
 }
 
 export interface HelpCommandInput {
   kind: "help";
   text: string;
+}
+
+/** `flow watch`: stream review events for a coding agent's terminal until replaced. */
+export interface AgentWatchCommandInput {
+  kind: "agent-watch";
 }
 
 export interface PagerCommandInput {
@@ -85,7 +105,7 @@ export interface VcsCommandInput {
   staged: boolean;
   pathspecs?: string[];
   options: CommonOptions;
-  /** Present when the user invoked `dunk diff --branch[=base]`. */
+  /** Present when the user invoked `flow diff --branch[=base]`. */
   branchReview?: BranchReviewRequest;
 }
 
@@ -132,7 +152,11 @@ export type CliInput =
   | PatchCommandInput
   | DiffToolCommandInput;
 
-export type ParsedCliInput = CliInput | HelpCommandInput | PagerCommandInput;
+export type ParsedCliInput =
+  | CliInput
+  | HelpCommandInput
+  | PagerCommandInput
+  | AgentWatchCommandInput;
 
 export interface AppBootstrap {
   input: CliInput;
@@ -142,11 +166,13 @@ export interface AppBootstrap {
   initialShowLineNumbers?: boolean;
   initialWrapLines?: boolean;
   initialShowHunkHeaders?: boolean;
+  initialShowFileTree?: boolean;
+  initialShowOverview?: boolean;
   initialSelectionAutoCopy?: boolean;
   /** User comments that cannot be rendered in the current diff. */
   driftedComments?: DriftedCommentSummary[];
-  /** Persistent status-bar notice (e.g. "branch base: origin/main"). */
-  sessionNotice?: string;
+  /** The base a branch review compares against (e.g. "origin/main"); absent otherwise. */
+  branchBase?: string;
 }
 
 export type DriftReason = "missing-file" | "out-of-range" | "anchor-mismatch" | "not-in-hunk";

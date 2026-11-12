@@ -1,6 +1,6 @@
 import type { DiffFile, LayoutMode } from "../../core/types";
 import { measureCommentCardHeight } from "../components/panes/CommentCard";
-import { findMaxLineNumber } from "../diff/codeColumns";
+import { findMaxLineNumber, resolveLineNumberDigits } from "../diff/codeColumns";
 import { buildSplitRows, buildStackRows } from "../diff/pierre";
 import { measureRenderedRowHeight } from "../diff/renderRows";
 import type { PlannedHunkBounds } from "../diff/plannedReviewRows";
@@ -126,7 +126,7 @@ export function measureDiffSectionGeometry(
   const rowBounds: DiffSectionRowBounds[] = [];
   const rowBoundsByKey = new Map<string, DiffSectionRowBounds>();
   const rowBoundsByStableKey = new Map<string, DiffSectionRowBounds>();
-  const lineNumberDigits = String(findMaxLineNumber(file)).length;
+  const lineNumberDigits = resolveLineNumberDigits(findMaxLineNumber(file));
   let bodyHeight = 0;
 
   for (const row of plannedRows) {

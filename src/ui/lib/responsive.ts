@@ -2,9 +2,12 @@ import type { LayoutMode } from "../../core/types";
 
 type ResponsiveViewport = "full" | "medium" | "tight";
 
+/** Width of the tasks workspace; the file tree opens at the same width so both columns line up. */
+export const WORKSPACE_WIDTH = 32;
+
 /** Reserve workspace space only when the review retains a usable width. */
 export function resolveWorkspaceWidth(viewportWidth: number, expanded: boolean): number {
-  if (expanded && viewportWidth >= 110) return 32;
+  if (expanded && viewportWidth >= 110) return WORKSPACE_WIDTH;
   return 0;
 }
 

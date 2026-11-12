@@ -37,6 +37,7 @@ import { DiffFileHeaderRow } from "./DiffFileHeaderRow";
 import { DiffSectionPlaceholder } from "./DiffSectionPlaceholder";
 import { VerticalScrollbar, type VerticalScrollbarHandle } from "../scrollbar/VerticalScrollbar";
 import type { VisibleBodyBounds } from "../../diff/rowWindowing";
+import { codeThemeName } from "../../diff/pierre";
 import { prefetchHighlightedDiff } from "../../diff/useHighlightedDiff";
 
 const EMPTY_VISIBLE_AGENT_NOTES: VisibleAgentNote[] = [];
@@ -136,7 +137,6 @@ export function DiffPane({
   selectedHunkIndex,
   muteHunkSelectionHighlight = false,
   scrollToNote = false,
-  separatorWidth,
   pagerMode = false,
   showLineNumbers,
   showHunkHeaders,
@@ -170,7 +170,6 @@ export function DiffPane({
    */
   muteHunkSelectionHighlight?: boolean;
   scrollToNote?: boolean;
-  separatorWidth: number;
   pagerMode?: boolean;
   showLineNumbers: boolean;
   showHunkHeaders: boolean;
@@ -545,10 +544,10 @@ export function DiffPane({
 
       void prefetchHighlightedDiff({
         file,
-        appearance: theme.appearance,
+        codeTheme: codeThemeName(theme),
       });
     }
-  }, [files, highlightPrefetchFileIds, theme.appearance]);
+  }, [files, highlightPrefetchFileIds, theme]);
 
   // Use the live scroll position so pinned headers react to imperative scrolls immediately.
   const effectiveScrollTop = scrollRef.current?.scrollTop ?? scrollViewport.top;
@@ -889,7 +888,7 @@ export function DiffPane({
       const previousScrollTop =
         // Prefer the synchronously captured pre-toggle position so anchor restoration does not
         // race the polling-based viewport snapshot. For files-only changes (comment add/edit/delete
-        // and external `.dunk/comments.json` reloads) the live scrollTop is still the pre-swap
+        // and external `.flow/comments.json` reloads) the live scrollTop is still the pre-swap
         // position because OpenTUI does not auto-reset scrollTop when content height changes.
         wrapChanged && wrapToggleScrollTop != null
           ? wrapToggleScrollTop
@@ -1221,8 +1220,9 @@ export function DiffPane({
       id="diff-pane"
       style={{
         width,
-        backgroundColor: theme.panel,
-        paddingTop: 0,
+        backgroundColor: theme.background,
+        // One row of air on top, so the first file header lines up with the side panes' headings.
+        paddingTop: pagerMode ? 0 : 1,
         paddingBottom: pagerMode ? 0 : 1,
         paddingX: 0,
         flexDirection: "column",
@@ -1252,10 +1252,10 @@ export function DiffPane({
               focused={pagerMode}
               onMouseScroll={handleMouseScroll}
               scrollAcceleration={mouseWheelScrollAcceleration}
-              rootOptions={{ backgroundColor: theme.panel }}
-              wrapperOptions={{ backgroundColor: theme.panel }}
-              viewportOptions={{ backgroundColor: theme.panel }}
-              contentOptions={{ backgroundColor: theme.panel }}
+              rootOptions={{ backgroundColor: theme.background }}
+              wrapperOptions={{ backgroundColor: theme.background }}
+              viewportOptions={{ backgroundColor: theme.background }}
+              contentOptions={{ backgroundColor: theme.background }}
               verticalScrollbarOptions={{ visible: false }}
               horizontalScrollbarOptions={{ visible: false }}
             >
@@ -1278,7 +1278,6 @@ export function DiffPane({
                         file={file}
                         headerLabelWidth={headerLabelWidth}
                         headerStatsWidth={headerStatsWidth}
-                        separatorWidth={separatorWidth}
                         showHeader={shouldRenderInStreamFileHeader(index)}
                         showSeparator={index > 0}
                         theme={theme}
@@ -1299,7 +1298,6 @@ export function DiffPane({
                       muteHunkSelectionHighlight={muteHunkSelectionHighlight}
                       shouldLoadHighlight={highlightPrefetchFileIds.has(file.id)}
                       sectionGeometry={sectionGeometry[index]}
-                      separatorWidth={separatorWidth}
                       showHeader={shouldRenderInStreamFileHeader(index)}
                       showSeparator={index > 0}
                       showLineNumbers={showLineNumbers}

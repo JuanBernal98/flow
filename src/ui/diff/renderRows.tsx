@@ -2,6 +2,7 @@ import { memo, type ReactNode } from "react";
 import type { DiffFile } from "../../core/types";
 import type { AppTheme } from "../themes";
 import {
+  resolveCodeBlockColumn,
   resolveSplitCellGeometry,
   resolveSplitPaneWidths,
   resolveStackCellGeometry,
@@ -67,63 +68,40 @@ function sliceSpansWindow(spans: RenderSpan[], offset: number, width: number) {
   };
 }
 
-const INACTIVE_RAIL_BLEND = 0.35;
-// Active hunk rails brighten toward the theme accent so the current selection
-// stands out at a glance without losing its addition/deletion identity.
-const ACTIVE_RAIL_ACCENT_BLEND = 0.55;
+// Signs and line numbers outside the active hunk keep this share of their color, so the active
+// hunk reads as lit without any extra chrome.
+const INACTIVE_GUTTER_STRENGTH = 0.45;
+const inactiveHunkThemes = new WeakMap<AppTheme, AppTheme>();
 
-/** Dim a rail color for inactive hunks by blending toward the panel background. */
-function dimRailColor(color: string, theme: AppTheme) {
-  return blendHex(color, theme.panel, INACTIVE_RAIL_BLEND);
-}
-
-/** Brighten a rail color for the active hunk by blending toward the theme accent. */
-function activeRailColor(color: string, theme: AppTheme) {
-  return blendHex(color, theme.accent, ACTIVE_RAIL_ACCENT_BLEND);
-}
-
-/** The rail marker is always visible. */
-function marker() {
-  return "▌";
-}
-
-/** Return the neutral active-hunk rail color for the current theme. */
-function neutralRailColor(theme: AppTheme) {
-  return theme.lineNumberFg;
-}
-
-/** Pick the stack-view rail color for one rendered row. */
-function stackRailColor(kind: StackLineCell["kind"], theme: AppTheme, selected: boolean) {
-  let color: string;
-
-  if (kind === "addition") {
-    color = theme.addedSignColor;
-  } else if (kind === "deletion") {
-    color = theme.removedSignColor;
-  } else {
-    color = neutralRailColor(theme);
+/** The theme rows outside the active hunk render with: only gutter glyph colors fade. */
+function inactiveHunkTheme(theme: AppTheme) {
+  let faded = inactiveHunkThemes.get(theme);
+  if (!faded) {
+    faded = {
+      ...theme,
+      addedSignColor: blendHex(theme.addedSignColor, theme.addedBg, INACTIVE_GUTTER_STRENGTH),
+      removedSignColor: blendHex(theme.removedSignColor, theme.removedBg, INACTIVE_GUTTER_STRENGTH),
+      muted: blendHex(theme.muted, theme.contextBg, INACTIVE_GUTTER_STRENGTH),
+      lineNumberFg: blendHex(theme.lineNumberFg, theme.lineNumberBg, INACTIVE_GUTTER_STRENGTH),
+    };
+    inactiveHunkThemes.set(theme, faded);
   }
-
-  return selected ? activeRailColor(color, theme) : dimRailColor(color, theme);
+  return faded;
 }
 
-/** Pick the left split-view rail color from the old-side cell state. */
-function splitLeftRailColor(kind: SplitLineCell["kind"], theme: AppTheme, selected: boolean) {
-  const color = kind === "deletion" ? theme.removedSignColor : neutralRailColor(theme);
-  return selected ? activeRailColor(color, theme) : dimRailColor(color, theme);
-}
+// Blank lead column where a colored rail used to sit; note guides still draw into it, and each
+// row paints it with its own gutter background so the diff has no left edge.
+const ROW_LEAD = " ";
 
-/** Pick the right split-view rail color from the new-side cell state. */
-function splitRightRailColor(kind: SplitLineCell["kind"], theme: AppTheme, selected: boolean) {
-  const color = kind === "addition" ? theme.addedSignColor : neutralRailColor(theme);
-  return selected ? activeRailColor(color, theme) : dimRailColor(color, theme);
-}
+// Line numbers sit outside the file card on the pane background; the sign and the code carry the
+// card surface or the row's addition/deletion tint across the full row.
+const SIGN_ZONE_WIDTH = 2;
 
 /** Pick split-view colors from the semantic diff cell kind. */
 function splitCellPalette(kind: SplitLineCell["kind"], theme: AppTheme) {
   if (kind === "addition") {
     return {
-      gutterBg: theme.addedBg,
+      gutterBg: theme.background,
       contentBg: theme.addedBg,
       signColor: theme.addedSignColor,
       numberColor: theme.lineNumberFg,
@@ -132,24 +110,26 @@ function splitCellPalette(kind: SplitLineCell["kind"], theme: AppTheme) {
 
   if (kind === "deletion") {
     return {
-      gutterBg: theme.removedBg,
+      gutterBg: theme.background,
       contentBg: theme.removedBg,
       signColor: theme.removedSignColor,
       numberColor: theme.lineNumberFg,
     };
   }
 
+  // The side with no counterpart line takes the card's plain surface, so it reads as blank space
+  // rather than a filled gap.
   if (kind === "empty") {
     return {
-      gutterBg: theme.lineNumberBg,
-      contentBg: theme.panelAlt,
+      gutterBg: theme.background,
+      contentBg: theme.contextBg,
       signColor: theme.muted,
       numberColor: theme.lineNumberFg,
     };
   }
 
   return {
-    gutterBg: theme.lineNumberBg,
+    gutterBg: theme.background,
     contentBg: theme.contextBg,
     signColor: theme.muted,
     numberColor: theme.lineNumberFg,
@@ -160,7 +140,7 @@ function splitCellPalette(kind: SplitLineCell["kind"], theme: AppTheme) {
 function stackCellPalette(kind: StackLineCell["kind"], theme: AppTheme) {
   if (kind === "addition") {
     return {
-      gutterBg: theme.addedBg,
+      gutterBg: theme.background,
       contentBg: theme.addedBg,
       signColor: theme.addedSignColor,
       numberColor: theme.lineNumberFg,
@@ -169,7 +149,7 @@ function stackCellPalette(kind: StackLineCell["kind"], theme: AppTheme) {
 
   if (kind === "deletion") {
     return {
-      gutterBg: theme.removedBg,
+      gutterBg: theme.background,
       contentBg: theme.removedBg,
       signColor: theme.removedSignColor,
       numberColor: theme.lineNumberFg,
@@ -177,7 +157,7 @@ function stackCellPalette(kind: StackLineCell["kind"], theme: AppTheme) {
   }
 
   return {
-    gutterBg: theme.lineNumberBg,
+    gutterBg: theme.background,
     contentBg: theme.contextBg,
     signColor: theme.muted,
     numberColor: theme.lineNumberFg,
@@ -190,18 +170,16 @@ function renderGutter(
   palette: ReturnType<typeof splitCellPalette>,
   keyPrefix: string,
 ) {
-  const signIndex = text.search(/[+-]/);
+  // The last two columns are the sign and its space, which stay inside the row's tinted band;
+  // only the line number before them sits outside the code block on the pane background.
+  const numberText = text.slice(0, Math.max(0, text.length - SIGN_ZONE_WIDTH));
+  const signZone = text.slice(numberText.length);
   return (
     <span key={`${keyPrefix}:gutter`} fg={palette.numberColor} bg={palette.gutterBg}>
-      {signIndex < 0 ? (
-        text
-      ) : (
-        <>
-          {text.slice(0, signIndex)}
-          <span fg={palette.signColor}>{text[signIndex]}</span>
-          {text.slice(signIndex + 1)}
-        </>
-      )}
+      {numberText}
+      <span fg={palette.signColor} bg={palette.contentBg}>
+        {signZone}
+      </span>
     </span>
   );
 }
@@ -323,14 +301,14 @@ function buildWrappedSplitCell(
   const { gutterWidth, contentWidth } = resolveSplitCellGeometry(
     width,
     lineNumberDigits,
-    showLineNumbers,
     prefixWidth,
   );
-  const firstGutterText = showLineNumbers
-    ? `${cell.lineNumber ? String(cell.lineNumber).padStart(lineNumberDigits, " ") : " ".repeat(lineNumberDigits)} ${cell.sign}`.padEnd(
-        gutterWidth,
-      )
-    : `${cell.sign} `.padEnd(gutterWidth);
+  const firstGutterText = formatGutterText(
+    cell.lineNumber,
+    lineNumberDigits,
+    showLineNumbers,
+    gutterWidth,
+  );
   const wrappedSpans = wrapSpans(cell.spans, contentWidth);
 
   return {
@@ -341,6 +319,32 @@ function buildWrappedSplitCell(
       spans,
     })),
   } satisfies WrappedCellLayout;
+}
+
+/**
+ * The single stack-view line number: the new-file number for additions and context, the old-file
+ * number for deletions, which have no new-side line.
+ */
+function stackLineNumber(cell: StackLineCell) {
+  return cell.newLineNumber ?? cell.oldLineNumber;
+}
+
+/**
+ * Lay out one gutter as the line number plus a two-column margin inside the row tint. The number
+ * columns are always reserved, blank when numbers are hidden, so the code keeps its column either
+ * way. There is no `+`/`-` sign: the row tint already marks additions and deletions.
+ */
+function formatGutterText(
+  lineNumber: number | undefined,
+  lineNumberDigits: number,
+  showLineNumbers: boolean,
+  gutterWidth: number,
+) {
+  const number =
+    showLineNumbers && lineNumber
+      ? String(lineNumber).padStart(lineNumberDigits, " ")
+      : " ".repeat(lineNumberDigits);
+  return `${number} `.padEnd(gutterWidth);
 }
 
 /** Build wrapped stack-cell gutter/content lines while keeping continuation gutters blank. */
@@ -356,18 +360,14 @@ function buildWrappedStackCell(
   const { gutterWidth, contentWidth } = resolveStackCellGeometry(
     width,
     lineNumberDigits,
-    showLineNumbers,
     prefixWidth,
   );
-  const oldNumber = cell.oldLineNumber
-    ? String(cell.oldLineNumber).padStart(lineNumberDigits, " ")
-    : " ".repeat(lineNumberDigits);
-  const newNumber = cell.newLineNumber
-    ? String(cell.newLineNumber).padStart(lineNumberDigits, " ")
-    : " ".repeat(lineNumberDigits);
-  const firstGutterText = (
-    showLineNumbers ? `${oldNumber} ${newNumber} ${cell.sign}` : `${cell.sign} `
-  ).padEnd(gutterWidth);
+  const firstGutterText = formatGutterText(
+    stackLineNumber(cell),
+    lineNumberDigits,
+    showLineNumbers,
+    gutterWidth,
+  );
   const wrappedSpans = wrapSpans(cell.spans, contentWidth);
 
   return {
@@ -400,14 +400,14 @@ function renderSplitCell(
   const { gutterWidth, contentWidth } = resolveSplitCellGeometry(
     width,
     lineNumberDigits,
-    showLineNumbers,
     prefixWidth,
   );
-  const gutterText = showLineNumbers
-    ? `${cell.lineNumber ? String(cell.lineNumber).padStart(lineNumberDigits, " ") : " ".repeat(lineNumberDigits)} ${cell.sign}`.padEnd(
-        gutterWidth,
-      )
-    : `${cell.sign} `.padEnd(gutterWidth);
+  const gutterText = formatGutterText(
+    cell.lineNumber,
+    lineNumberDigits,
+    showLineNumbers,
+    gutterWidth,
+  );
 
   return (
     <>
@@ -449,16 +449,8 @@ function renderStackCell(
   const { gutterWidth, contentWidth } = resolveStackCellGeometry(
     width,
     lineNumberDigits,
-    showLineNumbers,
     prefixWidth,
   );
-
-  const oldNumber = cell.oldLineNumber
-    ? String(cell.oldLineNumber).padStart(lineNumberDigits, " ")
-    : " ".repeat(lineNumberDigits);
-  const newNumber = cell.newLineNumber
-    ? String(cell.newLineNumber).padStart(lineNumberDigits, " ")
-    : " ".repeat(lineNumberDigits);
 
   return (
     <>
@@ -468,9 +460,7 @@ function renderStackCell(
         </span>
       ) : null}
       {renderGutter(
-        (showLineNumbers ? `${oldNumber} ${newNumber} ${cell.sign}` : `${cell.sign} `).padEnd(
-          gutterWidth,
-        ),
+        formatGutterText(stackLineNumber(cell), lineNumberDigits, showLineNumbers, gutterWidth),
         palette,
         keyPrefix,
       )}
@@ -583,13 +573,52 @@ function renderHeaderRow(
   row: Extract<DiffRow, { type: "collapsed" | "hunk-header" }>,
   width: number,
   theme: AppTheme,
-  selected: boolean,
+  codeBlockColumn: number,
+  layout: "split" | "stack",
   anchorId?: string,
 ) {
-  const label =
+  // Folds between hunks are a blank card row marked only by `...` in the number margin; hunk
+  // headers, shown only with the metadata toggle, carry their `@@` range in muted text. Each card segment keeps its line-number
+  // margin on the pane background, so split view gets one rule per half and never paints over the
+  // right half's margin.
+  const halves =
+    layout === "split"
+      ? [resolveSplitPaneWidths(width).leftWidth, resolveSplitPaneWidths(width).rightWidth]
+      : [width];
+  const fg = theme.muted;
+  // A fold marks lines the review skips, so its number margin says so where the numbers sit:
+  // right-aligned like them, as an ellipsis that fits even a one- or two-digit column.
+  const numberWidth = Math.max(0, codeBlockColumn - 1);
+  const skippedMarker = numberWidth >= 3 ? "..." : "…";
+  const margin =
     row.type === "collapsed"
-      ? fitText(`··· ${row.text} ···`, Math.max(0, width - 1))
-      : fitText(row.text, Math.max(0, width - 1));
+      ? `${skippedMarker.padStart(numberWidth)} `.slice(-codeBlockColumn)
+      : " ".repeat(codeBlockColumn);
+
+  /** One full-width row: number margin on the pane background, then card segments. */
+  const renderLine = (lineKey: string, fill: (cardWidth: number, half: number) => string) => (
+    <text key={lineKey}>
+      {halves.map((halfWidth, index) => {
+        const cardWidth = Math.max(0, halfWidth - codeBlockColumn);
+        return (
+          <span key={`${lineKey}:half:${index}`}>
+            <span fg={theme.lineNumberFg} bg={theme.background}>
+              {margin.slice(0, Math.min(halfWidth, codeBlockColumn))}
+            </span>
+            <span fg={fg} bg={theme.contextBg}>
+              {fill(cardWidth, index)}
+            </span>
+          </span>
+        );
+      })}
+    </text>
+  );
+  const line =
+    row.type === "collapsed"
+      ? renderLine(`${row.key}:fold`, (cardWidth) => " ".repeat(cardWidth))
+      : renderLine(`${row.key}:range`, (cardWidth, half) =>
+          half === 0 ? fitText(row.text, cardWidth).padEnd(cardWidth) : " ".repeat(cardWidth),
+        );
 
   return (
     <box
@@ -598,22 +627,21 @@ function renderHeaderRow(
       style={{
         width: "100%",
         height: 1,
-        backgroundColor: theme.contextBg,
+        // Only the card spans carry the card surface, so the row never paints past the block.
+        backgroundColor: theme.background,
       }}
     >
-      <text>
-        <span
-          fg={selected ? neutralRailColor(theme) : dimRailColor(neutralRailColor(theme), theme)}
-          bg={theme.contextBg}
-        >
-          {marker()}
-        </span>
-        <span fg={theme.muted} bg={theme.contextBg}>
-          {label}
-        </span>
-      </text>
+      {line}
     </box>
   );
+}
+
+/**
+ * Whether a folded run of unchanged lines sits between two hunks. Only those render, as one row
+ * marked `...` in the number margin; folds at a file's top or bottom take no rows.
+ */
+function isFoldBetweenHunks(row: Extract<DiffRow, { type: "collapsed" | "hunk-header" }>) {
+  return row.type === "collapsed" && row.hunkIndex > 0 && !row.key.endsWith(":trailing");
 }
 
 /** Measure how many terminal rows one rendered diff row occupies. */
@@ -631,7 +659,7 @@ export function measureRenderedRowHeight(
   }
 
   if (row.type === "collapsed") {
-    return 1;
+    return isFoldBetweenHunks(row) ? 1 : 0;
   }
 
   if (row.type === "split-line") {
@@ -674,7 +702,7 @@ export function measureRenderedRowHeight(
     width,
     lineNumberDigits,
     showLineNumbers,
-    marker().length,
+    ROW_LEAD.length,
     theme,
   );
   return layout.lines.length;
@@ -689,18 +717,38 @@ function renderRow(
   showHunkHeaders: boolean,
   wrapLines: boolean,
   codeHorizontalOffset: number,
-  theme: AppTheme,
+  baseTheme: AppTheme,
+  layout: "split" | "stack",
   selected: boolean,
   annotated: boolean,
   anchorId?: string,
   noteGuideSide?: "old" | "new",
 ) {
   let baseRow: ReactNode;
+  const theme = selected ? baseTheme : inactiveHunkTheme(baseTheme);
 
   if (row.type === "collapsed") {
-    baseRow = renderHeaderRow(row, width, theme, selected, anchorId);
+    baseRow = isFoldBetweenHunks(row)
+      ? renderHeaderRow(
+          row,
+          width,
+          baseTheme,
+          resolveCodeBlockColumn(lineNumberDigits),
+          layout,
+          anchorId,
+        )
+      : null;
   } else if (row.type === "hunk-header") {
-    baseRow = showHunkHeaders ? renderHeaderRow(row, width, theme, selected, anchorId) : null;
+    baseRow = showHunkHeaders
+      ? renderHeaderRow(
+          row,
+          width,
+          baseTheme,
+          resolveCodeBlockColumn(lineNumberDigits),
+          layout,
+          anchorId,
+        )
+      : null;
   } else if (row.type === "split-line") {
     const guideOnOldSide = noteGuideSide === "old";
     const guideOnNewSide = noteGuideSide === "new";
@@ -708,15 +756,16 @@ function renderRow(
     // Reserve fixed columns for the diff rails and center separator slot.
     const { leftWidth, rightWidth } = resolveSplitPaneWidths(width);
     const rightRenderWidth = Math.max(0, rightWidth - (guideOnNewSide ? 1 : 0));
+    // The lead column takes its row's gutter background so no colored edge shows.
     const leftPrefix = {
-      text: guideOnOldSide ? "│" : marker(),
-      fg: guideOnOldSide ? theme.noteBorder : splitLeftRailColor(row.left.kind, theme, selected),
-      bg: theme.panel,
+      text: guideOnOldSide ? "│" : ROW_LEAD,
+      fg: theme.noteBorder,
+      bg: splitCellPalette(row.left.kind, theme).gutterBg,
     };
     const rightPrefix = {
-      text: "▌",
-      fg: splitRightRailColor(row.right.kind, theme, selected),
-      bg: theme.panel,
+      text: ROW_LEAD,
+      fg: theme.noteBorder,
+      bg: splitCellPalette(row.right.kind, theme).gutterBg,
     };
 
     if (!wrapLines) {
@@ -826,9 +875,9 @@ function renderRow(
     const guideOnNewSide = noteGuideSide === "new";
     const contentWidth = Math.max(0, width - (guideOnNewSide ? 1 : 0));
     const prefix = {
-      text: guideOnOldSide ? "│" : marker(),
-      fg: guideOnOldSide ? theme.noteBorder : stackRailColor(row.cell.kind, theme, selected),
-      bg: theme.panel,
+      text: guideOnOldSide ? "│" : ROW_LEAD,
+      fg: theme.noteBorder,
+      bg: stackCellPalette(row.cell.kind, theme).gutterBg,
     };
 
     if (!wrapLines) {
@@ -911,6 +960,8 @@ interface DiffRowViewProps {
   wrapLines: boolean;
   codeHorizontalOffset: number;
   theme: AppTheme;
+  layout: "split" | "stack";
+  /** Whether the row belongs to the active hunk, whose gutter keeps full color. */
   selected: boolean;
   annotated: boolean;
   anchorId?: string;
@@ -928,6 +979,7 @@ export const DiffRowView = memo(
     wrapLines,
     codeHorizontalOffset,
     theme,
+    layout,
     selected,
     annotated,
     anchorId,
@@ -942,6 +994,7 @@ export const DiffRowView = memo(
       wrapLines,
       codeHorizontalOffset,
       theme,
+      layout,
       selected,
       annotated,
       anchorId,
@@ -958,6 +1011,7 @@ export const DiffRowView = memo(
       previous.wrapLines === next.wrapLines &&
       previous.codeHorizontalOffset === next.codeHorizontalOffset &&
       previous.theme === next.theme &&
+      previous.layout === next.layout &&
       previous.selected === next.selected &&
       previous.annotated === next.annotated &&
       previous.anchorId === next.anchorId &&

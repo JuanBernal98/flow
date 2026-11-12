@@ -148,9 +148,10 @@ describe("review render plan", () => {
     if (anchoredRow?.kind === "diff-row") {
       expect(anchoredRow.row.type).toBe("split-line");
       if (anchoredRow.row.type === "split-line") {
-        // Note anchors at the hunk's last row (kept line on both sides).
+        // Note anchors at the hunk's last row. Split sides flow independently, so the right side
+        // ran out of lines there: removed+kept on the left, only kept on the right.
         expect(anchoredRow.row.left.lineNumber).toBe(2);
-        expect(anchoredRow.row.right.lineNumber).toBe(1);
+        expect(anchoredRow.row.right.kind).toBe("empty");
       }
     }
   });

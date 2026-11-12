@@ -4,13 +4,11 @@ import { ModalFrame } from "./ModalFrame";
 
 /** Render the in-app controls help modal. */
 export function HelpDialog({
-  canRefresh = false,
   terminalHeight,
   terminalWidth,
   theme,
   onClose,
 }: {
-  canRefresh?: boolean;
   terminalHeight: number;
   terminalWidth: number;
   theme: AppTheme;
@@ -47,7 +45,7 @@ export function HelpDialog({
         ["Tab", "toggle files/filter focus"],
         ["F", "focus file tree; Esc returns to review"],
         ["Tree: arrows", "navigate / fold folders; Enter opens"],
-        [canRefresh ? "r / q" : "q", canRefresh ? "reload / quit" : "quit"],
+        ["r / q", "reload / quit"],
       ],
     },
     {
@@ -55,9 +53,33 @@ export function HelpDialog({
       items: [
         ["1 / 2 / 0", "split / stack / auto"],
         ["s / t", "sidebar / theme"],
-        ["S", "toggle workspace (mock data)"],
-        ["Workspace: j/k", "select item; Enter/Esc returns to review"],
         ["l / w / m", "lines / wrap / metadata"],
+        ["B", "whole branch / uncommitted changes only"],
+        ["x", "show / hide the ticket overview"],
+      ],
+    },
+    {
+      title: "Workspace",
+      items: [
+        ["S", "focus workspace; again to hide it"],
+        ["j / k", "select item; / filters; Esc returns"],
+        ["Enter", "switch to the ticket's branch (stashes changes)"],
+      ],
+    },
+    {
+      title: "Browser",
+      items: [
+        ["h", "open the ticket in YouTrack"],
+        ["g", "open its merge request in GitLab"],
+      ],
+    },
+    {
+      title: "Agent actions",
+      items: [
+        ["X", "write or refresh the ticket overview"],
+        ["R", "review the code against the ticket"],
+        ["C", "propose commits, then make them"],
+        ["P", "open the merge request"],
       ],
     },
     {

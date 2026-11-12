@@ -5,8 +5,8 @@ import type { VisibleAgentNote } from "../lib/agentAnnotations";
 import type { DiffSectionGeometry } from "../lib/diffSectionGeometry";
 import { reviewRowId } from "../lib/ids";
 import type { AppTheme } from "../themes";
-import { findMaxLineNumber } from "./codeColumns";
-import { buildSplitRows, buildStackRows } from "./pierre";
+import { findMaxLineNumber, resolveLineNumberDigits } from "./codeColumns";
+import { buildSplitRows, buildStackRows, codeThemeName } from "./pierre";
 import { plannedReviewRowVisible } from "./plannedReviewRows";
 import { buildReviewRenderPlan } from "./reviewRenderPlan";
 import { resolveVisiblePlannedRowWindow, type VisibleBodyBounds } from "./rowWindowing";
@@ -48,7 +48,7 @@ export function PierreDiffView({
   visibleAgentNotes?: VisibleAgentNote[];
   width: number;
   selectedHunkIndex: number;
-  /** Render rows without the selected-rail highlight while still using `selectedHunkIndex` for measurement. */
+  /** Render rows without the active-hunk emphasis while still using `selectedHunkIndex` for measurement. */
   muteHunkSelectionHighlight?: boolean;
   sectionGeometry?: DiffSectionGeometry;
   shouldLoadHighlight?: boolean;
@@ -57,7 +57,7 @@ export function PierreDiffView({
 }) {
   const resolvedHighlighted = useHighlightedDiff({
     file,
-    appearance: theme.appearance,
+    codeTheme: codeThemeName(theme),
     shouldLoadHighlight,
   });
 
@@ -82,7 +82,10 @@ export function PierreDiffView({
         : [],
     [file, rows, showHunkHeaders, visibleAgentNotes],
   );
-  const lineNumberDigits = useMemo(() => String(file ? findMaxLineNumber(file) : 1).length, [file]);
+  const lineNumberDigits = useMemo(
+    () => resolveLineNumberDigits(file ? findMaxLineNumber(file) : 1),
+    [file],
+  );
   const visiblePlannedRowWindow = useMemo(() => {
     // Fall back to the full row list unless all three row-windowing inputs are ready:
     // - the complete planned row stream for this file
@@ -138,7 +141,7 @@ export function PierreDiffView({
           style={{
             width: "100%",
             height: visiblePlannedRowWindow.topSpacerHeight,
-            backgroundColor: theme.panel,
+            backgroundColor: theme.contextBg,
           }}
         />
       ) : null}
@@ -190,6 +193,7 @@ export function PierreDiffView({
               wrapLines={wrapLines}
               codeHorizontalOffset={codeHorizontalOffset}
               theme={theme}
+              layout={layout}
               selected={
                 !muteHunkSelectionHighlight && plannedRow.row.hunkIndex === selectedHunkIndex
               }
@@ -208,7 +212,7 @@ export function PierreDiffView({
           style={{
             width: "100%",
             height: visiblePlannedRowWindow.bottomSpacerHeight,
-            backgroundColor: theme.panel,
+            backgroundColor: theme.contextBg,
           }}
         />
       ) : null}

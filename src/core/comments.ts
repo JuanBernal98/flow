@@ -1,19 +1,19 @@
-/** `.dunk/comments.json` reader/writer and drift detection. */
+/** `.flow/comments.json` reader/writer and drift detection. */
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { z } from "zod";
-import { DUNK_COMMENTS_FILENAME, DUNK_COMMENTS_RELATIVE_PATH, DUNK_DIR } from "./dunkPaths";
-import { DunkUserError } from "./errors";
+import { FLOW_COMMENTS_FILENAME, FLOW_COMMENTS_RELATIVE_PATH, FLOW_DIR } from "./flowPaths";
+import { FlowUserError } from "./errors";
 import { hunkLineRange } from "./hunkRange";
 import { LARGE_FILE_MAX_BYTES } from "./limits";
 import type { Annotation, Changeset, DiffFile, DriftReason, LineRange } from "./types";
 
 /**
  * Resolve a comment's `file` to an absolute path inside `repoRoot`, or null
- * if the path is absolute or escapes the repo via `..` segments. `.dunk/`
+ * if the path is absolute or escapes the repo via `..` segments. `.flow/`
  * comments are user/agent-editable, so a crafted entry could otherwise make
- * `dunk comments show` print arbitrary local files.
+ * `flow comments show` print arbitrary local files.
  */
 function resolveCommentPathWithinRepo(repoRoot: string, relPath: string): string | null {
   if (typeof relPath !== "string" || relPath.length === 0 || isAbsolute(relPath)) {
@@ -33,7 +33,7 @@ const SCHEMA_VERSION = 1;
 const ANCHOR_HEX_LEN = 16;
 
 /**
- * Validate agent-editable `.dunk/comments.json` before malformed entries
+ * Validate agent-editable `.flow/comments.json` before malformed entries
  * reach the renderer.
  */
 const PersistedCommentSchema = z
@@ -48,6 +48,10 @@ const PersistedCommentSchema = z
       }),
     anchor: z.string().regex(/^[0-9a-f]{16}$/, "anchor must be a 16-hex SHA-256 prefix"),
     body: z.string(),
+    author: z.enum(["user", "agent"]).optional(),
+    replies: z
+      .array(z.object({ author: z.literal("agent"), body: z.string().min(1) }).strict())
+      .optional(),
   })
   // Unknown fields usually mean a typo or schema mismatch.
   .strict();
@@ -68,6 +72,20 @@ const CommentsFileSchema = z
  * `line` is the row used for drift detection (the anchor hash is computed
  * from nearby context). Treat it as opaque.
  */
+/** Who wrote a comment: the user in the TUI, or a coding agent through the CLI. */
+export type CommentAuthor = "user" | "agent";
+
+/** Whether a comment came from an agent; comments without an author are the user's. */
+export function isAgentComment(comment: Pick<PersistedComment, "author">) {
+  return comment.author === "agent";
+}
+
+/** An agent's answer under a user comment; the user still closes the comment. */
+export interface CommentReply {
+  author: "agent";
+  body: string;
+}
+
 export interface PersistedComment {
   id: number;
   file: string;
@@ -75,9 +93,13 @@ export interface PersistedComment {
   range: LineRange;
   anchor: string;
   body: string;
+  /** Who wrote the comment. Absent on older files, which only held the user's comments. */
+  author?: CommentAuthor;
+  /** Agent answers, oldest first. Absent until the agent replies. */
+  replies?: CommentReply[];
 }
 
-/** Top-level shape of `.dunk/comments.json`. */
+/** Top-level shape of `.flow/comments.json`. */
 export interface CommentsFile {
   schema: number;
   comments: PersistedComment[];
@@ -216,8 +238,8 @@ function parseCommentsFile(raw: string, path: string): CommentsFile {
     parsed = JSON.parse(raw);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    throw new DunkUserError(`Malformed JSON in ${path}: ${detail}`, [
-      "Repair the file by hand, or delete it to start fresh — dunk treats a missing file as no comments and recreates it on the next comment.",
+    throw new FlowUserError(`Malformed JSON in ${path}: ${detail}`, [
+      "Repair the file by hand, or delete it to start fresh — flow treats a missing file as no comments and recreates it on the next comment.",
     ]);
   }
 
@@ -227,14 +249,14 @@ function parseCommentsFile(raw: string, path: string): CommentsFile {
     "schema" in parsed &&
     parsed.schema !== SCHEMA_VERSION
   ) {
-    throw new DunkUserError(
-      `Unsupported dunk comments schema ${(parsed as { schema: unknown }).schema} at ${path} (expected ${SCHEMA_VERSION}).`,
+    throw new FlowUserError(
+      `Unsupported flow comments schema ${(parsed as { schema: unknown }).schema} at ${path} (expected ${SCHEMA_VERSION}).`,
     );
   }
 
   const result = CommentsFileSchema.safeParse(parsed);
   if (!result.success) {
-    throw new DunkUserError(`Invalid comment in ${path}:`, [
+    throw new FlowUserError(`Invalid comment in ${path}:`, [
       ...summarizeCommentsValidationIssues(result.error),
       "Fix the offending entry (or remove it). Silently dropping bad entries would hide data loss, so the read refuses to continue.",
     ]);
@@ -242,9 +264,9 @@ function parseCommentsFile(raw: string, path: string): CommentsFile {
   return result.data;
 }
 
-/** The absolute path to `.dunk/comments.json` for one repo root. */
+/** The absolute path to `.flow/comments.json` for one repo root. */
 function commentsFilePath(repoRoot: string): string {
-  return join(repoRoot, DUNK_COMMENTS_RELATIVE_PATH);
+  return join(repoRoot, FLOW_COMMENTS_RELATIVE_PATH);
 }
 
 /**
@@ -266,7 +288,7 @@ function readCommentsRawOrNull(path: string): string | null {
   }
 }
 
-/** Read `.dunk/comments.json` from the repo root, returning [] if missing. */
+/** Read `.flow/comments.json` from the repo root, returning [] if missing. */
 export function readCommentsFile(repoRoot: string): CommentsFile {
   const path = commentsFilePath(repoRoot);
   const raw = readCommentsRawOrNull(path);
@@ -278,8 +300,8 @@ export function readCommentsFile(repoRoot: string): CommentsFile {
 
 /** Atomically write the comments file using a unique temp + rename. */
 export function writeCommentsFile(repoRoot: string, file: CommentsFile): void {
-  const dir = join(repoRoot, DUNK_DIR);
-  const finalPath = join(dir, DUNK_COMMENTS_FILENAME);
+  const dir = join(repoRoot, FLOW_DIR);
+  const finalPath = join(dir, FLOW_COMMENTS_FILENAME);
 
   // An empty review has no file. A `{ "schema": 1, "comments": [] }` artifact
   // is just noise an agent or human reviewer would have to reason about, and
@@ -296,7 +318,7 @@ export function writeCommentsFile(repoRoot: string, file: CommentsFile): void {
   // rename remains atomic, so concurrent readers still see one whole file.
   const tempPath = join(
     dir,
-    `.${DUNK_COMMENTS_FILENAME}.${process.pid}.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}.tmp`,
+    `.${FLOW_COMMENTS_FILENAME}.${process.pid}.${Date.now().toString(36)}.${Math.random().toString(36).slice(2, 8)}.tmp`,
   );
   const sorted: CommentsFile = {
     schema: SCHEMA_VERSION,
@@ -323,11 +345,26 @@ export function withAddedComment(
   };
 }
 
+/** Append an agent reply to one comment; throws when the id is missing. */
+export function withCommentReply(file: CommentsFile, id: number, body: string): CommentsFile {
+  if (!file.comments.some((comment) => comment.id === id)) {
+    throw new Error(`No flow comment with id ${id}.`);
+  }
+  return {
+    ...file,
+    comments: file.comments.map((comment) =>
+      comment.id === id
+        ? { ...comment, replies: [...(comment.replies ?? []), { author: "agent", body }] }
+        : comment,
+    ),
+  };
+}
+
 /** Remove one comment by id; throws when the id is missing. */
 export function withRemovedComment(file: CommentsFile, id: number): CommentsFile {
   const next = file.comments.filter((comment) => comment.id !== id);
   if (next.length === file.comments.length) {
-    throw new Error(`No dunk comment with id ${id}.`);
+    throw new Error(`No flow comment with id ${id}.`);
   }
 
   return { ...file, comments: next };
@@ -422,8 +459,10 @@ function relocateAnchor(lines: string[], originalLine: number, anchor: string): 
 /** Map an anchored comment to the inline annotation shape used by the renderer. */
 function commentToAnnotation(comment: AnchoredComment): Annotation {
   return {
-    id: `dunk-comment:${comment.id}`,
+    id: `flow-comment:${comment.id}`,
     summary: comment.body,
+    author: comment.author ?? "user",
+    replies: comment.replies?.map((reply) => reply.body),
     newRange: [comment.line, comment.line],
   };
 }
@@ -525,7 +564,7 @@ export function commentsForHunkRange(
 const MUTATE_MAX_ATTEMPTS = 5;
 
 /**
- * Snapshot of the current `.dunk/comments.json` with a content fingerprint.
+ * Snapshot of the current `.flow/comments.json` with a content fingerprint.
  * Reads the file exactly once and uses the same bytes for both the schema
  * parse and the SHA hash, so a concurrent writer landing between the two
  * can't make the optimistic-write loop hash and validate different content.
@@ -582,6 +621,6 @@ export function mutateCommentsFile(
   }
 
   throw new Error(
-    `dunk comments: gave up after ${MUTATE_MAX_ATTEMPTS} optimistic retries on ${commentsFilePath(repoRoot)}.`,
+    `flow comments: gave up after ${MUTATE_MAX_ATTEMPTS} optimistic retries on ${commentsFilePath(repoRoot)}.`,
   );
 }

@@ -149,7 +149,7 @@ describe("computeWatchSignature", () => {
     ["unstaged", createGitInput()],
     ["branch review", createGitInput({ branchReview: { explicitBase: "master" } })],
   ])("tracks repeated edits to an already-dirty file (%s)", (_label, input) => {
-    const dir = createTempRepo("dunk-watch-repeat-edit-");
+    const dir = createTempRepo("flow-watch-repeat-edit-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -165,7 +165,7 @@ describe("computeWatchSignature", () => {
   });
 
   test("tracks staged edits and ignores working-tree-only edits in a staged review", () => {
-    const dir = createTempRepo("dunk-watch-staged-");
+    const dir = createTempRepo("flow-watch-staged-");
 
     writeFileSync(join(dir, "tracked.ts"), "export const tracked = 1;\n");
     git(dir, "add", "tracked.ts");
@@ -185,7 +185,7 @@ describe("computeWatchSignature", () => {
   });
 
   test("tracks branch history changes when the working tree stays clean", () => {
-    const dir = createTempRepo("dunk-watch-branch-history-");
+    const dir = createTempRepo("flow-watch-branch-history-");
 
     writeFileSync(join(dir, "base.ts"), "export const base = 1;\n");
     git(dir, "add", "base.ts");

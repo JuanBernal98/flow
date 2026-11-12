@@ -13,10 +13,10 @@ import {
   withRemovedComments,
   writeCommentsFile,
 } from "./comments";
-import { DunkUserError } from "./errors";
+import { FlowUserError } from "./errors";
 
 function withTempRepo<T>(run: (repoRoot: string) => T): T {
-  const repoRoot = mkdtempSync(join(tmpdir(), "dunk-comments-"));
+  const repoRoot = mkdtempSync(join(tmpdir(), "flow-comments-"));
   mkdirSync(join(repoRoot, ".git"), { recursive: true });
   try {
     return run(repoRoot);
@@ -25,7 +25,7 @@ function withTempRepo<T>(run: (repoRoot: string) => T): T {
   }
 }
 
-describe("dunk comments", () => {
+describe("flow comments", () => {
   test("computes a deterministic 16-hex anchor for a line plus its neighbours", () => {
     const lines = ["alpha", "beta", "gamma"];
     const anchor = computeAnchor(lines, 2);
@@ -64,14 +64,14 @@ describe("dunk comments", () => {
       expect(reloaded.comments).toHaveLength(1);
       expect(reloaded.comments[0]).toMatchObject({ id: 1, file: "src/a.ts", line: 3 });
 
-      const tempPath = join(repoRoot, ".dunk", ".comments.json.tmp");
+      const tempPath = join(repoRoot, ".flow", ".comments.json.tmp");
       expect(existsSync(tempPath)).toBe(false);
     });
   });
 
   test("writeCommentsFile deletes the file when the review has no comments", () => {
     withTempRepo((repoRoot) => {
-      const path = join(repoRoot, ".dunk", "comments.json");
+      const path = join(repoRoot, ".flow", "comments.json");
       writeCommentsFile(repoRoot, {
         schema: 1,
         comments: [
@@ -92,13 +92,13 @@ describe("dunk comments", () => {
   test("writeCommentsFile with no comments is a no-op when the file is absent", () => {
     withTempRepo((repoRoot) => {
       expect(() => writeCommentsFile(repoRoot, { schema: 1, comments: [] })).not.toThrow();
-      expect(existsSync(join(repoRoot, ".dunk", "comments.json"))).toBe(false);
+      expect(existsSync(join(repoRoot, ".flow", "comments.json"))).toBe(false);
     });
   });
 
   test("mutateCommentsFile deletes the file when the last comment is removed", () => {
     withTempRepo((repoRoot) => {
-      const path = join(repoRoot, ".dunk", "comments.json");
+      const path = join(repoRoot, ".flow", "comments.json");
       writeCommentsFile(repoRoot, {
         schema: 1,
         comments: [
@@ -115,7 +115,7 @@ describe("dunk comments", () => {
 
   test("a concurrent deletion mid-mutation is treated as an empty review, not an error", () => {
     withTempRepo((repoRoot) => {
-      const path = join(repoRoot, ".dunk", "comments.json");
+      const path = join(repoRoot, ".flow", "comments.json");
       writeCommentsFile(repoRoot, {
         schema: 1,
         comments: [
@@ -256,7 +256,7 @@ describe("dunk comments", () => {
         ],
       });
 
-      const raw = readFileSync(join(repoRoot, ".dunk", "comments.json"), "utf8");
+      const raw = readFileSync(join(repoRoot, ".flow", "comments.json"), "utf8");
       expect(raw.endsWith("\n")).toBe(true);
       const parsed = JSON.parse(raw) as { comments: { id: number }[] };
       expect(parsed.comments.map((c) => c.id)).toEqual([1, 3]);
@@ -265,29 +265,29 @@ describe("dunk comments", () => {
 
   test("readCommentsFile rejects a future schema version", () => {
     withTempRepo((repoRoot) => {
-      mkdirSync(join(repoRoot, ".dunk"), { recursive: true });
+      mkdirSync(join(repoRoot, ".flow"), { recursive: true });
       writeFileSync(
-        join(repoRoot, ".dunk", "comments.json"),
+        join(repoRoot, ".flow", "comments.json"),
         JSON.stringify({ schema: 99, comments: [] }),
       );
 
-      expect(() => readCommentsFile(repoRoot)).toThrow(/Unsupported dunk comments schema/);
+      expect(() => readCommentsFile(repoRoot)).toThrow(/Unsupported flow comments schema/);
     });
   });
 
   test("readCommentsFile fails loudly on malformed JSON", () => {
     withTempRepo((repoRoot) => {
-      mkdirSync(join(repoRoot, ".dunk"), { recursive: true });
-      writeFileSync(join(repoRoot, ".dunk", "comments.json"), "{ not json");
+      mkdirSync(join(repoRoot, ".flow"), { recursive: true });
+      writeFileSync(join(repoRoot, ".flow", "comments.json"), "{ not json");
       expect(() => readCommentsFile(repoRoot)).toThrow(/Malformed JSON in/);
     });
   });
 
   test("readCommentsFile rejects entries with missing required fields", () => {
     withTempRepo((repoRoot) => {
-      mkdirSync(join(repoRoot, ".dunk"), { recursive: true });
+      mkdirSync(join(repoRoot, ".flow"), { recursive: true });
       writeFileSync(
-        join(repoRoot, ".dunk", "comments.json"),
+        join(repoRoot, ".flow", "comments.json"),
         JSON.stringify({
           schema: 1,
           comments: [{ id: 1, file: "x.ts", line: 1 }],
@@ -299,9 +299,9 @@ describe("dunk comments", () => {
 
   test("readCommentsFile rejects out-of-shape ranges", () => {
     withTempRepo((repoRoot) => {
-      mkdirSync(join(repoRoot, ".dunk"), { recursive: true });
+      mkdirSync(join(repoRoot, ".flow"), { recursive: true });
       writeFileSync(
-        join(repoRoot, ".dunk", "comments.json"),
+        join(repoRoot, ".flow", "comments.json"),
         JSON.stringify({
           schema: 1,
           comments: [
@@ -321,8 +321,8 @@ describe("dunk comments", () => {
         readCommentsFile(repoRoot);
         throw new Error("readCommentsFile should have rejected the swapped range");
       } catch (error) {
-        expect(error).toBeInstanceOf(DunkUserError);
-        const details = (error as DunkUserError).details.join("\n");
+        expect(error).toBeInstanceOf(FlowUserError);
+        const details = (error as FlowUserError).details.join("\n");
         expect(details).toMatch(/range start must not exceed range end/);
       }
     });
@@ -349,9 +349,9 @@ describe("dunk comments", () => {
 
   test("readCommentsFile rejects unknown extra fields", () => {
     withTempRepo((repoRoot) => {
-      mkdirSync(join(repoRoot, ".dunk"), { recursive: true });
+      mkdirSync(join(repoRoot, ".flow"), { recursive: true });
       writeFileSync(
-        join(repoRoot, ".dunk", "comments.json"),
+        join(repoRoot, ".flow", "comments.json"),
         JSON.stringify({
           schema: 1,
           comments: [

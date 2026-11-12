@@ -1,14 +1,19 @@
 import fs from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { DUNK_CONFIG_RELATIVE_PATH } from "./dunkPaths";
+import { FLOW_CONFIG_RELATIVE_PATH } from "./flowPaths";
 import { resolveGlobalConfigPath } from "./paths";
 import type { CliInput, CommonOptions, LayoutMode, PersistedViewPreferences } from "./types";
 
 export const DEFAULT_VIEW_PREFERENCES: PersistedViewPreferences = {
   mode: "stack",
-  showLineNumbers: false,
+  // Line numbers sit in the margin left of each file card and carry the active-hunk emphasis.
+  showLineNumbers: true,
   wrapLines: true,
-  showHunkHeaders: true,
+  // Hunk ranges are metadata; file cards separate hunks visually, so `m` shows them on demand.
+  showHunkHeaders: false,
+  // The file tree and the ticket Overview frame the review from the start.
+  showFileTree: true,
+  showOverview: true,
   selectionAutoCopy: true,
 };
 
@@ -17,7 +22,7 @@ interface ConfigResolutionOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-interface DunkConfigResolution {
+interface FlowConfigResolution {
   input: CliInput;
   globalConfigPath?: string;
   repoConfigPath?: string;
@@ -27,7 +32,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** Accept only the layout names dunk already supports. */
+/** Accept only the layout names flow already supports. */
 function normalizeLayoutMode(value: unknown): LayoutMode | undefined {
   return value === "auto" || value === "split" || value === "stack" ? value : undefined;
 }
@@ -57,6 +62,8 @@ function readConfigPreferences(source: Record<string, unknown>): CommonOptions {
     lineNumbers: normalizeBoolean(source.line_numbers),
     wrapLines: normalizeBoolean(source.wrap_lines),
     hunkHeaders: normalizeBoolean(source.hunk_headers),
+    fileTree: normalizeBoolean(source.file_tree),
+    overview: normalizeBoolean(source.overview),
     selectionAutoCopy: normalizeBoolean(source.selection_auto_copy),
     branchReviewBase,
   };
@@ -74,6 +81,8 @@ function mergeOptions(base: CommonOptions, overrides: CommonOptions): CommonOpti
     lineNumbers: overrides.lineNumbers ?? base.lineNumbers,
     wrapLines: overrides.wrapLines ?? base.wrapLines,
     hunkHeaders: overrides.hunkHeaders ?? base.hunkHeaders,
+    fileTree: overrides.fileTree ?? base.fileTree,
+    overview: overrides.overview ?? base.overview,
     selectionAutoCopy: overrides.selectionAutoCopy ?? base.selectionAutoCopy,
     branchReviewBase: overrides.branchReviewBase ?? base.branchReviewBase,
   };
@@ -132,9 +141,9 @@ function readTomlRecord(path: string) {
 export function resolveConfiguredCliInput(
   input: CliInput,
   { cwd = process.cwd(), env = process.env }: ConfigResolutionOptions = {},
-): DunkConfigResolution {
+): FlowConfigResolution {
   const repoRoot = findRepoRoot(cwd);
-  const repoConfigPath = repoRoot ? join(repoRoot, DUNK_CONFIG_RELATIVE_PATH) : undefined;
+  const repoConfigPath = repoRoot ? join(repoRoot, FLOW_CONFIG_RELATIVE_PATH) : undefined;
   const userConfigPath = resolveGlobalConfigPath(env);
 
   let resolvedOptions: CommonOptions = {
@@ -143,11 +152,14 @@ export function resolveConfiguredCliInput(
     // renderer theme-mode detection for their initial palette.
     theme: "zed",
     pager: input.options.pager ?? false,
-    watch: input.options.watch ?? false,
+    // Reviews follow the code by default; `--no-watch` or `watch = false` keeps them still.
+    watch: input.options.watch ?? true,
     excludeUntracked: false,
     lineNumbers: DEFAULT_VIEW_PREFERENCES.showLineNumbers,
     wrapLines: DEFAULT_VIEW_PREFERENCES.wrapLines,
     hunkHeaders: DEFAULT_VIEW_PREFERENCES.showHunkHeaders,
+    fileTree: DEFAULT_VIEW_PREFERENCES.showFileTree,
+    overview: DEFAULT_VIEW_PREFERENCES.showOverview,
     selectionAutoCopy: DEFAULT_VIEW_PREFERENCES.selectionAutoCopy,
   };
 
@@ -170,7 +182,7 @@ export function resolveConfiguredCliInput(
     ...resolvedOptions,
     // Per-invocation flags always win — they come from CLI args, not config layers.
     pager: input.options.pager ?? false,
-    watch: input.options.watch ?? resolvedOptions.watch ?? false,
+    watch: input.options.watch ?? resolvedOptions.watch ?? true,
     excludeUntracked: resolvedOptions.excludeUntracked ?? false,
   };
 

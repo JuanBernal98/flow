@@ -14,36 +14,78 @@ import {
   type CommentsFile,
   type PersistedComment,
 } from "../core/comments";
+import {
+  writeCommitRequest,
+  writeMergeRequestOpenRequest,
+  writeReviewRequest,
+  writeTicketContextRequest,
+} from "../core/agentRequests";
+import { openInBrowser } from "../core/browser";
+import { readFocusRequest, resolveFocusTarget, type FocusRequest } from "../core/focusRequests";
 import { copyToClipboard } from "../core/clipboard";
-import { findRepoRoot } from "../core/config";
+import { DEFAULT_VIEW_PREFERENCES, findRepoRoot } from "../core/config";
 import { resolveEditorLaunch, runEditorLaunch } from "../core/editor";
 import { hunkFingerprint } from "../core/hunkFingerprint";
 import { hunkLineRange } from "../core/hunkRange";
-import type { AppBootstrap, CliInput, LayoutMode } from "../core/types";
-import type { UpdateNotice } from "../core/updateNotice";
+import { WORKTREE_BASE_REF } from "../core/git";
+import type { AppBootstrap, CliInput, LayoutMode, VcsCommandInput } from "../core/types";
+import {
+  createGitRun,
+  describeTicketSwitch,
+  switchToReviewBranch,
+  switchToTicket,
+  type GitRun,
+} from "../core/ticketSwitch";
+import { loadTicketLineStats, type LineStats } from "../core/ticketStats";
+import {
+  linkTicketMergeRequests,
+  type MergeRequest,
+  type WorkspaceReviewsResult,
+} from "../core/gitlab";
+import type { MergedTicketResult } from "../core/youtrack";
 import { canReloadInput, computeWatchSignature } from "../core/watch";
+import { createWatchSignatureProbe } from "../core/watchProbe";
 import { DriftedCommentsBanner } from "./components/chrome/DriftedCommentsBanner";
 import { StatusBar } from "./components/chrome/StatusBar";
 import { DiffPane } from "./components/panes/DiffPane";
 import { SidebarPane } from "./components/panes/SidebarPane";
-import { WorkspaceSidebar, WORKSPACE_ITEMS } from "./components/panes/WorkspaceSidebar";
+import { TicketOverviewPane } from "./components/panes/TicketOverviewPane";
+import { useTicketOverview } from "./hooks/useTicketOverview";
+import { readTicketOverview, type StoredTicketOverview } from "../core/ticketOverview";
+import { WorkspaceSidebar } from "./components/panes/WorkspaceSidebar";
 import { PaneDivider } from "./components/panes/PaneDivider";
 import {
   findMaxLineNumber,
   maxFileCodeLineWidth,
   resolveCodeViewportWidth,
+  resolveLineNumberDigits,
 } from "./diff/codeColumns";
 import { useAppKeyboardShortcuts } from "./hooks/useAppKeyboardShortcuts";
+import { useFocusRequests } from "./hooks/useFocusRequests";
 import { useReviewController } from "./hooks/useReviewController";
-import { useStartupUpdateNotice } from "./hooks/useStartupUpdateNotice";
 import { fileRowId } from "./lib/ids";
-import { resolveResponsiveLayout, resolveWorkspaceWidth } from "./lib/responsive";
+import { resolveResponsiveLayout, resolveWorkspaceWidth, WORKSPACE_WIDTH } from "./lib/responsive";
 import { resizeSidebarWidth } from "./lib/sidebar";
+import {
+  buildWorkspaceItems,
+  filterWorkspaceItems,
+  itemOwnsBranch,
+  mergedTicketIds,
+  moveApprovedToReadyToMerge,
+  type WorkspaceReviewsState,
+  type WorkspaceTasksState,
+} from "./lib/workspace";
 import { resolveTheme, THEMES } from "./themes";
 
-type FocusArea = "files" | "filter" | "workspace" | "tree";
+// A stable empty default, so the workspace memo does not rebuild on every render.
+const NO_PROJECT_KEYS: readonly string[] = [];
+
+type FocusArea = "files" | "filter" | "workspace" | "workspaceFilter" | "tree";
 
 const FAST_CODE_HORIZONTAL_SCROLL_COLUMNS = 8;
+// How often watch mode checks for changes. Each check runs git off the UI thread and never overlaps
+// the previous one, so slow repos simply check less often.
+const WATCH_POLL_INTERVAL_MS = 1_000;
 
 const LazyHelpDialog = lazy(async () => ({
   default: (await import("./components/chrome/HelpDialog")).HelpDialog,
@@ -84,26 +126,81 @@ function withCurrentViewOptions(
   };
 }
 
+/** Whether `B` can switch this review between the whole branch and uncommitted changes only. */
+function canToggleBranchReview(input: CliInput): input is VcsCommandInput {
+  return (
+    input.kind === "vcs" &&
+    !input.staged &&
+    (input.branchReview !== undefined || input.range === WORKTREE_BASE_REF)
+  );
+}
+
 /** Orchestrate global app state, layout, navigation, and pane coordination. */
 export function App({
   bootstrap,
   onQuit = () => process.exit(0),
   onReloadSession,
-  startupNoticeResolver,
+  workspaceTasks,
+  onRefreshWorkspaceTasks = () => {},
+  onOpenUrl = openInBrowser,
+  createTicketGit = createGitRun,
+  requestTicketContext = writeTicketContextRequest,
+  requestReview = writeReviewRequest,
+  requestCommit = writeCommitRequest,
+  requestMergeRequestOpen = writeMergeRequestOpenRequest,
+  readAgentFocusRequest = readFocusRequest,
+  loadMergeRequests,
+  loadReviews,
+  closeMergedTicket,
+  readOverview = readTicketOverview,
+  issueUrl,
+  projectKeys = NO_PROJECT_KEYS,
+  workspaceConnected = true,
 }: {
   bootstrap: AppBootstrap;
+  workspaceTasks: WorkspaceTasksState;
+  onRefreshWorkspaceTasks?: () => void;
+  onOpenUrl?: (url: string) => void;
+  createTicketGit?: (cwd: string) => GitRun;
+  /** Leave a request for the agent to load a ticket's context after flow switches to it. */
+  requestTicketContext?: (repoRoot: string, ticketId: string) => void;
+  /** Ask the agent to review a ticket's code against the ticket, through `.flow/requests.json`. */
+  requestReview?: (repoRoot: string, ticketId: string, mergeRequestIid: number | undefined) => void;
+  /** Ask the agent to propose and make commits for the checked-out branch's uncommitted work. */
+  requestCommit?: (repoRoot: string, ticketId: string | undefined) => void;
+  /** Ask the agent to open the checked-out branch's merge request. */
+  requestMergeRequestOpen?: (repoRoot: string, ticketId: string | undefined) => void;
+  /** Read the coding agent's newest request to show a file and line. */
+  readAgentFocusRequest?: (repoRoot: string) => FocusRequest | null;
+  /** Load my GitLab merge requests for the repository; absent means tickets show no MR. */
+  loadMergeRequests?: (repoRoot: string) => Promise<MergeRequest[]>;
+  /** Load the squad merge requests listed under Reviews; absent means Reviews is not connected. */
+  loadReviews?: (repoRoot: string) => Promise<WorkspaceReviewsResult>;
+  /**
+   * Move one of my tickets on from Review once its MR is merged (`[youtrack] merged_state`);
+   * absent means tickets are never moved.
+   */
+  closeMergedTicket?: (ticketId: string) => Promise<MergedTicketResult>;
+  /** Read a ticket's overview from `.flow/overviews/`; tests swap in a fixture. */
+  readOverview?: (repoRoot: string, ticketId: string) => StoredTicketOverview | null;
+  /** Link to a ticket by id, so `h` on a review opens the ticket it works on. */
+  issueUrl?: (ticketId: string) => string | undefined;
+  /** Projects whose ids count as tickets in MR branches and titles (`[youtrack] project_keys`). */
+  projectKeys?: readonly string[];
+  /** Whether this repository connects to YouTrack or GitLab; without either, the workspace and
+   * the Overview start closed, as there is nothing to list. `S` and `x` still open them. */
+  workspaceConnected?: boolean;
   onQuit?: () => void;
   onReloadSession: (
     nextInput: CliInput,
     options?: { resetApp?: boolean; sourcePath?: string },
   ) => Promise<void>;
-  startupNoticeResolver?: () => Promise<UpdateNotice | null>;
 }) {
   const SIDEBAR_MIN_WIDTH = 22;
   const DIFF_MIN_WIDTH = 48;
   const BODY_PADDING = 2;
-  const WORKSPACE_GAP = 2;
-  const DIVIDER_HIT_WIDTH = 5;
+  // Blank columns between side panes and the diff, on the base background.
+  const PANE_GAP = 2;
 
   const pagerMode = Boolean(bootstrap.input.options.pager);
   const renderer = useRenderer();
@@ -123,10 +220,170 @@ export function App({
   const [showLineNumbers, setShowLineNumbers] = useState(bootstrap.initialShowLineNumbers ?? true);
   const [wrapLines, setWrapLines] = useState(bootstrap.initialWrapLines ?? false);
   const [codeHorizontalOffset, setCodeHorizontalOffset] = useState(0);
-  const [showHunkHeaders, setShowHunkHeaders] = useState(bootstrap.initialShowHunkHeaders ?? true);
-  const [sidebarVisible, setSidebarVisible] = useState(false);
-  const [workspaceVisible, setWorkspaceVisible] = useState(true);
+  const [showHunkHeaders, setShowHunkHeaders] = useState(
+    bootstrap.initialShowHunkHeaders ?? DEFAULT_VIEW_PREFERENCES.showHunkHeaders,
+  );
+  const [sidebarVisible, setSidebarVisible] = useState(
+    bootstrap.initialShowFileTree ?? DEFAULT_VIEW_PREFERENCES.showFileTree,
+  );
+  const [workspaceVisible, setWorkspaceVisible] = useState(workspaceConnected);
+  const [overviewVisible, setOverviewVisible] = useState(
+    workspaceConnected && (bootstrap.initialShowOverview ?? DEFAULT_VIEW_PREFERENCES.showOverview),
+  );
   const [workspaceIndex, setWorkspaceIndex] = useState(0);
+  const [workspaceFilter, setWorkspaceFilter] = useState("");
+  const workspaceFilterRef = useRef(workspaceFilter);
+  workspaceFilterRef.current = workspaceFilter;
+  const [workspaceReviews, setWorkspaceReviews] = useState<WorkspaceReviewsState>(
+    loadReviews
+      ? { kind: "loading" }
+      : { kind: "unconfigured", message: "Reviews are not connected" },
+  );
+  // Cards as YouTrack and the Reviews load sort them, before MR approvals move any.
+  const loadedWorkspaceItems = useMemo(
+    () => buildWorkspaceItems(workspaceTasks, workspaceReviews, issueUrl, projectKeys),
+    [workspaceTasks, workspaceReviews, issueUrl, projectKeys],
+  );
+
+  // The checked-out branch; its ticket or review keeps the workspace rail wherever the cursor is.
+  const [checkedOutBranch, setCheckedOutBranch] = useState<string | null>(null);
+  const activeTicketId = useMemo(
+    () =>
+      checkedOutBranch
+        ? (loadedWorkspaceItems.find((item) => itemOwnsBranch(item, checkedOutBranch))?.id ?? null)
+        : null,
+    [loadedWorkspaceItems, checkedOutBranch],
+  );
+
+  const [mergeRequests, setMergeRequests] = useState<MergeRequest[]>([]);
+  const ticketMergeRequests = useMemo(
+    () =>
+      linkTicketMergeRequests(
+        mergeRequests,
+        loadedWorkspaceItems.filter((item) => item.section !== "reviews").map((item) => item.id),
+        checkedOutBranch ?? undefined,
+      ),
+    [mergeRequests, loadedWorkspaceItems, checkedOutBranch],
+  );
+  const workspaceItems = useMemo(
+    () =>
+      moveApprovedToReadyToMerge(
+        loadedWorkspaceItems,
+        (item) => ticketMergeRequests.get(item.id)?.approved === true,
+      ),
+    [loadedWorkspaceItems, ticketMergeRequests],
+  );
+  // The cards `/` leaves in the workspace; the cursor, Enter, and the keys acting on the
+  // cursor's card all walk this list, while the rail and branch links keep the full one.
+  const visibleWorkspaceItems = useMemo(
+    () =>
+      filterWorkspaceItems(
+        workspaceItems,
+        workspaceFilter,
+        (item) => item.mergeRequestIid ?? ticketMergeRequests.get(item.id)?.iid,
+      ),
+    [workspaceItems, workspaceFilter, ticketMergeRequests],
+  );
+  // Tasks arrive asynchronously, so keep the selection inside whatever list is loaded now.
+  const selectedWorkspaceIndex = clamp(
+    workspaceIndex,
+    0,
+    Math.max(0, visibleWorkspaceItems.length - 1),
+  );
+  // For a ticket split over several branches, the branch of the MR its card shows wins.
+  const preferredTicketBranches = useMemo(
+    () => new Map([...ticketMergeRequests].map(([ticketId, mr]) => [ticketId, mr.sourceBranch])),
+    [ticketMergeRequests],
+  );
+
+  const [ticketStats, setTicketStats] = useState<ReadonlyMap<string, LineStats>>(() => new Map());
+
+  // Reload line totals whenever tickets load or the checked-out branch changes.
+  useEffect(() => {
+    if (workspaceTasks.kind !== "ready" || !repoRoot) {
+      return;
+    }
+    let cancelled = false;
+    const ticketIds = workspaceItems
+      .filter((item) => item.section !== "reviews")
+      .map((item) => item.id);
+    void loadTicketLineStats(createTicketGit(repoRoot), ticketIds, preferredTicketBranches).then(
+      (stats) => {
+        if (!cancelled) {
+          setTicketStats(stats);
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    workspaceTasks,
+    workspaceItems,
+    checkedOutBranch,
+    preferredTicketBranches,
+    repoRoot,
+    createTicketGit,
+  ]);
+
+  // Refetch merge requests with every tickets (re)load, so `r` also picks up a freshly opened MR.
+  useEffect(() => {
+    if (workspaceTasks.kind !== "ready" || !repoRoot || !loadMergeRequests) {
+      return;
+    }
+    let cancelled = false;
+    void loadMergeRequests(repoRoot).then((loaded) => {
+      if (!cancelled) {
+        setMergeRequests(loaded);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceTasks, repoRoot, loadMergeRequests]);
+
+  // Reload Reviews alongside tasks, so `r` refreshes both; they do not need YouTrack to work.
+  useEffect(() => {
+    if (workspaceTasks.kind === "loading" || !repoRoot || !loadReviews) {
+      return;
+    }
+    let cancelled = false;
+    // Like tasks, loaded reviews stay on screen until the new ones land.
+    setWorkspaceReviews((current) => (current.kind === "ready" ? current : { kind: "loading" }));
+    void loadReviews(repoRoot)
+      .catch((): WorkspaceReviewsResult => ({ kind: "error", message: "Could not load reviews" }))
+      .then((result) => {
+        if (!cancelled) {
+          setWorkspaceReviews(result);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceTasks, repoRoot, loadReviews]);
+
+  // Whenever tickets or reviews (re)load, find the checked-out branch's item and start the
+  // cursor there.
+  useEffect(() => {
+    if (workspaceItems.length === 0 || !repoRoot) {
+      return;
+    }
+    let cancelled = false;
+    void createTicketGit(repoRoot)(["branch", "--show-current"]).then(({ stdout: branch }) => {
+      const index = branch ? workspaceItems.findIndex((item) => itemOwnsBranch(item, branch)) : -1;
+      if (cancelled) {
+        return;
+      }
+      setCheckedOutBranch(branch || null);
+      // The index is into the full list, so it only applies while no filter narrows it.
+      if (index >= 0 && !workspaceFilterRef.current) {
+        setWorkspaceIndex(index);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceItems, repoRoot, createTicketGit]);
   const [forceSidebarOpen, setForceSidebarOpen] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   // When non-null, hunk navigation (J/K) and the `d` delete key target the
@@ -159,8 +416,9 @@ export function App({
     title?: string;
     onConfirm: () => void;
   } | null>(null);
+  const ticketSwitchBusyRef = useRef(false);
   const [focusArea, setFocusArea] = useState<FocusArea>("files");
-  const [sidebarWidth, setSidebarWidth] = useState(34);
+  const [sidebarWidth, setSidebarWidth] = useState(WORKSPACE_WIDTH);
   const [resizeDragOriginX, setResizeDragOriginX] = useState<number | null>(null);
   const [resizeStartWidth, setResizeStartWidth] = useState<number | null>(null);
   const [transientStatus, setTransientStatus] = useState<string | null>(null);
@@ -168,13 +426,6 @@ export function App({
   const selectionAutoCopy = bootstrap.initialSelectionAutoCopy ?? true;
 
   const activeTheme = resolveTheme(themeId, renderer.themeMode);
-  // Background dist-tag lookup — gated off in pager mode (one-shot, no chrome
-  // to host the notice) and skipped entirely when no resolver was injected
-  // (tests don't ship the network dep).
-  const startupNoticeText = useStartupUpdateNotice({
-    enabled: !pagerMode,
-    resolver: startupNoticeResolver,
-  });
   const review = useReviewController({ files: bootstrap.changeset.files });
   const filteredFiles = review.visibleFiles;
   const selectedFile = review.selectedFile;
@@ -227,26 +478,55 @@ export function App({
     [review.selectFile],
   );
 
+  // The coding agent can point the review at a file and line through `.flow/focus.json`.
+  useFocusRequests(
+    pagerMode ? null : repoRoot,
+    (request) => {
+      const where = request.line === undefined ? request.file : `${request.file}:${request.line}`;
+      const target = resolveFocusTarget(bootstrap.changeset.files, request);
+      if (!target) {
+        flashStatus(`Agent pointed at ${where}, which is not in this review`, 4_000);
+        return;
+      }
+      jumpToFile(target.fileId, target.hunkIndex);
+      flashStatus(`Agent: look at ${where}`, 4_000);
+    },
+    readAgentFocusRequest,
+  );
+
   const bodyPadding = pagerMode ? 0 : BODY_PADDING;
   const bodyWidth = Math.max(0, terminal.width - bodyPadding);
   const workspaceWidth = pagerMode ? 0 : resolveWorkspaceWidth(terminal.width, workspaceVisible);
   const workspaceExpanded = workspaceWidth > 0;
-  const workspaceGap = workspaceExpanded ? WORKSPACE_GAP : 0;
-  const centerWidth = Math.max(0, bodyWidth - workspaceWidth - workspaceGap);
+  const workspaceGap = workspaceExpanded ? PANE_GAP : 0;
+  // The Overview is the widest pane, but never at the cost of leaving the diff unreadable.
+  const overviewCandidateWidth = clamp(Math.round(bodyWidth * 0.32), 52, 80);
+  const overviewWidth =
+    !pagerMode &&
+    overviewVisible &&
+    bodyWidth - workspaceWidth - workspaceGap - overviewCandidateWidth - PANE_GAP >= DIFF_MIN_WIDTH
+      ? overviewCandidateWidth
+      : 0;
+  const overviewGap = overviewWidth > 0 ? PANE_GAP : 0;
+  const centerWidth = Math.max(
+    0,
+    bodyWidth - workspaceWidth - workspaceGap - overviewWidth - overviewGap,
+  );
   const responsiveLayout = resolveResponsiveLayout(layoutMode, terminal.width);
   const canForceShowSidebar = centerWidth >= SIDEBAR_MIN_WIDTH + DIFF_MIN_WIDTH;
   const renderSidebar =
     sidebarVisible && (responsiveLayout.showSidebar || (forceSidebarOpen && canForceShowSidebar));
   const resolvedLayout = responsiveLayout.layout;
   const availableCenterWidth = centerWidth;
+  const sidebarGap = renderSidebar ? PANE_GAP : 0;
   const maxSidebarWidth = renderSidebar
-    ? Math.max(SIDEBAR_MIN_WIDTH, availableCenterWidth - DIFF_MIN_WIDTH)
+    ? Math.max(SIDEBAR_MIN_WIDTH, availableCenterWidth - DIFF_MIN_WIDTH - sidebarGap)
     : SIDEBAR_MIN_WIDTH;
   const clampedSidebarWidth = renderSidebar
     ? clamp(sidebarWidth, SIDEBAR_MIN_WIDTH, maxSidebarWidth)
     : 0;
   const diffPaneWidth = renderSidebar
-    ? Math.max(DIFF_MIN_WIDTH, availableCenterWidth - clampedSidebarWidth)
+    ? Math.max(DIFF_MIN_WIDTH, availableCenterWidth - clampedSidebarWidth - sidebarGap)
     : Math.max(0, availableCenterWidth);
   const diffContentWidth = Math.max(12, diffPaneWidth - 2);
   const maxVisibleLineNumber = useMemo(
@@ -257,25 +537,20 @@ export function App({
       ),
     [filteredFiles],
   );
-  const maxLineNumberDigits = String(maxVisibleLineNumber).length;
+  const maxLineNumberDigits = resolveLineNumberDigits(maxVisibleLineNumber);
   const codeViewportWidth = useMemo(
-    () =>
-      resolveCodeViewportWidth(
-        resolvedLayout,
-        diffContentWidth,
-        maxLineNumberDigits,
-        showLineNumbers,
-      ),
-    [diffContentWidth, maxLineNumberDigits, resolvedLayout, showLineNumbers],
+    () => resolveCodeViewportWidth(resolvedLayout, diffContentWidth, maxLineNumberDigits),
+    [diffContentWidth, maxLineNumberDigits, resolvedLayout],
   );
   const isResizingSidebar = resizeDragOriginX !== null && resizeStartWidth !== null;
-  const dividerHitLeft = Math.max(
-    1,
-    1 + workspaceWidth + workspaceGap + clampedSidebarWidth - Math.floor(DIVIDER_HIT_WIDTH / 2),
-  );
+  // The file tree is the rightmost pane, so its resize edge is the gap before it. The hit area
+  // spans that gap plus one column on each side, keeping clear of the tree's file icons.
+  const dividerHitLeft = Math.max(1, 1 + bodyWidth - clampedSidebarWidth - PANE_GAP - 1);
 
   useEffect(() => {
-    if (!workspaceExpanded && focusArea === "workspace") setFocusArea("files");
+    if (!workspaceExpanded && (focusArea === "workspace" || focusArea === "workspaceFilter")) {
+      setFocusArea("files");
+    }
   }, [workspaceExpanded, focusArea]);
 
   useEffect(() => {
@@ -313,6 +588,48 @@ export function App({
     };
   }, []);
 
+  // After every load, my tickets still in Review whose MR is merged move on by themselves. Each is
+  // tried once per session, so a failure is reported once instead of retried on every reload.
+  const closeAttemptedRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!closeMergedTicket) {
+      return;
+    }
+    const ticketIds = mergedTicketIds(
+      loadedWorkspaceItems,
+      (item) => ticketMergeRequests.get(item.id)?.state,
+    ).filter((ticketId) => !closeAttemptedRef.current.has(ticketId));
+    if (ticketIds.length === 0) {
+      return;
+    }
+    for (const ticketId of ticketIds) {
+      closeAttemptedRef.current.add(ticketId);
+    }
+    void Promise.all(
+      ticketIds.map(async (ticketId) => ({ ticketId, result: await closeMergedTicket(ticketId) })),
+    ).then((outcomes) => {
+      const moved = outcomes.flatMap(({ ticketId, result }) =>
+        result.kind === "moved" ? [`${ticketId} → ${result.state}`] : [],
+      );
+      const failed = outcomes.flatMap(({ ticketId, result }) =>
+        result.kind === "error" ? [`${ticketId}: ${result.message}`] : [],
+      );
+      if (moved.length > 0) {
+        flashStatus(`MR merged: ${moved.join(", ")}`, 6_000);
+        // Resolved tickets drop out of the assigned list, so reload it.
+        onRefreshWorkspaceTasks();
+      } else if (failed.length > 0) {
+        flashStatus(`Could not move ${failed.join(", ")}`, 6_000);
+      }
+    });
+  }, [
+    closeMergedTicket,
+    loadedWorkspaceItems,
+    ticketMergeRequests,
+    flashStatus,
+    onRefreshWorkspaceTasks,
+  ]);
+
   useEffect(() => {
     if (!selectionAutoCopy) {
       return;
@@ -321,7 +638,12 @@ export function App({
     const handleSelection = (selection: { getSelectedText?: () => string } | null) => {
       // Skip the copy when a modal or filter input owns the keyboard — the user
       // is typing into a prompt, not selecting code to share.
-      if (commentEditorTarget || confirmPrompt || focusArea === "filter") {
+      if (
+        commentEditorTarget ||
+        confirmPrompt ||
+        focusArea === "filter" ||
+        focusArea === "workspaceFilter"
+      ) {
         return;
       }
 
@@ -500,6 +822,34 @@ export function App({
     });
   }, [refreshCurrentInput]);
 
+  /** `B`: switch a `flow diff` review between the whole branch and uncommitted changes only. */
+  const toggleBranchReview = async () => {
+    const input = bootstrap.input;
+    if (!canToggleBranchReview(input)) {
+      flashStatus("B switches branch review only in `flow diff`", 3_000);
+      return;
+    }
+    const toBranch = input.branchReview === undefined;
+    const nextInput: VcsCommandInput = toBranch
+      ? { ...input, range: undefined, branchReview: {} }
+      : { ...input, range: WORKTREE_BASE_REF, branchReview: undefined };
+    try {
+      await onReloadSession(
+        withCurrentViewOptions(nextInput, {
+          layoutMode,
+          themeId,
+          showHunkHeaders,
+          showLineNumbers,
+          wrapLines,
+        }),
+        { resetApp: false, sourcePath: bootstrap.changeset.sourceLabel },
+      );
+      flashStatus(toBranch ? "Reviewing the whole branch" : "Reviewing uncommitted changes", 3_000);
+    } catch (error) {
+      flashStatus(error instanceof Error ? error.message : "Could not switch the review", 5_000);
+    }
+  };
+
   /** Resolve the active hunk's repo-root, file path, post-image range, and identity fingerprint. */
   const focusedHunkTarget = useCallback(() => {
     const selected = review.selectedFile;
@@ -533,7 +883,7 @@ export function App({
           return next ?? current;
         });
       } catch (error) {
-        console.error("Failed to mutate dunk comments.", error);
+        console.error("Failed to mutate flow comments.", error);
         return;
       }
 
@@ -620,7 +970,7 @@ export function App({
         // Re-read the drift ids at confirm time so a watch reload during the
         // dialog can't leave us targeting a stale set. Anchored comments that
         // share an id with a since-resolved drift entry are untouched because
-        // ids are stable per .dunk/comments.json entry.
+        // ids are stable per .flow/comments.json entry.
         const finalIds = new Set((bootstrap.driftedComments ?? []).map((entry) => entry.id));
         if (finalIds.size === 0) {
           return;
@@ -783,6 +1133,7 @@ export function App({
             range: currentRange,
             anchor,
             body,
+            author: "user",
           });
           savedCommentId = result.comment.id;
           return result.file;
@@ -818,9 +1169,9 @@ export function App({
   // pending flush that runs when the modal closes.
   const commentAuthoringRef = useRef(false);
   const pendingPostAuthoringReloadRef = useRef(false);
-  // Records the id of a just-saved comment so the next bootstrap can scroll
-  // to it and flash a "Comment added" confirmation. Cleared once the next
-  // reload's annotations/drift list have been inspected, win or lose.
+  // Records the id of a just-saved comment so the next bootstrap can flash a
+  // "Comment added" confirmation. Cleared once the next reload's
+  // annotations/drift list have been inspected, win or lose.
   const pendingPostSaveRevealRef = useRef<number | null>(null);
   useEffect(() => {
     const wasAuthoring = commentAuthoringRef.current;
@@ -836,18 +1187,16 @@ export function App({
 
   // After a successful `saveComment`, the next bootstrap carries either the
   // anchored annotation (success path) or a drift entry (partial-success
-  // path). Surface that outcome explicitly: scroll the newly-anchored
-  // comment into view with a flash, or warn that it drifted on first save.
-  // Either way the user gets immediate confirmation that the write landed.
+  // path). Confirm the outcome in the status bar without moving the view:
+  // the comment lands on the hunk the user is already looking at, so
+  // re-selecting it would only scroll to fit the taller hunk.
   useEffect(() => {
     const pendingId = pendingPostSaveRevealRef.current;
     if (pendingId === null) {
       return;
     }
 
-    const annotationId = `dunk-comment:${pendingId}`;
-    let targetFileIndex = -1;
-    let targetHunkIndex = -1;
+    const annotationId = `flow-comment:${pendingId}`;
     let targetRange: [number, number] | null = null;
     let targetPath = "";
     outer: for (let fileIndex = 0; fileIndex < bootstrap.changeset.files.length; fileIndex += 1) {
@@ -860,8 +1209,6 @@ export function App({
         for (let hunkIndex = 0; hunkIndex < file.metadata.hunks.length; hunkIndex += 1) {
           const [start, end] = hunkLineRange(file.metadata.hunks[hunkIndex]!).newRange;
           if (line >= start && line <= end) {
-            targetFileIndex = fileIndex;
-            targetHunkIndex = hunkIndex;
             targetRange = [start, end];
             targetPath = file.path;
             break outer;
@@ -870,9 +1217,7 @@ export function App({
       }
     }
 
-    if (targetFileIndex >= 0 && targetRange) {
-      const file = bootstrap.changeset.files[targetFileIndex]!;
-      review.selectHunk(file.id, targetHunkIndex);
+    if (targetRange) {
       flashStatus(`Comment added — ${targetPath}:${targetRange[0]}-${targetRange[1]}`);
       pendingPostSaveRevealRef.current = null;
       return;
@@ -887,7 +1232,7 @@ export function App({
       pendingPostSaveRevealRef.current = null;
     }
     // Otherwise leave the ref armed; the next reload may carry the comment.
-  }, [bootstrap.changeset.files, bootstrap.driftedComments, flashStatus, review]);
+  }, [bootstrap.changeset.files, bootstrap.driftedComments, flashStatus]);
 
   useEffect(() => {
     if (!watchEnabled) {
@@ -898,15 +1243,18 @@ export function App({
     let polling = false;
     let refreshing = false;
     let lastSignature: string;
-
     try {
+      // The baseline is taken in-thread, once, so a change made while the worker starts up is
+      // still seen as a change rather than folded into the baseline.
       lastSignature = computeWatchSignature(bootstrap.input);
     } catch (error) {
       console.error("Failed to initialize watch mode.", error);
       return;
     }
+    // Every later check runs git off the UI thread, so a slow repo delays reloads, never typing.
+    const probe = createWatchSignatureProbe();
 
-    const pollForChanges = () => {
+    const pollForChanges = async () => {
       if (cancelled || polling || refreshing) {
         return;
       }
@@ -914,10 +1262,13 @@ export function App({
       polling = true;
 
       try {
-        const nextSignature = computeWatchSignature(bootstrap.input);
+        const nextSignature = await probe.signature(bootstrap.input);
+        if (cancelled) {
+          return;
+        }
         if (nextSignature !== lastSignature) {
           lastSignature = nextSignature;
-          // Comment authoring is foreground work — a half-second of stale
+          // Comment authoring is foreground work — a moment of stale
           // diff is preferable to dropping the in-flight body when the
           // agent (or anything else) edits the working tree mid-typing.
           // The signature gets updated either way so the poller doesn't
@@ -938,16 +1289,19 @@ export function App({
           }
         }
       } catch (error) {
-        console.error("Failed to poll watch mode input.", error);
+        if (!cancelled) {
+          console.error("Failed to poll watch mode input.", error);
+        }
       } finally {
         polling = false;
       }
     };
 
-    const interval = setInterval(pollForChanges, 250);
+    const interval = setInterval(() => void pollForChanges(), WATCH_POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(interval);
+      probe.dispose();
     };
   }, [bootstrap.input, watchEnabled]);
 
@@ -988,11 +1342,104 @@ export function App({
     setThemeId(THEMES[nextIndex]!.id);
   }, [activeTheme.id]);
 
-  /** Toggle workspace visibility and return focus when it collapses. */
+  /** Focus an open but unfocused workspace; otherwise toggle it, returning focus when it closes. */
   const toggleWorkspace = () => {
+    if (workspaceExpanded && focusArea !== "workspace") {
+      setFocusArea("workspace");
+      return;
+    }
     setWorkspaceVisible(!workspaceExpanded);
     setFocusArea(!workspaceExpanded && terminal.width >= 110 ? "workspace" : "files");
   };
+
+  /** Show every card again with the cursor still on the card it was on in the filtered list. */
+  const clearWorkspaceFilterKeepingCursor = () => {
+    const item = visibleWorkspaceItems[selectedWorkspaceIndex];
+    setWorkspaceFilter("");
+    setWorkspaceIndex(item ? workspaceItems.indexOf(item) : 0);
+  };
+
+  /**
+   * Enter on a ticket or review: switch to its branch, parking uncommitted work the same way for
+   * both, then reload the review so it shows that branch.
+   */
+  const activateWorkspaceItem = async () => {
+    // While filtered, Enter only ends the search on this card; the next Enter switches to it.
+    if (workspaceFilter) {
+      clearWorkspaceFilterKeepingCursor();
+      return;
+    }
+    const item = visibleWorkspaceItems[selectedWorkspaceIndex];
+    focusFiles();
+    if (!item || ticketSwitchBusyRef.current) {
+      return;
+    }
+    if (!repoRoot) {
+      flashStatus("Not inside a git repository");
+      return;
+    }
+    ticketSwitchBusyRef.current = true;
+    flashStatus(`Switching to ${item.id}…`, 30_000);
+    try {
+      const git = createTicketGit(repoRoot);
+      const result = item.branch
+        ? await switchToReviewBranch(git, item.branch, item.baseBranch ?? "main")
+        : await switchToTicket(git, item.id, preferredTicketBranches.get(item.id));
+      flashStatus(describeTicketSwitch(result), 5_000);
+      if (result.kind === "switched" || result.kind === "already-on") {
+        setCheckedOutBranch(result.branch);
+      }
+      // Enter on the review already checked out still reloads: its recorded base may have moved.
+      if (result.kind === "already-on" && item.section === "reviews") {
+        triggerRefreshCurrentInput();
+      }
+      if (result.kind === "switched") {
+        triggerRefreshCurrentInput();
+        // Context is for my own tickets; a review is read in flow, not handed to the agent. A
+        // ticket that already has an overview keeps it: X refreshes it on demand, which spares
+        // the agent's tokens on every switch.
+        if (item.section === "reviews" || readOverview(repoRoot, item.id)) {
+          return;
+        }
+        try {
+          requestTicketContext(repoRoot, item.id);
+        } catch {
+          flashStatus(`On ${result.branch} · could not ask the agent for context`, 5_000);
+        }
+      }
+    } finally {
+      ticketSwitchBusyRef.current = false;
+    }
+  };
+
+  // The checked-out branch's ticket or review (the one with the rail). The Overview shows only
+  // this one, so moving the cursor through the workspace never replaces the ticket at hand.
+  const checkedOutItem = workspaceItems.find((item) => item.id === activeTicketId);
+  // `h`, `g`, and `R` act on the card under the cursor while the workspace owns the keyboard, and
+  // on the checked-out one from anywhere else.
+  const linkTargetItem =
+    focusArea === "workspace" ? visibleWorkspaceItems[selectedWorkspaceIndex] : checkedOutItem;
+
+  const overviewTicketId = overviewWidth > 0 ? (checkedOutItem?.ticketId ?? null) : null;
+  const ticketOverview = useTicketOverview(repoRoot ?? null, overviewTicketId, readOverview);
+  const [commitsSinceOverview, setCommitsSinceOverview] = useState<number | undefined>();
+  // How far the checked-out branch moved since its overview was written.
+  useEffect(() => {
+    setCommitsSinceOverview(undefined);
+    const commit = ticketOverview?.commit;
+    if (!repoRoot || !commit) {
+      return;
+    }
+    let cancelled = false;
+    void createTicketGit(repoRoot)(["rev-list", "--count", `${commit}..HEAD`]).then((result) => {
+      if (!cancelled && result.ok) {
+        setCommitsSinceOverview(Number(result.stdout));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ticketOverview, repoRoot, createTicketGit]);
 
   useAppKeyboardShortcuts({
     focusTree: () => {
@@ -1006,7 +1453,106 @@ export function App({
     toggleWorkspace,
     leaveWorkspace: focusFiles,
     moveWorkspace: (delta) =>
-      setWorkspaceIndex((index) => clamp(index + delta, 0, WORKSPACE_ITEMS.length - 1)),
+      setWorkspaceIndex(clamp(selectedWorkspaceIndex + delta, 0, visibleWorkspaceItems.length - 1)),
+    focusWorkspaceFilter: () => setFocusArea("workspaceFilter"),
+    clearWorkspaceFilter: () => {
+      if (!workspaceFilter) {
+        return false;
+      }
+      clearWorkspaceFilterKeepingCursor();
+      return true;
+    },
+    refreshWorkspace: onRefreshWorkspaceTasks,
+    activateWorkspaceItem: () => void activateWorkspaceItem(),
+    openWorkspaceItem: () => {
+      const url = linkTargetItem?.url;
+      if (url) onOpenUrl(url);
+    },
+    toggleOverview: () => setOverviewVisible((visible) => !visible),
+    toggleBranchReview: () => void toggleBranchReview(),
+    // X fills the Overview, so it asks for the ticket the pane shows.
+    requestOverview: () => {
+      const ticketId = checkedOutItem?.ticketId;
+      if (!repoRoot || !ticketId) {
+        return;
+      }
+      try {
+        requestTicketContext(repoRoot, ticketId);
+        flashStatus(`Asked the agent for ${ticketId}'s context`, 4_000);
+      } catch {
+        flashStatus("Could not ask the agent for context", 4_000);
+      }
+    },
+    // C and P always act on the checked-out branch: that is where the commits and the MR live.
+    requestCommit: () => {
+      if (!repoRoot) {
+        return;
+      }
+      try {
+        requestCommit(repoRoot, checkedOutItem?.ticketId);
+        flashStatus("Asked the agent to propose commits", 4_000);
+      } catch {
+        flashStatus("Could not ask the agent to commit", 4_000);
+      }
+    },
+    requestMergeRequestOpen: () => {
+      if (!repoRoot) {
+        return;
+      }
+      const ticketId = checkedOutItem?.ticketId;
+      try {
+        requestMergeRequestOpen(repoRoot, ticketId);
+        flashStatus(`Asked the agent to open the MR${ticketId ? ` for ${ticketId}` : ""}`, 4_000);
+      } catch {
+        flashStatus("Could not ask the agent to open the MR", 4_000);
+      }
+    },
+    requestReview: () => {
+      const ticketId = linkTargetItem?.ticketId;
+      if (!repoRoot || !linkTargetItem) {
+        return;
+      }
+      // The ticket is what the code is judged against, so a review without one has nothing to measure.
+      if (!ticketId) {
+        flashStatus("This review names no ticket to review it against", 4_000);
+        return;
+      }
+      const mergeRequestIid =
+        linkTargetItem.mergeRequestIid ?? ticketMergeRequests.get(linkTargetItem.id)?.iid;
+      try {
+        requestReview(repoRoot, ticketId, mergeRequestIid);
+        flashStatus(
+          `Asked the agent to review ${mergeRequestIid ? `!${mergeRequestIid}` : ticketId} against ${ticketId}`,
+          4_000,
+        );
+      } catch {
+        flashStatus("Could not ask the agent for a review", 4_000);
+      }
+    },
+    openWorkspaceMergeRequest: () => {
+      const item = linkTargetItem;
+      const url = item?.mergeRequestUrl ?? (item && ticketMergeRequests.get(item.id)?.url);
+      if (url) {
+        onOpenUrl(url);
+        return;
+      }
+      // MRs load with the tickets, so one opened since then is unknown: ask GitLab again.
+      if (!item || item.section === "reviews" || !repoRoot || !loadMergeRequests) {
+        return;
+      }
+      flashStatus(`Looking for ${item.id}'s MR…`, 4_000);
+      void loadMergeRequests(repoRoot).then((loaded) => {
+        setMergeRequests(loaded);
+        const found = linkTicketMergeRequests(loaded, [item.id], checkedOutBranch ?? undefined).get(
+          item.id,
+        );
+        if (found) {
+          onOpenUrl(found.url);
+        } else {
+          flashStatus(`No MR for ${item.id} yet`, 4_000);
+        }
+      });
+    },
     canRefreshCurrentInput,
     closeHelp,
     commentEditorActive: Boolean(commentEditorTarget),
@@ -1056,11 +1602,12 @@ export function App({
       return;
     }
 
+    // The tree grows leftward from the right edge, so dragging left widens it.
     setSidebarWidth(
       resizeSidebarWidth(
         resizeStartWidth,
-        resizeDragOriginX,
         event.x,
+        resizeDragOriginX,
         SIDEBAR_MIN_WIDTH,
         maxSidebarWidth,
       ),
@@ -1083,7 +1630,6 @@ export function App({
 
   const diffHeaderStatsWidth = Math.min(24, Math.max(16, Math.floor(diffContentWidth / 3)));
   const diffHeaderLabelWidth = Math.max(8, diffContentWidth - diffHeaderStatsWidth - 1);
-  const diffSeparatorWidth = Math.max(4, diffContentWidth - 2);
 
   return (
     <box
@@ -1123,10 +1669,17 @@ export function App({
       >
         {workspaceWidth > 0 ? (
           <WorkspaceSidebar
+            items={visibleWorkspaceItems}
+            filter={workspaceFilter}
+            tasks={workspaceTasks}
+            reviews={workspaceReviews}
+            activeItemId={activeTicketId}
+            ticketStats={ticketStats}
+            ticketMergeRequests={ticketMergeRequests}
             width={workspaceWidth}
             expanded={workspaceExpanded}
-            focused={focusArea === "workspace"}
-            selectedIndex={workspaceIndex}
+            focused={focusArea === "workspace" || focusArea === "workspaceFilter"}
+            selectedIndex={selectedWorkspaceIndex}
             theme={activeTheme}
             onSelect={(index) => {
               setWorkspaceIndex(index);
@@ -1137,41 +1690,22 @@ export function App({
         {workspaceGap > 0 ? (
           <box width={workspaceGap} flexShrink={0} backgroundColor={activeTheme.background} />
         ) : null}
-        {renderSidebar ? (
+        {overviewWidth > 0 ? (
           <>
-            <SidebarPane
-              entries={review.sidebarEntries}
-              keyboardActive={
-                !pagerMode &&
-                focusArea === "tree" &&
-                !showHelp &&
-                !commentEditorTarget &&
-                !confirmPrompt
+            <TicketOverviewPane
+              item={checkedOutItem}
+              overview={ticketOverview}
+              mergeRequest={
+                overviewTicketId ? ticketMergeRequests.get(overviewTicketId) : undefined
               }
-              onFocusTree={() => {
-                if (!pagerMode) setFocusArea("tree");
-              }}
-              scrollRef={sidebarScrollRef}
-              selectedFileId={selectedFile?.id}
+              stats={overviewTicketId ? ticketStats.get(overviewTicketId) : undefined}
+              commitsSinceWritten={commitsSinceOverview}
+              width={overviewWidth}
               theme={activeTheme}
-              width={clampedSidebarWidth}
-              onSelectFile={(fileId) => {
-                focusFiles();
-                jumpToFile(fileId, 0, { alignFileHeaderTop: true });
-              }}
             />
-
-            <PaneDivider
-              dividerHitLeft={dividerHitLeft}
-              dividerHitWidth={DIVIDER_HIT_WIDTH}
-              onMouseDown={beginSidebarResize}
-              onMouseDrag={updateSidebarResize}
-              onMouseDragEnd={endSidebarResize}
-              onMouseUp={endSidebarResize}
-            />
+            <box width={overviewGap} flexShrink={0} backgroundColor={activeTheme.background} />
           </>
         ) : null}
-
         <DiffPane
           codeHorizontalOffset={codeHorizontalOffset}
           diffContentWidth={diffContentWidth}
@@ -1183,14 +1717,12 @@ export function App({
           scrollRef={diffScrollRef}
           selectedFileId={selectedFile?.id}
           selectedHunkIndex={selectedHunkIndex}
-          // Mute the in-pane hunk-selected rail when drift focus owns
-          // navigation so the user only sees one selection at a time. The
-          // underlying index stays accurate so the reveal effect does not
-          // re-fire (and visibly snap) when drift focus releases back to
-          // the hunk.
+          // Mute the active-hunk emphasis when drift focus owns navigation so
+          // the user only sees one selection at a time. The underlying index
+          // stays accurate so the reveal effect does not re-fire (and visibly
+          // snap) when drift focus releases back to the hunk.
           muteHunkSelectionHighlight={selectedDriftIndex !== null}
           scrollToNote={review.scrollToNote}
-          separatorWidth={diffSeparatorWidth}
           showLineNumbers={showLineNumbers}
           showHunkHeaders={showHunkHeaders}
           wrapLines={wrapLines}
@@ -1209,17 +1741,82 @@ export function App({
             review.selectHunk(fileId, hunkIndex, { preserveViewport: true })
           }
         />
+
+        {renderSidebar ? (
+          <>
+            {/* The file tree sits at the far right, so its divider is its left edge. */}
+            <PaneDivider
+              dividerHitLeft={dividerHitLeft}
+              dividerHitWidth={PANE_GAP + 2}
+              onMouseDown={beginSidebarResize}
+              onMouseDrag={updateSidebarResize}
+              onMouseDragEnd={endSidebarResize}
+              onMouseUp={endSidebarResize}
+            />
+
+            <box width={sidebarGap} flexShrink={0} backgroundColor={activeTheme.background} />
+
+            <SidebarPane
+              entries={review.sidebarEntries}
+              keyboardActive={
+                !pagerMode &&
+                focusArea === "tree" &&
+                !showHelp &&
+                !commentEditorTarget &&
+                !confirmPrompt
+              }
+              scrollRef={sidebarScrollRef}
+              selectedFileId={selectedFile?.id}
+              theme={activeTheme}
+              width={clampedSidebarWidth}
+              onSelectFile={(fileId) => {
+                focusFiles();
+                jumpToFile(fileId, 0, { alignFileHeaderTop: true });
+              }}
+            />
+          </>
+        ) : null}
       </box>
 
       {!pagerMode ? (
         <StatusBar
-          filter={review.filter}
-          filterFocused={focusArea === "filter"}
-          noticeText={transientStatus ?? startupNoticeText ?? bootstrap.sessionNotice ?? undefined}
+          filter={focusArea === "workspaceFilter" ? workspaceFilter : review.filter}
+          filterFocused={focusArea === "filter" || focusArea === "workspaceFilter"}
+          filterPlaceholder={
+            focusArea === "workspaceFilter" ? "type to filter tickets and reviews" : undefined
+          }
+          noticeText={transientStatus ?? undefined}
+          reviewMode={
+            canToggleBranchReview(bootstrap.input)
+              ? bootstrap.branchBase
+                ? `Branch vs ${bootstrap.branchBase}`
+                : "Uncommitted"
+              : undefined
+          }
           terminalWidth={terminal.width}
           theme={activeTheme}
-          onFilterInput={review.setFilter}
-          onFilterSubmit={focusFiles}
+          onFilterInput={(value) => {
+            if (focusArea !== "workspaceFilter") {
+              review.setFilter(value);
+              return;
+            }
+            if (!value) {
+              clearWorkspaceFilterKeepingCursor();
+              return;
+            }
+            // Each keystroke narrows the list, so start again from its first card.
+            setWorkspaceFilter(value);
+            setWorkspaceIndex(0);
+          }}
+          onFilterSubmit={() => {
+            if (focusArea !== "workspaceFilter") {
+              focusFiles();
+              return;
+            }
+            // Enter ends the search on the chosen card; the next Enter switches to it.
+            clearWorkspaceFilterKeepingCursor();
+            setFocusArea("workspace");
+          }}
         />
       ) : null}
 
@@ -1256,7 +1853,6 @@ export function App({
       {!pagerMode && showHelp ? (
         <Suspense fallback={null}>
           <LazyHelpDialog
-            canRefresh={canRefreshCurrentInput}
             terminalHeight={terminal.height}
             terminalWidth={terminal.width}
             theme={activeTheme}

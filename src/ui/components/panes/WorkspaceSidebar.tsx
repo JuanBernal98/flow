@@ -1,46 +1,50 @@
 import type { ScrollBoxRenderable } from "@opentui/core";
 import { useEffect, useRef } from "react";
+import type { MergeRequest } from "../../../core/gitlab";
+import type { LineStats } from "../../../core/ticketStats";
+import { blendHex } from "../../lib/color";
 import { fitText } from "../../lib/text";
 import type { AppTheme } from "../../themes";
+import {
+  describeReviewsPlaceholder,
+  describeTasksPlaceholder,
+  WORKSPACE_SECTIONS,
+  type WorkspaceItem,
+  type WorkspaceReviewsState,
+  type WorkspaceStatus,
+  type WorkspaceTasksState,
+} from "../../lib/workspace";
 
-const WORKSPACE_STATUSES = {
-  pending: { symbol: "○", label: "Open", color: "muted" },
-  inProgress: { symbol: "◐", label: "In progress", color: "accent" },
-  completed: { symbol: "●", label: "Completed", color: "addedSignColor" },
-  awaitingReview: { symbol: "◇", label: "Awaiting review", color: "muted" },
-  approved: { symbol: "✓", label: "Approved", color: "addedSignColor" },
-} as const;
+const WORKSPACE_STATUS_STYLES = {
+  pending: { symbol: "○", color: "muted" },
+  inProgress: { symbol: "◐", color: "accent" },
+  awaitingReview: { symbol: "◇", color: "muted" },
+  approved: { symbol: "✓", color: "badgeAdded" },
+} as const satisfies Record<WorkspaceStatus, { symbol: string; color: keyof AppTheme }>;
 
-export const WORKSPACE_ITEMS = [
-  {
-    id: "FLOW-101",
-    title: "Workspace sidebar",
-    section: "Tasks",
-    status: "inProgress",
-    added: 48,
-    removed: 12,
-  },
-  {
-    id: "FLOW-102",
-    title: "Review navigation",
-    section: "Tasks",
-    status: "pending",
-    added: 21,
-    removed: 5,
-  },
-  { id: "!42", title: "Simplify diff layout", section: "Reviews", status: "awaitingReview" },
-  { id: "!43", title: "Stable comment anchors", section: "Reviews", status: "approved" },
-] as const;
+// The cursor background keeps this share of panelAlt over the pane background, so it reads as a
+// light hover rather than a second selection next to the active ticket's rail.
+const CURSOR_BACKGROUND_STRENGTH = 0.5;
 
-const WORKSPACE_SECTIONS = ["Tasks", "Reviews"].map((title) => ({
-  title,
-  items: WORKSPACE_ITEMS.map((item, index) => ({ item, index })).filter(
-    ({ item }) => item.section === title,
-  ),
-}));
+/** Colored `+a −d` totals, styled like the file tree's change heading. */
+function LineStatsSpans({ stats, theme }: { stats: LineStats; theme: AppTheme }) {
+  return (
+    <>
+      <span fg={theme.badgeAdded}>{`+${stats.additions}`}</span>{" "}
+      <span fg={theme.badgeRemoved}>{`−${stats.deletions}`}</span>
+    </>
+  );
+}
 
-/** Render local workspace examples independently of the active review. */
+/** Render YouTrack tasks and GitLab reviews independently of the active review. */
 export function WorkspaceSidebar({
+  items,
+  filter,
+  tasks,
+  reviews,
+  activeItemId,
+  ticketStats,
+  ticketMergeRequests,
   width,
   expanded,
   focused,
@@ -48,6 +52,18 @@ export function WorkspaceSidebar({
   theme,
   onSelect,
 }: {
+  /** The cards left after `/`; the whole list while no filter is set. */
+  items: WorkspaceItem[];
+  /** The `/` query that narrowed `items`, or empty. */
+  filter: string;
+  tasks: WorkspaceTasksState;
+  reviews: WorkspaceReviewsState;
+  /** Ticket or review of the checked-out branch, marked with the rail. */
+  activeItemId: string | null;
+  /** Lines changed on each ticket's branch; tickets without a branch are absent. */
+  ticketStats: ReadonlyMap<string, LineStats>;
+  /** Merge request linked to each ticket through its branch; `g` opens it. */
+  ticketMergeRequests: ReadonlyMap<string, MergeRequest>;
   width: number;
   expanded: boolean;
   focused: boolean;
@@ -56,6 +72,36 @@ export function WorkspaceSidebar({
   onSelect: (index: number) => void;
 }) {
   const scrollRef = useRef<ScrollBoxRenderable | null>(null);
+  const cursorBackground = blendHex(theme.panelAlt, theme.background, CURSOR_BACKGROUND_STRENGTH);
+  const sections = WORKSPACE_SECTIONS.map((section) => {
+    const sectionItems = items
+      .map((item, index) => ({
+        item,
+        index,
+        stats: ticketStats.get(item.id),
+        mergeRequest: ticketMergeRequests.get(item.id),
+      }))
+      .filter(({ item }) => item.section === section.id);
+    return { ...section, items: sectionItems };
+  })
+    // Ready to merge only appears once an MR is approved, so it never costs space empty.
+    .filter((section) => section.id !== "readyToMerge" || section.items.length > 0);
+  const sectionSize = (sectionId: string) =>
+    sections.find((section) => section.id === sectionId)?.items.length ?? 0;
+  // A filtered section that loaded fine but matches nothing says so, instead of "Nothing to do".
+  const filteredOut = (sectionId: string) =>
+    filter &&
+    (sectionId === "reviews" ? reviews : tasks).kind === "ready" &&
+    !sectionSize(sectionId)
+      ? "No matches"
+      : undefined;
+  const placeholders: Partial<Record<string, string>> = {
+    todo: filteredOut("todo") ?? describeTasksPlaceholder(tasks, sectionSize("todo")),
+    reviews: filteredOut("reviews") ?? describeReviewsPlaceholder(reviews, sectionSize("reviews")),
+  };
+  // Sections have no meaningful count until the load behind them finishes.
+  const showsCount = (sectionId: string) =>
+    (sectionId === "reviews" ? reviews : tasks).kind === "ready";
   useEffect(() => {
     scrollRef.current?.scrollChildIntoView(`workspace-${selectedIndex}`);
   }, [selectedIndex, expanded]);
@@ -82,17 +128,24 @@ export function WorkspaceSidebar({
           verticalScrollbarOptions={{ visible: false }}
           horizontalScrollbarOptions={{ visible: false }}
         >
-          {WORKSPACE_SECTIONS.map((section, sectionIndex) => (
+          {filter ? (
+            <box id="workspace-filter" height={1} paddingX={1} flexShrink={0}>
+              <text fg={theme.muted}>{fitText(`/ ${filter} · Esc clears`, width - 2)}</text>
+            </box>
+          ) : null}
+          {sections.map((section, sectionIndex) => (
             <box
-              key={section.title}
-              id={`workspace-section-${section.title}`}
+              // Remount the section when the filter changes: OpenTUI leaves a card reinserted
+              // before its siblings unpainted in a real terminal, so cards are never reinserted.
+              key={`${section.id}:${filter}`}
+              id={`workspace-section-${section.id}`}
               flexDirection="column"
               flexShrink={0}
               marginTop={sectionIndex > 0 ? 1 : 0}
               backgroundColor={theme.background}
             >
               <box
-                id={`workspace-heading-${section.title}`}
+                id={`workspace-heading-${section.id}`}
                 height={3}
                 paddingTop={1}
                 flexShrink={0}
@@ -102,41 +155,77 @@ export function WorkspaceSidebar({
                 justifyContent="space-between"
               >
                 <text fg={theme.muted}>{section.title}</text>
-                <text fg={theme.muted}>{section.items.length}</text>
+                <text fg={theme.muted}>{showsCount(section.id) ? section.items.length : ""}</text>
               </box>
-              {section.items.map(({ item, index }) => (
-                <box key={item.id} id={`workspace-${index}`} height={3} flexDirection="column">
-                  <box
-                    id={`workspace-row-${index}`}
-                    height={2}
-                    paddingX={1}
-                    flexDirection="column"
-                    backgroundColor={selectedIndex === index ? theme.panelAlt : theme.background}
-                    onMouseUp={() => onSelect(index)}
-                  >
-                    <text fg={selectedIndex === index && focused ? theme.accent : theme.text}>
-                      <span fg={theme[WORKSPACE_STATUSES[item.status].color]}>
-                        {WORKSPACE_STATUSES[item.status].symbol}
-                      </span>{" "}
-                      {fitText(item.title, width - 5)}
-                    </text>
-                    {"added" in item ? (
-                      <text fg={theme.muted}>
-                        {`  ${item.id}  `}
-                        <span fg={theme.addedSignColor}>{`+${item.added}`}</span>{" "}
-                        <span fg={theme.removedSignColor}>{`−${item.removed}`}</span>
-                      </text>
-                    ) : (
-                      <text fg={theme.muted}>
-                        {fitText(
-                          `  ${item.id} · ${WORKSPACE_STATUSES[item.status].label}`,
-                          width - 3,
-                        )}
-                      </text>
-                    )}
-                  </box>
+              {placeholders[section.id] ? (
+                <box
+                  id={`workspace-${section.id}-placeholder`}
+                  height={2}
+                  paddingX={1}
+                  flexDirection="column"
+                >
+                  <text fg={theme.muted}>{fitText(placeholders[section.id] ?? "", width - 4)}</text>
                 </box>
-              ))}
+              ) : null}
+              {section.items.map(({ item, index, stats, mergeRequest }) => {
+                // The rail marks the checked-out branch's ticket wherever the cursor is. The
+                // cursor itself is a faint background, shown only while the pane owns the
+                // keyboard, since that is when Enter, h, and r act on it.
+                const active = item.id === activeItemId;
+                const hovered = focused && selectedIndex === index;
+                const rowBackground = hovered ? cursorBackground : theme.background;
+                return (
+                  <box key={item.id} id={`workspace-${index}`} height={3} flexDirection="column">
+                    <box
+                      id={`workspace-row-${index}`}
+                      height={2}
+                      flexDirection="row"
+                      backgroundColor={rowBackground}
+                      onMouseUp={() => onSelect(index)}
+                    >
+                      {/* Solid selection rail, then a one-column gap so it never touches the icon. */}
+                      <box
+                        id={`workspace-rail-${index}`}
+                        width={1}
+                        height={2}
+                        flexShrink={0}
+                        backgroundColor={active ? theme.accent : rowBackground}
+                      />
+                      <box width={1} height={2} flexShrink={0} />
+                      <box flexGrow={1} paddingRight={1} flexDirection="column">
+                        <text fg={theme.text}>
+                          <span fg={theme[WORKSPACE_STATUS_STYLES[item.status].color]}>
+                            {WORKSPACE_STATUS_STYLES[item.status].symbol}
+                          </span>{" "}
+                          {fitText(item.title, width - 6)}
+                        </text>
+                        {/* Ids on the left (a review's ticket beside its MR, like a task's MR
+                            beside its ticket), the branch's line totals flush right. */}
+                        <box flexDirection="row" justifyContent="space-between">
+                          <text fg={theme.muted}>
+                            {fitText(
+                              `  ${[
+                                item.id,
+                                item.ticketId !== item.id && item.ticketId,
+                                mergeRequest && `!${mergeRequest.iid}`,
+                                item.detail,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}`,
+                              width - 4,
+                            )}
+                          </text>
+                          {stats ? (
+                            <text>
+                              <LineStatsSpans stats={stats} theme={theme} />
+                            </text>
+                          ) : null}
+                        </box>
+                      </box>
+                    </box>
+                  </box>
+                );
+              })}
             </box>
           ))}
         </scrollbox>

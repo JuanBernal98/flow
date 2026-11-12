@@ -1,5 +1,5 @@
 {
-  "name": "dunkdiff",
+  "name": "flow",
   "version": "0.16.0",
   "private": true,
   "description": "Review diffs in a TUI, leave inline comments, and let a coding agent resolve them.",
@@ -10,17 +10,17 @@
     "terminal",
     "tui"
   ],
-  "homepage": "https://github.com/amix/dunk#readme",
+  "homepage": "https://github.com/JuanBernal98/flow#readme",
   "bugs": {
-    "url": "https://github.com/amix/dunk/issues"
+    "url": "https://github.com/JuanBernal98/flow/issues"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/amix/dunk.git"
+    "url": "git+https://github.com/JuanBernal98/flow.git"
   },
   "bin": {
-    "dunk": "./bin/dunk.cjs"
+    "flow": "./bin/flow.cjs"
   },
   "type": "module",
   "scripts": {
@@ -38,8 +38,8 @@
     "lint:fix": "oxlint . --fix",
     "prepare": "simple-git-hooks",
     "test": "\"${npm_execpath:-bun}\" test --parallel ./src ./scripts ./test/cli",
-    "test:integration": "DUNK_RUN_PTY_TESTS=1 \"${npm_execpath:-bun}\" test ./test/pty",
-    "test:tty-smoke": "DUNK_RUN_TTY_SMOKE=1 \"${npm_execpath:-bun}\" test ./test/smoke",
+    "test:integration": "FLOW_RUN_PTY_TESTS=1 \"${npm_execpath:-bun}\" test ./test/pty",
+    "test:tty-smoke": "FLOW_RUN_TTY_SMOKE=1 \"${npm_execpath:-bun}\" test ./test/smoke",
     "check:prebuilt-pack": "bun run ./scripts/check-prebuilt-pack.ts",
     "smoke:prebuilt-install": "bun run ./scripts/smoke-prebuilt-install.ts",
     "publish:prebuilt:npm": "bun run ./scripts/publish-prebuilt-npm.ts",

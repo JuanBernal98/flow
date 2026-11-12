@@ -41,7 +41,8 @@ describe("viewport row anchors", () => {
       true,
       false,
     );
-    const splitChangeTop = splitGeometry.rowBounds.find((row) => row.key.includes(":change:"))?.top;
+    // The one-line change renders as a single split row pairing the deletion and the addition.
+    const splitChangeTop = splitGeometry.rowBounds.find((row) => row.key.includes(":split:"))?.top;
     const stackDeletionTop = stackGeometry.rowBounds.find((row) =>
       row.key.includes(":deletion:"),
     )?.top;

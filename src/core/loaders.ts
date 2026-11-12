@@ -18,6 +18,7 @@ import {
 import { LARGE_FILE_MAX_BYTES } from "./limits";
 import { DEFAULT_VIEW_PREFERENCES, findRepoRoot } from "./config";
 import { resolveGitBranchBase } from "./branchReview";
+import { FlowUserError } from "./errors";
 import type { DriftedCommentSummary } from "./types";
 import { normalizeDiffMetadataPaths, normalizeDiffPath } from "./diffPaths";
 import { stripTerminalControl } from "./pager";
@@ -254,7 +255,7 @@ type GitHeaderRewriteMode = "add" | "strip";
  * `@pierre/diffs` requires `a/` and `b/` on `diff --git`, `---`, and `+++` lines and throws
  * a `TypeError` on the first noprefix header, which leaves the review with zero files. The
  * git-backed paths force `diff.noprefix=false` when they invoke git internally; this helper
- * covers the patch path (`dunk patch`, `dunk pager`) where the input was produced by an
+ * covers the patch path (`flow patch`, `flow pager`) where the input was produced by an
  * outer `git` process we do not control.
  *
  * The rewrite is scoped to header lines only: once the `+++ ` line has been emitted for a
@@ -879,10 +880,26 @@ async function loadFileDiffChangeset(
 
 interface LoadedVcsChangeset {
   changeset: Changeset;
-  sessionNotice?: string;
+  branchBase?: string;
 }
 
 /** Build a changeset from the current repository working tree or a git range. */
+
+/**
+ * Resolve the branch-review base. When branch review is only `flow diff`'s default, a repository
+ * without a resolvable base (no remote, no main) reviews the working tree instead of failing;
+ * an explicit `--branch` still reports the problem.
+ */
+function resolveImplicitTolerantBranchBase(input: VcsCommandInput, cwd: string | undefined) {
+  try {
+    return resolveGitBranchBase(input, { cwd });
+  } catch (error) {
+    if (input.branchReview?.implicit && error instanceof FlowUserError) {
+      return undefined;
+    }
+    throw error;
+  }
+}
 async function loadGitChangeset(
   input: VcsCommandInput,
   cwd = process.cwd(),
@@ -909,13 +926,15 @@ async function loadGitChangeset(
   };
   let branchDisplayBase: string | undefined;
   if (input.branchReview && !input.staged) {
-    const resolved = resolveGitBranchBase(input, { cwd });
-    branchDisplayBase = resolved.displayBase;
-    gitDiffInput = {
-      ...input,
-      range: resolved.gitMergeBaseSha,
-      branchReview: undefined,
-    };
+    const resolved = resolveImplicitTolerantBranchBase(input, cwd);
+    if (resolved) {
+      branchDisplayBase = resolved.displayBase;
+      gitDiffInput = {
+        ...input,
+        range: resolved.gitMergeBaseSha,
+        branchReview: undefined,
+      };
+    }
   }
 
   const title =
@@ -951,12 +970,10 @@ async function loadGitChangeset(
   ];
   const untrackedFiles = listGitUntrackedFiles(gitDiffInput, { cwd, repoRoot });
 
-  const sessionNotice = branchDisplayBase ? `branch base: ${branchDisplayBase}` : undefined;
-
   if (untrackedFiles.length === 0) {
     return {
       changeset: { ...trackedChangeset, files: trackedFiles } satisfies Changeset,
-      sessionNotice,
+      branchBase: branchDisplayBase,
     };
   }
 
@@ -976,7 +993,7 @@ async function loadGitChangeset(
         ),
       ],
     } satisfies Changeset,
-    sessionNotice,
+    branchBase: branchDisplayBase,
   };
 }
 
@@ -1022,13 +1039,13 @@ export async function loadAppBootstrap(
   { cwd = process.cwd() }: LoadAppBootstrapOptions = {},
 ): Promise<AppBootstrap> {
   let changeset: Changeset;
-  let sessionNotice: string | undefined;
+  let branchBase: string | undefined;
 
   switch (input.kind) {
     case "vcs": {
       const loaded = await loadGitChangeset(input, cwd);
       changeset = loaded.changeset;
-      sessionNotice = loaded.sessionNotice;
+      branchBase = loaded.branchBase;
       break;
     }
     case "show":
@@ -1059,19 +1076,21 @@ export async function loadAppBootstrap(
     initialShowLineNumbers: input.options.lineNumbers ?? DEFAULT_VIEW_PREFERENCES.showLineNumbers,
     initialWrapLines: input.options.wrapLines ?? DEFAULT_VIEW_PREFERENCES.wrapLines,
     initialShowHunkHeaders: input.options.hunkHeaders ?? DEFAULT_VIEW_PREFERENCES.showHunkHeaders,
+    initialShowFileTree: input.options.fileTree ?? DEFAULT_VIEW_PREFERENCES.showFileTree,
+    initialShowOverview: input.options.overview ?? DEFAULT_VIEW_PREFERENCES.showOverview,
     initialSelectionAutoCopy:
       input.options.selectionAutoCopy ?? DEFAULT_VIEW_PREFERENCES.selectionAutoCopy,
     driftedComments: merged.drifted,
-    sessionNotice,
+    branchBase,
   };
 }
 
 /**
- * Read `.dunk/comments.json` for the active repo, anchor comments against the
+ * Read `.flow/comments.json` for the active repo, anchor comments against the
  * current post-image, and fold the anchored ones into the changeset's per-file
  * annotations. Drifted comments are returned separately. A missing repo root
  * yields the original changeset and an empty drift list. A *malformed*
- * `.dunk/comments.json` is logged loudly so a bad agent edit doesn't silently
+ * `.flow/comments.json` is logged loudly so a bad agent edit doesn't silently
  * hide every comment — the integration contract for this fork lives in that
  * file, so swallowing parse errors masks real product breakage.
  */
@@ -1091,7 +1110,7 @@ function mergeUserComments(
     commentsFile = readCommentsFile(repoRoot);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
-    console.error(`dunk: could not load .dunk/comments.json — ${detail}`);
+    console.error(`flow: could not load .flow/comments.json — ${detail}`);
     return empty;
   }
 

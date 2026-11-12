@@ -1,9 +1,9 @@
-# dunk agent notes
+# flow agent notes
 
 ## purpose
 
 - Personal terminal diff viewer.
-- Hard-forked from `hunk` and slimmed down: no daemon, no MCP, no broker — agent integration runs through `.dunk/comments.json` on disk.
+- Hard-forked from `dunk` (itself a hard fork of `hunk`) and slimmed down: no daemon, no MCP, no broker — agent integration runs through `.flow/comments.json` on disk.
 - Product target is "modern desktop diff tool in a terminal", not a pager-style TUI.
 
 ## major dependencies
@@ -41,8 +41,9 @@ CLI input
 - CLI entrypoints: `diff`, `show`, `stash show`, `patch`, `pager`, `difftool`.
 - All input sources normalize into one internal changeset model.
 - Pager mode resolves to one of four `StartupPlan` outcomes (the single enumeration of pager behavior): full diff UI for patch-like stdin on a usable TTY, plain-text fallback for non-diff pager content, a static ANSI diff for captured pager hosts (LazyGit etc.: `TERM=dumb` + a non-TTY pipe), and raw passthrough for any other non-TTY/dumb pipe.
-- View defaults are layered through built-ins, user config, repo `.dunk/config.toml`, command sections, pager sections, and CLI flags.
-- Review comments live in one gitignored `.dunk/comments.json` per repo, deleted once the last comment is resolved. Watch mode picks up changes so a coding agent and a human reviewer can ping-pong on the same review.
+- View defaults are layered through built-ins, user config, repo `.flow/config.toml`, command sections, pager sections, and CLI flags.
+- Review comments live in one gitignored `.flow/comments.json` per repo, deleted once the last comment is resolved. Watch mode picks up changes so a coding agent and a human reviewer can ping-pong on the same review.
+- Ticket overviews (what the agent understood about a ticket) live in `.flow/overviews/<ID>.json`, written only through `flow overview write` so they always match one schema. Live facts (state, MR, line totals) are never stored there; the Overview pane adds them.
 - Prefer one source of truth for each user-visible behavior. When rendering, navigation, scrolling, or note placement share the same model, derive them from the same planning layer rather than maintaining parallel implementations.
 - When UI behavior depends on derived structure or metrics, make that structure explicit in helper modules and reuse it across rendering and interaction code instead of re-deriving it ad hoc in multiple places.
 - If a new implementation makes an older path obsolete, remove the dead path instead of keeping two overlapping systems around.
@@ -98,8 +99,8 @@ CLI input
 - Comments belong beside the code, not hidden in a separate mode or workflow.
 - Comments are hunk-specific: render them in the diff flow near the annotated row, and keep a clear spatial relationship to the code they explain.
 - Drifted comments (file removed, line out of range, or anchor mismatch) pin to the top of the diff so they stay visible until resolved or dismissed.
-- `dunk diff` reviews staged + unstaged changes together (working tree vs `HEAD`) and includes untracked files by default. `--staged`/`--cached` scopes to index-vs-`HEAD`, `--unstaged` to working-tree-vs-index. Use `--exclude-untracked` if you explicitly want tracked changes only. Working-tree scope is encoded purely as the comparison base (`range`); there is no separate scope field.
-- The agent skill at `skills/dunk-review/SKILL.md` describes how a coding agent should read, fix, and prune `.dunk/comments.json`. Don't run interactive TUI commands from agents — they should drive through the file.
+- `flow diff` reviews staged + unstaged changes together (working tree vs `HEAD`) and includes untracked files by default. `--staged`/`--cached` scopes to index-vs-`HEAD`, `--unstaged` to working-tree-vs-index. Use `--exclude-untracked` if you explicitly want tracked changes only. Working-tree scope is encoded purely as the comparison base (`range`); there is no separate scope field.
+- The agent skill at `skills/flow-comments-fix/SKILL.md` describes how a coding agent should read, fix, and prune `.flow/comments.json`. Don't run interactive TUI commands from agents — they should drive through the file.
 
 ## commands
 
@@ -115,10 +116,12 @@ CLI input
 - lint: `bun run lint`
 - build binary: `bun run build:bin`
 - install binary: `bun run install:bin`
+- install skills and session hook into Claude Code: `flow setup claude` (`--dry-run` to preview)
+- connect a repository (writes `.flow/config.toml`): `flow init`
 
 ## binary notes
 
-- The shipped `dunk` is a tiny shell wrapper around `bun run src/main.tsx` for local installs, and a compiled `bun build --compile` binary for prebuilt npm releases.
+- The shipped `flow` is a tiny shell wrapper around `bun run src/main.tsx` for local installs, and a compiled `bun build --compile` binary for prebuilt npm releases.
 - After source changes, rebuild/reinstall with `bun run install:bin` for local dev.
 - For rendering verification, prefer a real TTY smoke run over redirected stdout capture.
 
@@ -131,7 +134,7 @@ CLI input
 
 ## cross-platform support
 
-- `dunk` should work on macOS and Linux. Windows isn't tested.
+- `flow` should work on macOS and Linux. Windows isn't tested.
 - In tests, avoid hard-coded POSIX paths when portable APIs exist.
 
 ## releases
@@ -150,7 +153,7 @@ CLI input
 
 ## repo notes
 
-- Local review artifacts under `.dunk/` are gitignored on purpose. Leave them alone unless the user explicitly wants them updated, and do not commit them.
+- Local review artifacts under `.flow/` are gitignored on purpose. Leave them alone unless the user explicitly wants them updated, and do not commit them.
 - Keep this doc short and architectural. Fresh-context agents can discover file paths themselves.
 
 ## commits

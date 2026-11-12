@@ -5,7 +5,7 @@ A screenshot-optimized demo for the main README: a multi-file UI refactor.
 ## Run
 
 ```bash
-dunk patch examples/6-readme-screenshot/change.patch \
+flow patch examples/6-readme-screenshot/change.patch \
   --mode split \
   --theme midnight
 ```

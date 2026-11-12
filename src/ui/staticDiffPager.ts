@@ -1,14 +1,14 @@
 /**
- * Non-interactive `dunk pager` renderer for captured pager hosts.
+ * Non-interactive `flow pager` renderer for captured pager hosts.
  *
- * dunk's normal pager integration is a full-screen interactive TUI: Git pipes
- * patch text on stdin and dunk opens the controlling terminal for input. Tools
+ * flow's normal pager integration is a full-screen interactive TUI: Git pipes
+ * patch text on stdin and flow opens the controlling terminal for input. Tools
  * like LazyGit instead invoke a custom pager inside their own panel and
  * advertise a constrained environment (`TERM=dumb`, a non-TTY pipe). Launching
  * the TUI there corrupts the host panel or produces no usable output.
  *
  * This module is the fallback output adapter for those contexts. It is a thin
- * serializer: it reuses dunk's normal parse/plan stack (`loadAppBootstrap` →
+ * serializer: it reuses flow's normal parse/plan stack (`loadAppBootstrap` →
  * Pierre `buildStackRows`) and only turns the resulting stack rows into ANSI
  * text. It deliberately does NOT introduce a second diff parser or review
  * model, does not render the comment overlay (pager content is transient), and
@@ -69,12 +69,13 @@ export function staticStackPalette(kind: "context" | "addition" | "deletion", th
   return { contentBg: theme.contextBg, signColor: theme.muted };
 }
 
-const RAIL_MARKER = "▌";
+// Blank lead column, matching the TUI rows, which no longer draw a colored rail.
+const ROW_LEAD = " ";
 
 /** Render a header-like row (collapsed gap / hunk header) as ANSI text. */
 function renderHeaderLikeRow(text: string, fg: string, theme: AppTheme) {
   return (
-    colorText(RAIL_MARKER, theme.lineNumberFg, theme.panelAlt) +
+    colorText(ROW_LEAD, theme.lineNumberFg, theme.panelAlt) +
     colorText(text.trimEnd(), fg, theme.panelAlt)
   );
 }
@@ -101,17 +102,13 @@ function renderStaticRow(
 
   const { cell } = row;
   const palette = staticStackPalette(cell.kind, theme);
-  const rail = colorText(RAIL_MARKER, palette.signColor, palette.contentBg);
+  const rail = colorText(ROW_LEAD, palette.signColor, palette.contentBg);
 
   let gutter = "";
   if (showLineNumbers) {
-    const oldNumber = cell.oldLineNumber ? String(cell.oldLineNumber) : "";
-    const newNumber = cell.newLineNumber ? String(cell.newLineNumber) : "";
-    gutter = colorText(
-      ` ${oldNumber.padStart(5)} ${newNumber.padStart(5)} `,
-      theme.lineNumberFg,
-      theme.lineNumberBg,
-    );
+    // One column, like the TUI: the new-file number, or the old one for deletions.
+    const lineNumber = String(cell.newLineNumber ?? cell.oldLineNumber ?? "");
+    gutter = colorText(` ${lineNumber.padStart(5)} `, theme.lineNumberFg, theme.lineNumberBg);
   }
 
   const sign = colorText(`${cell.sign || " "} `, palette.signColor, palette.contentBg);

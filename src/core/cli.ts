@@ -1,4 +1,6 @@
-import { existsSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { Command, Option } from "commander";
 import type {
   CommonOptions,
@@ -9,13 +11,15 @@ import type {
 } from "./types";
 import {
   renderCommentsHelp,
+  runCommentsAdd,
   runCommentsList,
+  runCommentsReply,
   runCommentsResolve,
   runCommentsShow,
 } from "./cliComments";
-import { DunkUserError } from "./errors";
+import { FlowUserError } from "./errors";
 import { WORKTREE_BASE_REF } from "./git";
-import { resolveBundledDunkReviewSkillPath } from "./paths";
+import { resolveBundledCommentsFixSkillPath } from "./paths";
 import { resolveCliVersion } from "./version";
 import type { BranchReviewRequest } from "./types";
 
@@ -60,11 +64,13 @@ function buildCommonOptions(
     mode: options.mode,
     theme: options.theme,
     pager: options.pager ? true : undefined,
-    watch: options.watch ? true : undefined,
+    watch: resolveBooleanFlag(argv, "--watch", "--no-watch"),
     excludeUntracked: resolveBooleanFlag(argv, "--exclude-untracked", "--no-exclude-untracked"),
     lineNumbers: resolveBooleanFlag(argv, "--line-numbers", "--no-line-numbers"),
     wrapLines: resolveBooleanFlag(argv, "--wrap", "--no-wrap"),
     hunkHeaders: resolveBooleanFlag(argv, "--hunk-headers", "--no-hunk-headers"),
+    fileTree: resolveBooleanFlag(argv, "--file-tree", "--no-file-tree"),
+    overview: resolveBooleanFlag(argv, "--overview", "--no-overview"),
   };
 }
 
@@ -79,55 +85,88 @@ function applyCommonOptions(command: Command) {
     .option("--wrap", "wrap long diff lines")
     .option("--no-wrap", "truncate long diff lines to one row")
     .option("--hunk-headers", "show hunk metadata rows")
-    .option("--no-hunk-headers", "hide hunk metadata rows");
+    .option("--no-hunk-headers", "hide hunk metadata rows")
+    .option("--file-tree", "open the file tree at startup")
+    .option("--no-file-tree", "start with the file tree closed")
+    .option("--overview", "open the ticket Overview pane at startup")
+    .option("--no-overview", "start with the Overview pane closed");
 }
 
 /** Attach auto-refresh support to review commands that can reopen their source input. */
 function applyWatchOption(command: Command) {
-  return command.option("--watch", "auto-reload when the current diff input changes");
+  return command
+    .option("--watch", "auto-reload when the current diff input changes (the default)")
+    .option("--no-watch", "keep the review still until you reload with `r`");
 }
 
-/** Render plain-text version output for `dunk --version`. */
+/** Render plain-text version output for `flow --version`. */
 function renderCliVersion() {
   return `${resolveCliVersion()}\n`;
 }
 
-/** Render the bundled dunk review skill path for shell usage. */
-function renderDunkReviewSkillPath() {
-  return `${resolveBundledDunkReviewSkillPath()}\n`;
+// Skills shipped under `skills/`; the first one is the default.
+const BUNDLED_SKILLS = [
+  "flow-comments-fix",
+  "flow-ticket-switch",
+  "flow-ticket-context",
+  "flow-review",
+  "flow-commit-create",
+  "flow-mr-open",
+] as const;
+type BundledSkill = (typeof BUNDLED_SKILLS)[number];
+
+/** Resolve a bundled skill's path; they all sit beside flow-comments-fix in every package layout. */
+function resolveBundledSkillPath(name: BundledSkill) {
+  return join(dirname(dirname(resolveBundledCommentsFixSkillPath())), name, "SKILL.md");
 }
 
-/** Build the `dunk skill` help text. */
+/** Render a bundled skill itself, so agents read the installed version's rules. */
+function renderBundledSkill(name: BundledSkill) {
+  const content = readFileSync(resolveBundledSkillPath(name), "utf8");
+  return content.endsWith("\n") ? content : `${content}\n`;
+}
+
+/** Build the `flow skill` help text. */
 function renderSkillHelp() {
   return [
-    "Usage: dunk skill path",
+    "Usage: flow skill <path|show> [name]",
     "",
-    "Print the bundled dunk review skill path.",
-    "Load or symlink that file in your coding agent to keep it in sync across dunk upgrades.",
+    "  path   print a bundled skill's path",
+    "  show   print a bundled skill",
+    "",
+    `Skills: ${BUNDLED_SKILLS.join(", ")} (default: flow-comments-fix).`,
+    "",
+    "Point your agent's skill at `flow skill show <name>` so its instructions always match the",
+    "installed flow, instead of a copied file that drifts across upgrades.",
     "",
   ].join("\n");
 }
 
-/** Build the top-level help text shown by bare `dunk` and `dunk --help`. */
+/** Build the top-level help text shown by bare `flow` and `flow --help`. */
 function renderCliHelp() {
   return [
-    "Usage: dunk <command> [options]",
+    "Usage: flow <command> [options]",
     "",
-    "Review diffs in a TUI, leave inline comments, and let a coding agent resolve them through .dunk/comments.json.",
+    "Review diffs in a TUI, leave inline comments, and let a coding agent resolve them through .flow/comments.json.",
     "",
     "Commands:",
-    "  dunk diff [target] [-- <pathspec...>]   review staged + unstaged changes or compare against a target",
-    "  dunk diff --staged [-- <pathspec...>]   review only staged changes",
-    "  dunk diff --unstaged [-- <pathspec...>] review only unstaged changes",
-    "  dunk diff --branch[=base]               review everything on the current branch vs its base",
-    "  dunk diff <left> <right>                compare two concrete files",
-    "  dunk show [target] [-- <pathspec...>]   review the last commit or a given target",
-    "  dunk stash show [ref]                   review a stash entry",
-    "  dunk patch [file]                       review a patch file or stdin",
-    "  dunk pager                              general Git pager wrapper with diff detection",
-    "  dunk difftool <left> <right> [path]     review Git difftool file pairs",
-    "  dunk comments [list|show|resolve]       inspect or resolve review comments without the TUI",
-    "  dunk skill path                         print the bundled dunk review skill path",
+    "  flow diff [target] [-- <pathspec...>]   review staged + unstaged changes or compare against a target",
+    "  flow diff --staged [-- <pathspec...>]   review only staged changes",
+    "  flow diff --unstaged [-- <pathspec...>] review only unstaged changes",
+    "  flow diff --branch[=base]               review everything on the current branch vs its base",
+    "  flow diff <left> <right>                compare two concrete files",
+    "  flow show [target] [-- <pathspec...>]   review the last commit or a given target",
+    "  flow stash show [ref]                   review a stash entry",
+    "  flow patch [file]                       review a patch file or stdin",
+    "  flow pager                              general Git pager wrapper with diff detection",
+    "  flow difftool <left> <right> [path]     review Git difftool file pairs",
+    "  flow comments [list|show|resolve]       inspect or resolve review comments without the TUI",
+    "  flow skill <path|show>                  print the bundled agent review skill (path or text)",
+    "  flow watch                              stream review events for a coding agent's terminal",
+    "  flow focus <file>[:line]                ask the open review to show a file and line",
+    "  flow overview write <ticket>            store a ticket overview (JSON on stdin) for the Overview pane",
+    "  flow setup claude                       install flow's skills and session hook into Claude Code",
+    "  flow init                               connect this repository: write its .flow/config.toml",
     "",
     "Global options:",
     "  -h, --help                              show help",
@@ -140,6 +179,8 @@ function renderCliHelp() {
     "  --line-numbers / --no-line-numbers      show or hide line numbers",
     "  --wrap / --no-wrap                      wrap or truncate long diff lines",
     "  --hunk-headers / --no-hunk-headers      show or hide hunk metadata rows",
+    "  --file-tree / --no-file-tree            open the file tree at startup, or not",
+    "  --overview / --no-overview              open the ticket Overview pane at startup, or not",
     "  --theme <theme>                         named theme override",
     "",
     "Git diff options:",
@@ -149,7 +190,7 @@ function renderCliHelp() {
     "  --branch [base]                         review the whole branch vs base (origin/HEAD by default)",
     "",
     "Notes:",
-    "  Run `dunk <command> --help` for command-specific syntax and options.",
+    "  Run `flow <command> --help` for command-specific syntax and options.",
     '  "target" refers to a generic set of changes; it can be any git ref or commit range',
     "",
   ].join("\n");
@@ -178,7 +219,7 @@ async function parseStandaloneCommand(command: Command, tokens: string[]) {
   command.exitOverride();
 
   try {
-    await command.parseAsync(["bun", "dunk", ...tokens]);
+    await command.parseAsync(["bun", "flow", ...tokens]);
   } catch (error) {
     if (
       error &&
@@ -193,12 +234,12 @@ async function parseStandaloneCommand(command: Command, tokens: string[]) {
   }
 }
 
-/** Build one command parser with the shared dunk options attached. */
+/** Build one command parser with the shared flow options attached. */
 function createCommand(name: string, description: string) {
   return applyCommonOptions(new Command(name).description(description));
 }
 
-/** Parse the overloaded `dunk diff` command. */
+/** Parse the overloaded `flow diff` command. */
 async function parseDiffCommand(tokens: string[], _argv: string[]): Promise<ParsedCliInput> {
   const { commandTokens, pathspecs } = splitPathspecArgs(tokens);
   const command = applyWatchOption(
@@ -216,8 +257,9 @@ async function parseDiffCommand(tokens: string[], _argv: string[]): Promise<Pars
     )
     .option(
       "--branch [base]",
-      "review everything on the current branch versus its base (defaults to origin/HEAD)",
+      "review everything on the current branch versus its base (the default; base defaults to origin/HEAD)",
     )
+    .option("--no-branch", "review only uncommitted changes against HEAD")
     .argument("[targets...]");
 
   let parsedTargets: string[] = [];
@@ -237,8 +279,8 @@ async function parseDiffCommand(tokens: string[], _argv: string[]): Promise<Pars
   const staged = Boolean(parsedOptions.staged) || Boolean(parsedOptions.cached);
   const unstaged = Boolean(parsedOptions.unstaged);
   if (staged && unstaged) {
-    throw new DunkUserError("`dunk diff --staged` cannot be combined with `--unstaged`.", [
-      "Run `dunk diff` with no scope flag to review staged and unstaged changes together.",
+    throw new FlowUserError("`flow diff --staged` cannot be combined with `--unstaged`.", [
+      "Run `flow diff` with no scope flag to review staged and unstaged changes together.",
     ]);
   }
   // Scan the command tokens (already stripped of post-`--` pathspecs) so a
@@ -246,17 +288,22 @@ async function parseDiffCommand(tokens: string[], _argv: string[]): Promise<Pars
   const options = buildCommonOptions(parsedOptions, commandTokens);
   const normalizedPathspecs = pathspecs.length > 0 ? pathspecs : undefined;
 
-  const branchReview = parseBranchReviewOption(parsedOptions.branch);
+  // A bare `flow diff` reviews the whole branch; `--no-branch`, a scope flag, or a target opts out.
+  const branchReview =
+    parseBranchReviewOption(parsedOptions.branch) ??
+    (parsedOptions.branch === undefined && !staged && !unstaged && parsedTargets.length === 0
+      ? { implicit: true }
+      : undefined);
   if (branchReview) {
     if (staged || unstaged) {
-      throw new DunkUserError(
-        "`dunk diff --branch` cannot be combined with `--staged` or `--unstaged`.",
+      throw new FlowUserError(
+        "`flow diff --branch` cannot be combined with `--staged` or `--unstaged`.",
         ["`--branch` already includes staged and unstaged work on top of the branch base."],
       );
     }
     if (parsedTargets.length > 0) {
-      throw new DunkUserError("`dunk diff --branch` does not take positional revision arguments.", [
-        "Pass the base via the flag, e.g. `dunk diff --branch=origin/main`.",
+      throw new FlowUserError("`flow diff --branch` does not take positional revision arguments.", [
+        "Pass the base via the flag, e.g. `flow diff --branch=origin/main`.",
         "Use `[-- <pathspec...>]` to narrow the review to specific files.",
       ]);
     }
@@ -285,9 +332,9 @@ async function parseDiffCommand(tokens: string[], _argv: string[]): Promise<Pars
   }
 
   if (unstaged) {
-    throw new DunkUserError("`dunk diff --unstaged` does not take positional revision arguments.", [
+    throw new FlowUserError("`flow diff --unstaged` does not take positional revision arguments.", [
       "`--unstaged` only scopes a working-tree review (working tree vs index).",
-      "Drop the revision, or use `dunk diff <range>` to compare against it.",
+      "Drop the revision, or use `flow diff <range>` to compare against it.",
     ]);
   }
 
@@ -321,7 +368,7 @@ async function parseDiffCommand(tokens: string[], _argv: string[]): Promise<Pars
   }
 
   throw new Error(
-    "Use `dunk diff [target] [-- pathspec...]`, `dunk diff <left> <right>` for file comparison.",
+    "Use `flow diff [target] [-- pathspec...]`, `flow diff <left> <right>` for file comparison.",
   );
 }
 
@@ -330,7 +377,7 @@ async function parseDiffCommand(tokens: string[], _argv: string[]): Promise<Pars
  *
  * - `--branch` alone parses as `true` → request branch mode, base resolved later.
  * - `--branch=foo` / `--branch foo` parses as the string → carry that explicit base through.
- * - Absent → `undefined`, leaving regular `dunk diff` behavior intact.
+ * - Absent → `undefined`, leaving regular `flow diff` behavior intact.
  */
 function parseBranchReviewOption(value: unknown): BranchReviewRequest | undefined {
   if (value === undefined) {
@@ -348,7 +395,7 @@ function parseBranchReviewOption(value: unknown): BranchReviewRequest | undefine
   return undefined;
 }
 
-/** Parse the Git-style `dunk show` command. */
+/** Parse the Git-style `flow show` command. */
 async function parseShowCommand(tokens: string[], _argv: string[]): Promise<ParsedCliInput> {
   const { commandTokens, pathspecs } = splitPathspecArgs(tokens);
   const command = applyWatchOption(
@@ -464,17 +511,17 @@ async function parseDifftoolCommand(tokens: string[], argv: string[]): Promise<P
   };
 }
 
-/** Pull every positional id from `dunk comments resolve` and reject the rest. */
+/** Pull every positional id from `flow comments resolve` and reject the rest. */
 function parseResolveIds(args: string[]): number[] {
   const ids: number[] = [];
   for (const raw of args) {
     if (raw.startsWith("-")) {
-      throw new DunkUserError(`\`dunk comments resolve\` takes ids only, got \`${raw}\`.`);
+      throw new FlowUserError(`\`flow comments resolve\` takes ids only, got \`${raw}\`.`);
     }
     const parsed = Number.parseInt(raw, 10);
     if (!Number.isInteger(parsed) || parsed <= 0 || String(parsed) !== raw) {
-      throw new DunkUserError(
-        `\`dunk comments resolve\` expects positive integer ids, got \`${raw}\`.`,
+      throw new FlowUserError(
+        `\`flow comments resolve\` expects positive integer ids, got \`${raw}\`.`,
       );
     }
     ids.push(parsed);
@@ -483,11 +530,11 @@ function parseResolveIds(args: string[]): number[] {
 }
 
 /**
- * Parse `dunk comments ...` and execute the requested action eagerly.
+ * Parse `flow comments ...` and execute the requested action eagerly.
  *
- * Like `dunk skill path`, these are print-and-exit commands rather than TUI
+ * Like `flow skill path`, these are print-and-exit commands rather than TUI
  * sessions, so we build the output here and return it as `kind: "help"` so
- * `main.tsx` writes it to stdout and exits 0. Errors raise `DunkUserError`,
+ * `main.tsx` writes it to stdout and exits 0. Errors raise `FlowUserError`,
  * which `formatCliError` renders cleanly with exit 1.
  */
 async function parseCommentsCommand(tokens: string[]): Promise<HelpCommandInput> {
@@ -502,7 +549,7 @@ async function parseCommentsCommand(tokens: string[]): Promise<HelpCommandInput>
     const json = rest.includes("--json");
     const extras = rest.filter((arg) => arg !== "--json");
     if (extras.length > 0) {
-      throw new DunkUserError(`Unexpected argument for \`dunk comments list\`: \`${extras[0]}\`.`);
+      throw new FlowUserError(`Unexpected argument for \`flow comments list\`: \`${extras[0]}\`.`);
     }
 
     return { kind: "help", text: runCommentsList(json ? "json" : "text") };
@@ -520,12 +567,12 @@ async function parseCommentsCommand(tokens: string[]): Promise<HelpCommandInput>
       if (arg === "--context") {
         const next = rest[i + 1];
         if (next === undefined) {
-          throw new DunkUserError("`dunk comments show --context` requires a number.");
+          throw new FlowUserError("`flow comments show --context` requires a number.");
         }
         const parsed = Number.parseInt(next, 10);
         if (!Number.isInteger(parsed) || parsed < 0 || String(parsed) !== next) {
-          throw new DunkUserError(
-            `\`dunk comments show --context\` expects a non-negative integer, got \`${next}\`.`,
+          throw new FlowUserError(
+            `\`flow comments show --context\` expects a non-negative integer, got \`${next}\`.`,
           );
         }
         contextLines = parsed;
@@ -536,8 +583,8 @@ async function parseCommentsCommand(tokens: string[]): Promise<HelpCommandInput>
         const value = arg.slice("--context=".length);
         const parsed = Number.parseInt(value, 10);
         if (!Number.isInteger(parsed) || parsed < 0 || String(parsed) !== value) {
-          throw new DunkUserError(
-            `\`dunk comments show --context\` expects a non-negative integer, got \`${value}\`.`,
+          throw new FlowUserError(
+            `\`flow comments show --context\` expects a non-negative integer, got \`${value}\`.`,
           );
         }
         contextLines = parsed;
@@ -547,16 +594,16 @@ async function parseCommentsCommand(tokens: string[]): Promise<HelpCommandInput>
     }
 
     if (positionals.length === 0) {
-      throw new DunkUserError("`dunk comments show` requires a comment id.");
+      throw new FlowUserError("`flow comments show` requires a comment id.");
     }
     if (positionals.length > 1) {
-      throw new DunkUserError("`dunk comments show` takes exactly one id.");
+      throw new FlowUserError("`flow comments show` takes exactly one id.");
     }
 
     const id = Number.parseInt(positionals[0]!, 10);
     if (!Number.isInteger(id) || id <= 0 || String(id) !== positionals[0]) {
-      throw new DunkUserError(
-        `\`dunk comments show\` expects a positive integer id, got \`${positionals[0]}\`.`,
+      throw new FlowUserError(
+        `\`flow comments show\` expects a positive integer id, got \`${positionals[0]}\`.`,
       );
     }
 
@@ -571,12 +618,109 @@ async function parseCommentsCommand(tokens: string[]): Promise<HelpCommandInput>
     return { kind: "help", text: runCommentsResolve(ids) };
   }
 
-  throw new DunkUserError(`Unknown \`dunk comments\` subcommand: \`${subcommand}\`.`, [
-    "Use one of: list, show, resolve. Run `dunk comments --help` for details.",
+  if (subcommand === "add") {
+    const [filePath, rawRange, ...words] = rest;
+    const rangeMatch = /^(\d+)(?:-(\d+))?$/.exec(rawRange ?? "");
+    if (!filePath || !rangeMatch) {
+      throw new FlowUserError("Usage: flow comments add <file> <start-end> <text>");
+    }
+    const start = Number.parseInt(rangeMatch[1]!, 10);
+    const end = rangeMatch[2] ? Number.parseInt(rangeMatch[2], 10) : start;
+    return { kind: "help", text: runCommentsAdd(filePath, [start, end], words.join(" ")) };
+  }
+
+  if (subcommand === "reply") {
+    const [rawId, ...words] = rest;
+    const id = Number.parseInt(rawId ?? "", 10);
+    if (!Number.isInteger(id) || id <= 0 || String(id) !== rawId) {
+      throw new FlowUserError(
+        "`flow comments reply` expects a positive integer id, then the text.",
+      );
+    }
+    return { kind: "help", text: runCommentsReply(id, words.join(" ")) };
+  }
+
+  throw new FlowUserError(`Unknown \`flow comments\` subcommand: \`${subcommand}\`.`, [
+    "Use one of: list, show, resolve, reply, add. Run `flow comments --help` for details.",
   ]);
 }
 
-/** Parse `dunk skill ...` for bundled skill discovery commands. */
+/**
+ * Parse `flow focus <file>[:line] [line]`: ask the open review to show a file and line. Like the
+ * comments commands it writes a file under `.flow/` and exits; the TUI picks it up.
+ */
+async function parseFocusCommand(tokens: string[]): Promise<HelpCommandInput> {
+  const usage = "Usage: flow focus <file>[:line] [line]";
+  if (tokens.includes("--help") || tokens.includes("-h")) {
+    return { kind: "help", text: `${usage}\n` };
+  }
+  if (tokens.length === 0 || tokens.length > 2) {
+    throw new FlowUserError(usage);
+  }
+  const [target = "", explicitLine] = tokens;
+  const match = /^(.*?):(\d+)$/.exec(target);
+  const file = match?.[1] ?? target;
+  const rawLine = explicitLine ?? match?.[2];
+  const line = rawLine === undefined ? undefined : Number.parseInt(rawLine, 10);
+  if (line !== undefined && (!Number.isInteger(line) || line <= 0 || String(line) !== rawLine)) {
+    throw new FlowUserError(`\`flow focus\` expects a positive line number, got \`${rawLine}\`.`);
+  }
+  const { findRepoRoot } = await import("./config");
+  const { writeFocusRequest } = await import("./focusRequests");
+  const repoRoot = findRepoRoot(process.cwd());
+  if (!repoRoot) {
+    throw new FlowUserError("Not inside a git repository.");
+  }
+  writeFocusRequest(repoRoot, file, line);
+  return { kind: "help", text: `Asked the review to show ${line ? `${file}:${line}` : file}.\n` };
+}
+
+/**
+ * Parse `flow overview write <ticket>`: validate the agent's ticket overview from stdin and store
+ * it under `.flow/overviews/`, where the Overview pane picks it up.
+ */
+async function parseOverviewCommand(tokens: string[]): Promise<HelpCommandInput> {
+  const usage = "Usage: flow overview write <ticket> < overview.json";
+  const [subcommand, ticketId, ...extra] = tokens;
+  if (!subcommand || tokens.includes("--help") || tokens.includes("-h")) {
+    return { kind: "help", text: `${usage}\n` };
+  }
+  if (subcommand !== "write" || !ticketId || extra.length > 0) {
+    throw new FlowUserError(usage);
+  }
+  const { describeOverviewIssues, isTicketId, TicketOverviewSchema, writeTicketOverview } =
+    await import("./ticketOverview");
+  if (!isTicketId(ticketId)) {
+    throw new FlowUserError(
+      `\`flow overview write\` expects a ticket id like PROJ-123, got \`${ticketId}\`.`,
+    );
+  }
+  const { findRepoRoot } = await import("./config");
+  const repoRoot = findRepoRoot(process.cwd());
+  if (!repoRoot) {
+    throw new FlowUserError("Not inside a git repository.");
+  }
+
+  let json: unknown;
+  try {
+    json = JSON.parse(await Bun.stdin.text());
+  } catch {
+    throw new FlowUserError("`flow overview write` expects the overview as JSON on stdin.");
+  }
+  const parsed = TicketOverviewSchema.safeParse(json);
+  if (!parsed.success) {
+    throw new FlowUserError("The overview does not match the expected sections.", [
+      ...describeOverviewIssues(parsed.error),
+    ]);
+  }
+  const head = Bun.spawnSync(["git", "rev-parse", "HEAD"], { cwd: repoRoot, stderr: "ignore" });
+  writeTicketOverview(repoRoot, ticketId, parsed.data, {
+    commit: head.exitCode === 0 ? head.stdout.toString().trim() : undefined,
+  });
+  return { kind: "help", text: `Stored the overview for ${ticketId}.\n` };
+}
+
+/** Parse `flow skill ...` for bundled skill discovery commands. */
 async function parseSkillCommand(tokens: string[]): Promise<HelpCommandInput> {
   const [subcommand, ...rest] = tokens;
   if (!subcommand || subcommand === "--help" || subcommand === "-h") {
@@ -586,8 +730,8 @@ async function parseSkillCommand(tokens: string[]): Promise<HelpCommandInput> {
     };
   }
 
-  if (subcommand !== "path") {
-    throw new Error("Only `dunk skill path` is supported.");
+  if (subcommand !== "path" && subcommand !== "show") {
+    throw new Error("Only `flow skill path` and `flow skill show` are supported.");
   }
 
   if (rest.includes("--help") || rest.includes("-h")) {
@@ -597,17 +741,347 @@ async function parseSkillCommand(tokens: string[]): Promise<HelpCommandInput> {
     };
   }
 
-  if (rest.length > 0) {
-    throw new Error("`dunk skill path` does not accept additional arguments.");
+  const [name = "flow-comments-fix", ...extra] = rest;
+  if (extra.length > 0) {
+    throw new Error(`\`flow skill ${subcommand}\` takes at most one skill name.`);
+  }
+  const skill = BUNDLED_SKILLS.find((candidate) => candidate === name);
+  if (!skill) {
+    throw new FlowUserError(`Unknown skill \`${name}\`. Use one of: ${BUNDLED_SKILLS.join(", ")}.`);
   }
 
   return {
     kind: "help",
-    text: renderDunkReviewSkillPath(),
+    text: subcommand === "show" ? renderBundledSkill(skill) : `${resolveBundledSkillPath(skill)}\n`,
   };
 }
 
-/** Parse `dunk stash show ...` for stash entry review. */
+/** Build the `flow setup` help text. */
+function renderSetupHelp() {
+  return [
+    "Usage: flow setup claude [--dry-run] [--uninstall]",
+    "",
+    "Install what Claude Code needs to work with flow, from this checkout:",
+    "  - a stub per bundled skill in ~/.claude/skills (they print the real text with `flow skill show`)",
+    "  - a SessionStart hook in ~/.claude/settings.json that arms `flow watch` in each repository",
+    "flow needs all of these, checked first; setup installs nothing while one is missing:",
+    "bun, glab (logged in), a YouTrack token, and the YouTrack, Notion, and Slack connectors.",
+    "",
+    "Run it again after pulling a new flow; it only rewrites flow's own entries.",
+    "",
+    "  --dry-run     show what would change without writing anything",
+    "  --uninstall   remove flow's skills and hook",
+    "",
+    "Uses $CLAUDE_CONFIG_DIR instead of ~/.claude when set.",
+    "",
+  ].join("\n");
+}
+
+/** Show a path with the home directory as `~`. */
+function displayPath(path: string) {
+  const home = homedir();
+  return path.startsWith(home) ? `~${path.slice(home.length)}` : path;
+}
+
+/**
+ * Find the installed `flow` command that stubs and the hook should call. Another tool named `flow`
+ * (such as the JavaScript type checker) may be on PATH, so a candidate only counts when it knows
+ * flow's skills.
+ */
+function resolveInstalledFlowBin() {
+  const candidates = [Bun.which("flow"), join(homedir(), ".local", "bin", "flow")];
+  for (const candidate of candidates) {
+    if (!candidate || !existsSync(candidate)) {
+      continue;
+    }
+    const probe = Bun.spawnSync([candidate, "skill", "path", "flow-comments-fix"], {
+      stdout: "pipe",
+      stderr: "ignore",
+    });
+    if (probe.exitCode === 0 && probe.stdout.toString().includes("flow-comments-fix")) {
+      return candidate;
+    }
+  }
+  throw new FlowUserError("This flow is not installed on your PATH yet.", [
+    "Run `bun run install:bin` in this checkout first, then `flow setup claude`.",
+  ]);
+}
+
+/** Ask, run, and print in the user's terminal for setup's remedies. */
+async function createTerminalRemedyIo(): Promise<import("./setupRemedies").RemedyIo> {
+  const [readline, { checkYouTrackAccess, readYouTrackToken }] = await Promise.all([
+    import("node:readline/promises"),
+    import("./youtrack"),
+  ]);
+  // A prompt per question, closed right after, so commands that read the terminal get it to
+  // themselves (glab and security ask their own questions).
+  const question = async (text: string) => {
+    const prompt = readline.createInterface({ input: process.stdin, output: process.stdout });
+    try {
+      return (await prompt.question(text)).trim();
+    } finally {
+      prompt.close();
+    }
+  };
+  return {
+    say: (line) => process.stdout.write(`${line}\n`),
+    confirm: async (text) => /^y(es)?$/i.test(await question(`${text} [y/N] `)),
+    ask: (text) => question(`${text}: `),
+    waitForRecheck: async () =>
+      (await question("  Press Enter to check again, or q to stop: ")).toLowerCase() !== "q",
+    runInteractive: async (command) => {
+      const proc = Bun.spawn(command, { stdin: "inherit", stdout: "inherit", stderr: "inherit" });
+      return proc.exited;
+    },
+    checkYouTrack: (url) => checkYouTrackAccess({ url }),
+    hasYouTrackMcpEntry: async () =>
+      Bun.spawnSync(["claude", "mcp", "get", "youtrack"], { stdout: "ignore", stderr: "ignore" })
+        .exitCode === 0,
+    addYouTrackMcp: async (url, replace) => {
+      const token = readYouTrackToken();
+      if (!token) {
+        return { ok: false, output: "No YouTrack token is stored yet." };
+      }
+      if (replace) {
+        Bun.spawnSync(["claude", "mcp", "remove", "youtrack", "-s", "user"], {
+          stdout: "ignore",
+          stderr: "ignore",
+        });
+      }
+      const added = Bun.spawnSync(
+        [
+          "claude",
+          "mcp",
+          "add",
+          "--transport",
+          "http",
+          "-s",
+          "user",
+          "youtrack",
+          `${url}/mcp`,
+          "--header",
+          `Authorization: Bearer ${token}`,
+        ],
+        { stdout: "pipe", stderr: "pipe" },
+      );
+      // claude may echo the header back; the token never reaches the screen.
+      const output =
+        `${added.stdout.toString()}${added.stderr.toString()}`
+          .replaceAll(token, "••••")
+          .trim()
+          .split("\n")[0] ?? "";
+      return { ok: added.exitCode === 0, output };
+    },
+  };
+}
+
+/** Parse and run `flow setup claude`. */
+async function parseSetupCommand(tokens: string[]): Promise<HelpCommandInput> {
+  const [target, ...flags] = tokens;
+  if (!target || target === "--help" || target === "-h" || flags.includes("--help")) {
+    return { kind: "help", text: renderSetupHelp() };
+  }
+  if (target !== "claude") {
+    throw new FlowUserError(`Unknown setup target \`${target}\`.`, [
+      "Only `flow setup claude` exists.",
+    ]);
+  }
+  const unknown = flags.filter((flag) => flag !== "--dry-run" && flag !== "--uninstall");
+  if (unknown.length > 0) {
+    throw new FlowUserError(`Unknown option \`${unknown[0]}\` for \`flow setup claude\`.`);
+  }
+  const dryRun = flags.includes("--dry-run");
+  const uninstall = flags.includes("--uninstall");
+
+  const [
+    { applyClaudeSetup, resolveClaudeDir },
+    { createSetupCheckDeps, runSetupChecks },
+    { resolveMissingDependencies },
+  ] = await Promise.all([
+    import("./claudeSetup"),
+    import("./setupChecks"),
+    import("./setupRemedies"),
+  ]);
+  const claudeDir = resolveClaudeDir();
+  const flowBin = resolveInstalledFlowBin();
+  const install = (preview: boolean) =>
+    applyClaudeSetup({
+      claudeDir,
+      flowBin,
+      skills: BUNDLED_SKILLS.map((name) => ({
+        name,
+        markdown: readFileSync(resolveBundledSkillPath(name), "utf8"),
+      })),
+      dryRun: preview,
+      uninstall,
+    });
+  const describeChanges = (heading: string, changes: ReturnType<typeof install>) => [
+    `${heading} Claude Code in ${displayPath(claudeDir)} (flow: ${displayPath(flowBin)})`,
+    ...changes.map(({ action, target: what }) => `  ${action.padEnd(10)} ${what}`),
+  ];
+
+  if (uninstall) {
+    const lines = describeChanges(dryRun ? "Would remove from" : "Removed from", install(dryRun));
+    return { kind: "help", text: `${lines.join("\n")}\n` };
+  }
+
+  // flow needs every dependency, so they are checked before anything is installed. In a terminal,
+  // setup offers to fix each missing one, always showing what it would run and asking first.
+  const checkDeps = createSetupCheckDeps();
+  const runChecks = () => runSetupChecks(checkDeps);
+  process.stdout.write("Checking what flow needs…\n");
+  const checks =
+    process.stdin.isTTY && !dryRun
+      ? await resolveMissingDependencies(runChecks, await createTerminalRemedyIo())
+      : await runChecks();
+  const checkLines = [
+    "Checks",
+    ...checks.map(
+      (check) =>
+        `  ${check.status === "ok" ? "✓" : "✗"} ${check.name}${check.detail ? ` — ${check.detail}` : ""}`,
+    ),
+  ];
+  const ready = checks.every((check) => check.status === "ok");
+  if (!ready && !dryRun) {
+    throw new FlowUserError(
+      "Setup stopped before installing anything: flow needs every item below.",
+      [
+        ...checkLines,
+        "",
+        "Fix the ✗ items (or let setup do it) and run `flow setup claude` again.",
+      ],
+    );
+  }
+
+  const lines = [
+    ...checkLines,
+    "",
+    ...describeChanges(dryRun ? "Would change" : "Set up", install(dryRun)),
+  ];
+  if (dryRun && !ready) {
+    lines.push("", "Setup would stop here: fix the ✗ items first.");
+  }
+  if (!dryRun) {
+    lines.push("", "Open a new Claude Code session to pick up the changes.");
+  }
+  return { kind: "help", text: `${lines.join("\n")}\n` };
+}
+
+/** Parse and run `flow init`, asking in the terminal for what the repository's config lacks. */
+async function parseInitCommand(tokens: string[]): Promise<HelpCommandInput> {
+  if (tokens.includes("--help") || tokens.includes("-h")) {
+    return {
+      kind: "help",
+      text: [
+        "Usage: flow init",
+        "",
+        "Connect this repository to flow: ask for your YouTrack URL and merged state, your squad's",
+        "GitLab review label, and its Slack review channel, check them, write .flow/config.toml",
+        "with a comment on every option, and add .flow/ to .git/info/exclude.",
+        "",
+        "Only missing sections are asked for, so it is safe to run again.",
+        "",
+      ].join("\n"),
+    };
+  }
+  if (tokens.length > 0) {
+    throw new FlowUserError("`flow init` takes no arguments.");
+  }
+  if (!process.stdin.isTTY) {
+    throw new FlowUserError("`flow init` asks questions, so run it in a terminal.");
+  }
+  const [
+    { runRepoInit },
+    { checkYouTrackAccess, isYouTrackProject, isYouTrackState },
+    { findRepoRoot },
+    readline,
+  ] = await Promise.all([
+    import("./repoInit"),
+    import("./youtrack"),
+    import("./config"),
+    import("node:readline/promises"),
+  ]);
+  const repoRoot = findRepoRoot(process.cwd());
+  if (!repoRoot) {
+    throw new FlowUserError("Not inside a git repository.", [
+      "Run `flow init` from the repository you want to connect.",
+    ]);
+  }
+
+  const prompt = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    await runRepoInit(repoRoot, {
+      ask: async (question, defaultValue) => {
+        const answer = await prompt.question(
+          `${question}${defaultValue ? ` [${defaultValue}]` : ""}: `,
+        );
+        return answer.trim() || defaultValue || "";
+      },
+      say: (line) => process.stdout.write(`${line}\n`),
+      checkYouTrack: (url) => checkYouTrackAccess({ url }),
+      isYouTrackState: (url, state) => isYouTrackState(state, { url }),
+      isYouTrackProject: (url, projectKey) => isYouTrackProject(projectKey, { url }),
+      hasGitLabLabel: async (label) => {
+        const result = Bun.spawnSync(
+          ["glab", "api", `projects/:id/labels?search=${encodeURIComponent(label)}&per_page=100`],
+          { cwd: repoRoot, stdout: "pipe", stderr: "ignore" },
+        );
+        if (result.exitCode !== 0) {
+          return undefined;
+        }
+        try {
+          const labels: unknown = JSON.parse(result.stdout.toString());
+          return Array.isArray(labels)
+            ? labels.some(
+                (entry) =>
+                  typeof entry === "object" &&
+                  entry !== null &&
+                  "name" in entry &&
+                  entry.name === label,
+              )
+            : undefined;
+        } catch {
+          return undefined;
+        }
+      },
+      git: (args) => {
+        const result = Bun.spawnSync(["git", ...args], {
+          cwd: repoRoot,
+          stdout: "pipe",
+          stderr: "ignore",
+        });
+        return { exitCode: result.exitCode, stdout: result.stdout.toString() };
+      },
+    });
+  } finally {
+    prompt.close();
+  }
+  return { kind: "help", text: "" };
+}
+
+/** Parse and run `flow hook session-start --bin <flow>`, the SessionStart hook setup installs. */
+async function parseHookCommand(tokens: string[]): Promise<HelpCommandInput> {
+  const [event, ...rest] = tokens;
+  if (event !== "session-start") {
+    throw new FlowUserError(
+      "Only `flow hook session-start` exists; `flow setup claude` installs it.",
+    );
+  }
+  const binIndex = rest.indexOf("--bin");
+  const flowBin = binIndex >= 0 ? rest[binIndex + 1] : undefined;
+  if (!flowBin) {
+    throw new FlowUserError("`flow hook session-start` needs `--bin <path to flow>`.");
+  }
+  const [{ renderSessionStartOutput }, { findRepoRoot }] = await Promise.all([
+    import("./claudeSetup"),
+    import("./config"),
+  ]);
+  // Outside a git repository there is nothing to watch, so the hook says nothing.
+  const repoRoot = findRepoRoot(process.cwd());
+  return { kind: "help", text: repoRoot ? renderSessionStartOutput(repoRoot, flowBin) : "" };
+}
+
+/** Parse `flow stash show ...` for stash entry review. */
 async function parseStashCommand(tokens: string[], argv: string[]): Promise<ParsedCliInput> {
   const [subcommand, ...rest] = tokens;
   if (!subcommand || subcommand === "--help" || subcommand === "-h") {
@@ -615,23 +1089,23 @@ async function parseStashCommand(tokens: string[], argv: string[]): Promise<Pars
       kind: "help",
       text:
         [
-          "Usage: dunk stash show [ref] [options]",
+          "Usage: flow stash show [ref] [options]",
           "",
-          "Review a stash entry as a full dunk changeset.",
+          "Review a stash entry as a full flow changeset.",
           "",
           "Examples:",
-          "  dunk stash show",
-          "  dunk stash show stash@{1}",
+          "  flow stash show",
+          "  flow stash show stash@{1}",
         ].join("\n") + "\n",
     };
   }
 
   if (subcommand !== "show") {
-    throw new Error("Only `dunk stash show` is supported.");
+    throw new Error("Only `flow stash show` is supported.");
   }
 
   const command = applyWatchOption(
-    createCommand("stash show", "review a stash entry as a full dunk changeset"),
+    createCommand("stash show", "review a stash entry as a full flow changeset"),
   ).argument("[ref]");
 
   let parsedRef: string | undefined;
@@ -685,6 +1159,21 @@ export async function parseCli(argv: string[]): Promise<ParsedCliInput> {
       return parseSkillCommand(rest);
     case "comments":
       return parseCommentsCommand(rest);
+    case "focus":
+      return parseFocusCommand(rest);
+    case "overview":
+      return parseOverviewCommand(rest);
+    case "setup":
+      return parseSetupCommand(rest);
+    case "init":
+      return parseInitCommand(rest);
+    case "hook":
+      return parseHookCommand(rest);
+    case "watch":
+      if (rest.length > 0) {
+        throw new FlowUserError("`flow watch` does not accept arguments.");
+      }
+      return { kind: "agent-watch" };
     default:
       throw new Error(`Unknown command: ${commandName}`);
   }

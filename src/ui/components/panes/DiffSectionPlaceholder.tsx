@@ -1,6 +1,6 @@
 import type { DiffFile } from "../../../core/types";
+import { FILE_SEPARATOR_ROWS } from "../../lib/fileSectionLayout";
 import { diffSectionId } from "../../lib/ids";
-import { fitText } from "../../lib/text";
 import type { AppTheme } from "../../themes";
 import { DiffFileHeaderRow } from "./DiffFileHeaderRow";
 
@@ -9,7 +9,6 @@ interface DiffSectionPlaceholderProps {
   file: DiffFile;
   headerLabelWidth: number;
   headerStatsWidth: number;
-  separatorWidth: number;
   showHeader: boolean;
   showSeparator: boolean;
   theme: AppTheme;
@@ -22,7 +21,6 @@ export function DiffSectionPlaceholder({
   file,
   headerLabelWidth,
   headerStatsWidth,
-  separatorWidth,
   showHeader,
   showSeparator,
   theme,
@@ -34,21 +32,17 @@ export function DiffSectionPlaceholder({
       style={{
         width: "100%",
         flexDirection: "column",
-        backgroundColor: theme.panel,
+        backgroundColor: theme.background,
       }}
     >
       {showSeparator ? (
         <box
           style={{
             width: "100%",
-            height: 1,
-            paddingLeft: 1,
-            paddingRight: 1,
+            height: FILE_SEPARATOR_ROWS,
             backgroundColor: theme.background,
           }}
-        >
-          <text bg={theme.background}>{fitText(" ".repeat(separatorWidth), separatorWidth)}</text>
-        </box>
+        />
       ) : null}
 
       {showHeader ? (
@@ -61,7 +55,7 @@ export function DiffSectionPlaceholder({
         />
       ) : null}
 
-      <box style={{ width: "100%", height: bodyHeight, backgroundColor: theme.panel }} />
+      <box style={{ width: "100%", height: bodyHeight, backgroundColor: theme.contextBg }} />
     </box>
   );
 }

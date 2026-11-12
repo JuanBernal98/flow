@@ -4,16 +4,17 @@ import { padText } from "../../lib/text";
 import type { AppTheme } from "../../themes";
 
 /**
- * Render one review comment as a left-accented block.
+ * Render one review comment as a short chat on a purple card: the user's comment, then the
+ * agent's replies.
  * Metadata stays quiet so the comment body carries the visual weight.
  */
 
-/** Parse `dunk-comment:42` style ids back into their numeric handle, if shaped that way. */
+/** Parse `flow-comment:42` style ids back into their numeric handle, if shaped that way. */
 function parseCommentId(annotationId: string | undefined): number | null {
-  if (!annotationId?.startsWith("dunk-comment:")) {
+  if (!annotationId?.startsWith("flow-comment:")) {
     return null;
   }
-  const parsed = Number.parseInt(annotationId.slice("dunk-comment:".length), 10);
+  const parsed = Number.parseInt(annotationId.slice("flow-comment:".length), 10);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
@@ -30,27 +31,45 @@ function buildMetadataLabel(
   return commentCount > 1 ? `#${id} · ${commentIndex + 1} of ${commentCount}` : `#${id}`;
 }
 
-const ACCENT_BAR_WIDTH = 1;
 const GUTTER_PADDING = 1;
-const LEFT_INDENT = 2;
+const LEFT_INDENT = 3;
 
 interface InlineNoteLine {
-  kind: "summary" | "rationale";
+  kind: "summary" | "rationale" | "reply";
   text: string;
+}
+
+// Chat-style speaker labels: the user's comment, then the agent's replies.
+const USER_LABEL = "Yo: ";
+const AGENT_LABEL = "Agente: ";
+
+/** Wrap one chat message under its speaker label, continuation lines aligned with the text. */
+function wrapChatMessage(label: string, text: string, width: number) {
+  return wrapText(text, Math.max(1, width - label.length)).map(
+    (line, index) => `${index === 0 ? label : " ".repeat(label.length)}${line}`,
+  );
 }
 
 /** Compute the body width and wrapped lines for the card body. */
 function buildBodyLines(annotation: Annotation, width: number) {
-  const bodyWidth = Math.max(1, width - LEFT_INDENT - ACCENT_BAR_WIDTH - GUTTER_PADDING);
+  const bodyWidth = Math.max(1, width - LEFT_INDENT - GUTTER_PADDING);
   const lines: InlineNoteLine[] = [
-    ...wrapText(annotation.summary ?? "", bodyWidth).map(
-      (text) => ({ kind: "summary", text }) as const,
-    ),
+    // An agent's own comment opens with its label and reads like its replies.
+    ...wrapChatMessage(
+      annotation.author === "agent" ? AGENT_LABEL : USER_LABEL,
+      annotation.summary ?? "",
+      bodyWidth,
+    ).map((text) => ({ kind: annotation.author === "agent" ? "reply" : "summary", text }) as const),
     ...(annotation.rationale
       ? wrapText(annotation.rationale, bodyWidth).map(
           (text) => ({ kind: "rationale", text }) as const,
         )
       : []),
+    ...(annotation.replies ?? []).flatMap((reply) =>
+      wrapChatMessage(AGENT_LABEL, reply, bodyWidth).map(
+        (text) => ({ kind: "reply", text }) as const,
+      ),
+    ),
   ];
   return { bodyWidth, lines };
 }
@@ -119,7 +138,8 @@ export function CommentCard({
         <CommentRow key={`${line.kind}:${index}`} theme={theme} width={width}>
           <box style={{ width: bodyWidth, height: 1, backgroundColor: theme.noteBackground }}>
             <text
-              fg={line.kind === "summary" ? theme.noteTitleText : theme.muted}
+              // The user's words are softer; the agent's answer reads in the normal text color.
+              fg={line.kind === "reply" ? theme.text : theme.muted}
               bg={theme.noteBackground}
             >
               {padText(line.text, bodyWidth)}
@@ -136,7 +156,7 @@ export function CommentCard({
   );
 }
 
-/** One row of the card: left indent + colored accent bar + content. */
+/** One row of the card: left indent + content. */
 function CommentRow({
   children,
   theme,
@@ -157,11 +177,6 @@ function CommentRow({
     >
       <box style={{ width: LEFT_INDENT, height: 1, backgroundColor: theme.noteBackground }}>
         <text>{" ".repeat(LEFT_INDENT)}</text>
-      </box>
-      <box style={{ width: ACCENT_BAR_WIDTH, height: 1, backgroundColor: theme.noteBackground }}>
-        <text fg={theme.noteBorder} bg={theme.noteBackground}>
-          ▎
-        </text>
       </box>
       <box style={{ width: GUTTER_PADDING, height: 1, backgroundColor: theme.noteBackground }}>
         <text>{" ".repeat(GUTTER_PADDING)}</text>

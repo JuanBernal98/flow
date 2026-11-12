@@ -8,7 +8,7 @@
  * fingerprint changed, the original hunk likely split, merged, or moved
  * and we should refuse rather than silently anchor against the wrong code.
  *
- * The fingerprint is in-memory only — it never reaches `.dunk/comments.json`.
+ * The fingerprint is in-memory only — it never reaches `.flow/comments.json`.
  */
 import { createHash } from "node:crypto";
 import type { FileDiffMetadata, Hunk } from "@pierre/diffs";

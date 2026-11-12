@@ -56,7 +56,7 @@ function assertPaths(pack: PackResult, requiredPaths: string[]) {
 
 const repoRoot = path.resolve(import.meta.dir, "..");
 const releaseRoot = releaseNpmDir(repoRoot);
-const metaDir = path.join(releaseRoot, "dunkdiff");
+const metaDir = path.join(releaseRoot, "flow");
 
 if (!existsSync(metaDir)) {
   throw new Error(`Missing staged top-level package at ${metaDir}`);
@@ -64,15 +64,20 @@ if (!existsSync(metaDir)) {
 
 const metaPack = runPackDryRun(metaDir);
 assertPaths(metaPack, [
-  "bin/dunk.cjs",
-  "skills/dunk-review/SKILL.md",
+  "bin/flow.cjs",
+  "skills/flow-comments-fix/SKILL.md",
+  "skills/flow-ticket-switch/SKILL.md",
+  "skills/flow-ticket-context/SKILL.md",
+  "skills/flow-review/SKILL.md",
+  "skills/flow-commit-create/SKILL.md",
+  "skills/flow-mr-open/SKILL.md",
   "README.md",
   "LICENSE",
   "package.json",
 ]);
 
 const packageDirectories = readdirSync(releaseRoot, { withFileTypes: true })
-  .filter((entry) => entry.isDirectory() && entry.name !== "dunkdiff")
+  .filter((entry) => entry.isDirectory() && entry.name !== "flow")
   .map((entry) => path.join(releaseRoot, entry.name))
   .sort();
 

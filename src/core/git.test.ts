@@ -24,7 +24,7 @@ describe("git command helpers", () => {
         gitExecutable: "definitely-not-a-real-git-binary",
       }),
     ).toThrow(
-      "Git is required for `dunk diff`, but `definitely-not-a-real-git-binary` was not found in PATH.",
+      "Git is required for `flow diff`, but `definitely-not-a-real-git-binary` was not found in PATH.",
     );
   });
 
@@ -32,12 +32,12 @@ describe("git command helpers", () => {
     const common = { kind: "vcs", options: { mode: "auto" } } as const;
 
     expect(formatGitCommandLabel({ ...common, staged: false, range: WORKTREE_BASE_REF })).toBe(
-      "dunk diff",
+      "flow diff",
     );
-    expect(formatGitCommandLabel({ ...common, staged: true })).toBe("dunk diff --staged");
-    expect(formatGitCommandLabel({ ...common, staged: false })).toBe("dunk diff --unstaged");
+    expect(formatGitCommandLabel({ ...common, staged: true })).toBe("flow diff --staged");
+    expect(formatGitCommandLabel({ ...common, staged: false })).toBe("flow diff --unstaged");
     expect(formatGitCommandLabel({ ...common, staged: false, range: "main..feature" })).toBe(
-      "dunk diff main..feature",
+      "flow diff main..feature",
     );
   });
 });

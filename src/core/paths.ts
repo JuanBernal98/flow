@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
-const DUNK_REVIEW_SKILL_RELATIVE_PATH = join("skills", "dunk-review", "SKILL.md");
+const COMMENTS_FIX_SKILL_RELATIVE_PATH = join("skills", "flow-comments-fix", "SKILL.md");
 
-/** Resolve the base config directory dunk should use for user-scoped files. */
+/** Resolve the base config directory flow should use for user-scoped files. */
 function resolveUserConfigDir(env: NodeJS.ProcessEnv = process.env) {
   if (env.XDG_CONFIG_HOME) {
     return env.XDG_CONFIG_HOME;
@@ -16,10 +16,10 @@ function resolveUserConfigDir(env: NodeJS.ProcessEnv = process.env) {
   return undefined;
 }
 
-/** Resolve the global dunk config file path from the current environment. */
+/** Resolve the global flow config file path from the current environment. */
 export function resolveGlobalConfigPath(env: NodeJS.ProcessEnv = process.env) {
   const configDir = resolveUserConfigDir(env);
-  return configDir ? join(configDir, "dunk", "config.toml") : undefined;
+  return configDir ? join(configDir, "flow", "config.toml") : undefined;
 }
 
 /** Search one path and its parents for one relative child path. */
@@ -49,13 +49,13 @@ function findRelativePathFromAncestors(startPath: string, relativePath: string) 
   }
 }
 
-/** Resolve the bundled dunk review skill path from source, npm, or prebuilt package layouts. */
-export function resolveBundledDunkReviewSkillPath(searchRoots?: string[]) {
+/** Resolve the bundled comments skill path from source, npm, or prebuilt package layouts. */
+export function resolveBundledCommentsFixSkillPath(searchRoots?: string[]) {
   const roots = searchRoots ?? [import.meta.dir, process.execPath];
   const relativeCandidates = [
-    DUNK_REVIEW_SKILL_RELATIVE_PATH,
-    join("dunkdiff", DUNK_REVIEW_SKILL_RELATIVE_PATH),
-    join("node_modules", "dunkdiff", DUNK_REVIEW_SKILL_RELATIVE_PATH),
+    COMMENTS_FIX_SKILL_RELATIVE_PATH,
+    join("flow", COMMENTS_FIX_SKILL_RELATIVE_PATH),
+    join("node_modules", "flow", COMMENTS_FIX_SKILL_RELATIVE_PATH),
   ];
 
   for (const root of roots) {
@@ -67,5 +67,5 @@ export function resolveBundledDunkReviewSkillPath(searchRoots?: string[]) {
     }
   }
 
-  throw new Error("Could not locate the bundled dunk review skill.");
+  throw new Error("Could not locate the bundled flow-comments-fix skill.");
 }

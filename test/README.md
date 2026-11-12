@@ -1,6 +1,6 @@
 # Test layout
 
-Most dunk tests are colocated in `src/` beside the code they cover.
+Most flow tests are colocated in `src/` beside the code they cover.
 
 The top-level `test/` tree is reserved for cases that intentionally exercise the product across module, process, repo, or terminal boundaries.
 

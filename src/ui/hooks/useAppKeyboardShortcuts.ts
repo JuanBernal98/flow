@@ -1,6 +1,6 @@
 import type { KeyEvent } from "@opentui/core";
 import { useKeyboard } from "@opentui/react";
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import type { LayoutMode } from "../../core/types";
 import {
   isEscapeKey,
@@ -13,7 +13,7 @@ import {
   isStepUpKey,
 } from "../lib/keyboard";
 
-type FocusArea = "files" | "filter" | "workspace" | "tree";
+type FocusArea = "files" | "filter" | "workspace" | "workspaceFilter" | "tree";
 type ScrollUnit = "step" | "viewport" | "content" | "half";
 
 const FAST_CODE_HORIZONTAL_SCROLL_COLUMNS = 8;
@@ -23,6 +23,19 @@ export interface UseAppKeyboardShortcutsOptions {
   toggleWorkspace: () => void;
   leaveWorkspace: () => void;
   moveWorkspace: (delta: number) => void;
+  refreshWorkspace: () => void;
+  openWorkspaceItem: () => void;
+  openWorkspaceMergeRequest: () => void;
+  toggleOverview: () => void;
+  toggleBranchReview: () => void;
+  requestOverview: () => void;
+  requestReview: () => void;
+  requestCommit: () => void;
+  requestMergeRequestOpen: () => void;
+  focusWorkspaceFilter: () => void;
+  /** Clear an active workspace filter; false when there was none to clear. */
+  clearWorkspaceFilter: () => boolean;
+  activateWorkspaceItem: () => void;
   canRefreshCurrentInput: boolean;
   closeHelp: () => void;
   commentEditorActive: boolean;
@@ -60,6 +73,18 @@ export function useAppKeyboardShortcuts({
   toggleWorkspace,
   leaveWorkspace,
   moveWorkspace,
+  refreshWorkspace,
+  openWorkspaceItem,
+  openWorkspaceMergeRequest,
+  toggleOverview,
+  toggleBranchReview,
+  requestOverview,
+  requestReview,
+  requestCommit,
+  requestMergeRequestOpen,
+  focusWorkspaceFilter,
+  clearWorkspaceFilter,
+  activateWorkspaceItem,
   canRefreshCurrentInput,
   closeHelp,
   commentEditorActive,
@@ -98,6 +123,16 @@ export function useAppKeyboardShortcuts({
   // Track the vim-style `gg` chord inside a short timeout window.
   const pendingGAtRef = useRef<number | null>(null);
   const G_CHORD_WINDOW_MS = 600;
+  // Outside the workspace a lone `g` opens the merge request, but only once the `gg` window
+  // has passed without a second `g`, so the chord keeps jumping to the first hunk.
+  const pendingMergeRequestOpenRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelPendingMergeRequestOpen = () => {
+    if (pendingMergeRequestOpenRef.current) {
+      clearTimeout(pendingMergeRequestOpenRef.current);
+      pendingMergeRequestOpenRef.current = null;
+    }
+  };
+  useEffect(() => cancelPendingMergeRequestOpen, []);
 
   focusAreaRef.current = focusArea;
   pagerModeRef.current = pagerMode;
@@ -181,6 +216,13 @@ export function useAppKeyboardShortcuts({
   };
 
   const handleFilterShortcut = (key: KeyEvent) => {
+    if (focusAreaRef.current === "workspaceFilter") {
+      // Arrows pick among the matches while typing; the input owns every other key.
+      if (key.name === "down" || key.name === "up") {
+        moveWorkspace(key.name === "down" ? 1 : -1);
+      }
+      return true;
+    }
     if (focusAreaRef.current !== "filter") {
       return false;
     }
@@ -254,9 +296,15 @@ export function useAppKeyboardShortcuts({
     if (key.sequence === "g") {
       const now = Date.now();
       const previous = pendingGAtRef.current;
-      pendingGAtRef.current = previous && now - previous <= G_CHORD_WINDOW_MS ? null : now;
-      if (previous && now - previous <= G_CHORD_WINDOW_MS) {
+      const completesChord = previous !== null && now - previous <= G_CHORD_WINDOW_MS;
+      pendingGAtRef.current = completesChord ? null : now;
+      if (completesChord) {
         selectFirstHunk();
+      } else {
+        pendingMergeRequestOpenRef.current = setTimeout(() => {
+          pendingMergeRequestOpenRef.current = null;
+          openWorkspaceMergeRequest();
+        }, G_CHORD_WINDOW_MS);
       }
       return;
     }
@@ -307,8 +355,13 @@ export function useAppKeyboardShortcuts({
       return;
     }
 
-    if (key.sequence === "r" && canRefreshCurrentInput) {
-      triggerRefreshCurrentInput();
+    // One reload for everything, wherever the focus is: the diff when it can re-read its input,
+    // and the workspace's tickets, reviews, and MRs.
+    if (key.sequence === "r") {
+      if (canRefreshCurrentInput) {
+        triggerRefreshCurrentInput();
+      }
+      refreshWorkspace();
       return;
     }
 
@@ -373,6 +426,41 @@ export function useAppKeyboardShortcuts({
       return;
     }
 
+    if (key.sequence === "h") {
+      openWorkspaceItem();
+      return;
+    }
+
+    if (key.sequence === "x") {
+      toggleOverview();
+      return;
+    }
+
+    if (key.sequence === "B") {
+      toggleBranchReview();
+      return;
+    }
+
+    if (key.sequence === "X") {
+      requestOverview();
+      return;
+    }
+
+    if (key.sequence === "R") {
+      requestReview();
+      return;
+    }
+
+    if (key.sequence === "C") {
+      requestCommit();
+      return;
+    }
+
+    if (key.sequence === "P") {
+      requestMergeRequestOpen();
+      return;
+    }
+
     if (key.sequence === "{") {
       moveToAnnotatedHunk(-1);
       return;
@@ -389,6 +477,8 @@ export function useAppKeyboardShortcuts({
       // don't let `q`, `?`, `s`, etc. fire as global shortcuts mid-prompt.
       return;
     }
+    // Every key drops a pending MR open; a lone `g` schedules a fresh one further down.
+    cancelPendingMergeRequestOpen();
 
     if (pagerModeRef.current) {
       handlePagerShortcut(key);
@@ -426,8 +516,19 @@ export function useAppKeyboardShortcuts({
         return;
     }
     if (focusAreaRef.current === "workspace") {
-      if (isEscapeKey(key) || key.name === "return" || key.name === "tab") {
+      if (key.name === "return") {
+        activateWorkspaceItem();
+        return;
+      }
+      if (isEscapeKey(key) && clearWorkspaceFilter()) {
+        return;
+      }
+      if (isEscapeKey(key) || key.name === "tab") {
         leaveWorkspace();
+        return;
+      }
+      if (key.name === "/") {
+        focusWorkspaceFilter();
         return;
       }
       if (isStepDownKey(key)) {
@@ -436,6 +537,14 @@ export function useAppKeyboardShortcuts({
       }
       if (isStepUpKey(key)) {
         moveWorkspace(-1);
+        return;
+      }
+      if (key.sequence === "h") {
+        openWorkspaceItem();
+        return;
+      }
+      if (key.sequence === "g") {
+        openWorkspaceMergeRequest();
         return;
       }
     }

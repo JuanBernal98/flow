@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { hasSplitDiffRowTest } from "../helpers/diff-frame";
 import { createPtyHarness, ptyTimeouts } from "./harness";
 
 const harness = createPtyHarness();
-const ptyDescribe = process.env.DUNK_RUN_PTY_TESTS === "1" ? describe : describe.skip;
+const ptyDescribe = process.env.FLOW_RUN_PTY_TESTS === "1" ? describe : describe.skip;
 
 /**
  * Locally we want fast feedback when something is wrong; in CI we want enough
@@ -27,31 +28,39 @@ ptyDescribe("live UI integration", () => {
     try {
       await session.waitForText(/Press \? for help/);
       await session.press("s");
-      const initial = await session.waitForText(/alpha\.ts/);
-      const headerLine = initial.split("\n").find((line) => line.includes("alpha.ts"));
-      if (!headerLine) throw new Error("Missing pinned file header");
-      const initialColumn = headerLine.indexOf("alpha.ts");
+      const initial = await session.waitForText(/\d+ Changes/);
+      // The file tree sits at the right edge; its heading starts one column inside the tree, and
+      // the drag target is the gap just before it.
+      const headingColumn = (text: string) =>
+        text
+          .split("\n")
+          .find((line) => /\d+ Changes/.test(line))
+          ?.search(/\d+ Changes/) ?? -1;
+      const initialColumn = headingColumn(initial);
+      if (initialColumn < 0) throw new Error("Missing file list heading");
+      // SGR mouse columns are 1-based: this is the gap column right before the tree.
       const startColumn = initialColumn - 1;
       session.writeRaw(`\x1b[<0;${startColumn};6M`);
       await session.waitIdle();
-      session.writeRaw(`\x1b[<32;${startColumn + 8};6M`);
+      session.writeRaw(`\x1b[<32;${startColumn - 8};6M`);
       await session.waitIdle();
-      session.writeRaw(`\x1b[<0;${startColumn + 8};6m`);
-      const resized = await harness.waitForSnapshot(session, (text) => {
-        const line = text.split("\n").find((row) => row.includes("alpha.ts"));
-        return line?.indexOf("alpha.ts") === initialColumn + 8;
-      });
+      session.writeRaw(`\x1b[<0;${startColumn - 8};6m`);
+      // Dragging the edge left widens the tree, so its heading moves left by the same amount.
+      const resized = await harness.waitForSnapshot(
+        session,
+        (text) => headingColumn(text) === initialColumn - 8,
+      );
       expect(resized).toContain("beta.ts");
       expect(resized).not.toContain("│");
       session.resize({ cols: 100, rows: 24 });
-      const narrow = await harness.waitForSnapshot(session, (text) => !text.includes("Tasks"));
+      const narrow = await harness.waitForSnapshot(session, (text) => !text.includes("To do"));
       expect(narrow).toContain("alpha.ts");
     } finally {
       session.close();
     }
   });
 
-  test("nested file tree folders fold independently of the review stream", async () => {
+  test("the flat file list shows filenames only and opens files from the keyboard", async () => {
     const fixture = harness.createTreeRepoFixture();
     const session = await harness.launchHunk({
       args: ["diff"],
@@ -62,57 +71,144 @@ ptyDescribe("live UI integration", () => {
     try {
       await session.waitForText(/Press \? for help/);
       await session.press(["shift", "f"]);
-      await session.waitForText(/▾ src\//);
-      await session.press("home");
+      const list = await session.waitForText(/2 Changes/);
+      expect(list).toContain("○ alpha.ts");
+      expect(list).toContain("○ beta.ts");
+      // No folder headings and no folding.
+      expect(list).not.toContain("src/ui/ ");
+      expect(list).not.toContain("▸");
+      await session.press("end");
       await session.press("enter");
-      const folded = await session.waitForText(/▸ src\//);
-      expect(folded).toContain("2 Changes");
-      expect(folded).toContain("const alpha = 2;");
-      expect(folded).toContain("const beta = 2;");
-      await session.click(/▸ src\//);
-      await session.waitForText(/▾ ui\//);
-      await session.press("right");
-      await session.press("left");
-      await session.waitForText(/▸ core\//);
-      await session.press("escape");
-      await session.press(".");
-      await session.waitForText(/▾ ui\//);
+      const opened = await session.waitForText(/const alpha = 2;|const beta = 2;/);
+      expect(opened).toContain("const alpha = 2;");
+      expect(opened).toContain("const beta = 2;");
     } finally {
       session.close();
     }
   });
 
-  test("workspace toggles and selects mock items with the zed theme without replacing the diff", async () => {
+  test("workspace loads YouTrack tasks and selects them with the zed theme without replacing the diff", async () => {
     const fixture = harness.createLongWrapFilePair();
+    const youtrack = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () =>
+        Response.json([
+          {
+            idReadable: "PROJ-101",
+            summary: "Workspace sidebar",
+            customFields: [{ name: "State", value: { name: "In Progress" } }],
+          },
+          {
+            idReadable: "PROJ-102",
+            summary: "Review navigation",
+            customFields: [{ name: "State", value: { name: "Open" } }],
+          },
+        ]),
+    });
+    // The repository connects to the fake YouTrack through its own `.flow/config.toml`.
+    const repo = harness.createConnectedRepoFixture(
+      `[youtrack]\nurl = "http://127.0.0.1:${youtrack.port}"\n`,
+    );
     const session = await harness.launchHunk({
       args: ["diff", fixture.before, fixture.after, "--theme", "zed"],
+      cwd: repo.dir,
       cols: 160,
       rows: 24,
+      env: { FLOW_YOUTRACK_TOKEN: "pty-test-token" },
     });
     try {
       await session.waitForText(/Press \? for help/);
+      await session.waitForText(/PROJ-101/);
+      // The workspace starts open but unfocused; S focuses it.
       await session.press(["shift", "s"]);
-      await session.press(["shift", "s"]);
-      await session.waitForText(/Tasks/);
+      await session.waitForText(/To do/);
       await session.press("j");
-      const selected = await session.waitForText(/FLOW-102/);
+      const selected = await session.waitForText(/PROJ-102/);
       expect(selected).toContain("after.ts");
       session.resize({ cols: 100, rows: 24 });
       await harness.waitForSnapshot(
         session,
-        (text) => !text.includes("Tasks"),
+        (text) => !text.includes("To do"),
         ptyTimeouts.waitForSnapshot,
       );
       session.resize({ cols: 160, rows: 24 });
-      await session.waitForText(/Tasks/);
+      await session.waitForText(/To do/);
+      // Focus returned to the review while it was hidden, so focus it again, then hide it.
+      await session.press(["shift", "s"]);
       await session.press(["shift", "s"]);
       await harness.waitForSnapshot(
         session,
-        (text) => !text.includes("Tasks"),
+        (text) => !text.includes("To do"),
         ptyTimeouts.waitForSnapshot,
       );
     } finally {
       session.close();
+      youtrack.stop(true);
+    }
+  });
+
+  test("slash in the workspace filters its cards and Enter brings them all back", async () => {
+    const fixture = harness.createLongWrapFilePair();
+    const youtrack = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () =>
+        Response.json([
+          {
+            idReadable: "PROJ-101",
+            summary: "Workspace sidebar",
+            customFields: [{ name: "State", value: { name: "In Progress" } }],
+          },
+          {
+            idReadable: "PROJ-102",
+            summary: "Review navigation",
+            customFields: [{ name: "State", value: { name: "Open" } }],
+          },
+        ]),
+    });
+    const repo = harness.createConnectedRepoFixture(
+      `[youtrack]\nurl = "http://127.0.0.1:${youtrack.port}"\n`,
+    );
+    const session = await harness.launchHunk({
+      args: ["diff", fixture.before, fixture.after],
+      cwd: repo.dir,
+      cols: 160,
+      rows: 24,
+      env: { FLOW_YOUTRACK_TOKEN: "pty-test-token" },
+    });
+    try {
+      await session.waitForText(/PROJ-102/);
+      await session.press(["shift", "s"]);
+      await session.type("/");
+      await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("filter: type to filter tickets and reviews"),
+        ptyTimeouts.waitForSnapshot,
+      );
+      await session.type("navig");
+      const filtered = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("Review navigation") && !text.includes("Workspace sidebar"),
+        ptyTimeouts.waitForSnapshot,
+      );
+      // The file filter is untouched: the diff still shows its file.
+      expect(filtered).toContain("after.ts");
+
+      // Enter ends the search on the match: every card comes back, which once left the card
+      // reinserted before it unpainted in a real terminal.
+      await session.press("enter");
+      await harness.waitForSnapshot(
+        session,
+        (text) =>
+          text.includes("Workspace sidebar") &&
+          text.includes("Review navigation") &&
+          !text.includes("filter:"),
+        ptyTimeouts.waitForSnapshot,
+      );
+    } finally {
+      session.close();
+      youtrack.stop(true);
     }
   });
 
@@ -131,7 +227,7 @@ ptyDescribe("live UI integration", () => {
 
       expect(initial).toContain("before.ts");
       expect(initial).toContain("after.ts");
-      expect(initial).toContain("this is a very long");
+      expect(initial).toContain("this is a");
       expect(initial).not.toContain("ge';");
 
       await session.press("w");
@@ -210,10 +306,11 @@ ptyDescribe("live UI integration", () => {
         (text) =>
           text.includes("second.ts") &&
           text.includes("line17 = 117") &&
-          harness.countMatches(text, /first\.ts/g) === 1,
+          !text.includes("line01 = 101"),
         ptyTimeouts.waitForSnapshot,
       );
       expect(onSecond).toContain("line17 = 117");
+      expect(onSecond).not.toContain("line01 = 101");
 
       // `,` moves back to the previous file (first.ts).
       await session.press(",");
@@ -408,19 +505,91 @@ ptyDescribe("live UI integration", () => {
       const wide = await session.text();
 
       expect(harness.countMatches(wide, /alpha\.ts/g)).toBeGreaterThanOrEqual(2);
-      expect(wide).toMatch(/▌.*▌/);
+      expect(hasSplitDiffRowTest(wide)).toBe(true);
 
       session.resize({ cols: 150, rows: 24 });
       const tight = await harness.waitForSnapshot(
         session,
-        (text) => !/▌.*▌/.test(text),
+        (text) => !hasSplitDiffRowTest(text),
         ptyTimeouts.waitForSnapshot,
       );
 
       expect(harness.countMatches(tight, /alpha\.ts/g)).toBeLessThan(
         harness.countMatches(wide, /alpha\.ts/g),
       );
-      expect(tight).not.toMatch(/▌.*▌/);
+      expect(hasSplitDiffRowTest(tight)).toBe(false);
+    } finally {
+      session.close();
+    }
+  });
+
+  test("B switches between the whole branch and uncommitted changes in place", async () => {
+    const fixture = harness.createBranchRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff"],
+      cwd: fixture.dir,
+      cols: 160,
+      rows: 20,
+    });
+
+    try {
+      // The harness starts PTY sessions with `--no-branch`: only the uncommitted edit shows.
+      const workingTree = await session.waitForText(/dirty\.ts/, {
+        timeout: ptyTimeouts.waitForText,
+      });
+      expect(workingTree).not.toContain("committed.ts");
+      expect(workingTree).toContain("Diff mode: Uncommitted");
+
+      await session.press(["shift", "b"]);
+      const branch = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("committed.ts") && text.includes("dirty.ts"),
+        ptyTimeouts.waitForSnapshot,
+      );
+      expect(branch).toContain("committedOnBranch");
+      expect(await session.waitForText(/Diff mode: Branch vs main/)).toContain(
+        "Diff mode: Branch vs main",
+      );
+
+      await session.press(["shift", "b"]);
+      const back = await harness.waitForSnapshot(
+        session,
+        (text) => !text.includes("committed.ts") && text.includes("dirty.ts"),
+        ptyTimeouts.waitForSnapshot,
+      );
+      expect(back).toContain("dirty = 2");
+      expect(await session.waitForText(/Diff mode: Uncommitted/)).toContain(
+        "Diff mode: Uncommitted",
+      );
+    } finally {
+      session.close();
+    }
+  });
+
+  test("arrows on the workspace never scroll the diff, even after clicking into it", async () => {
+    const fixture = harness.createSidebarJumpRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--mode", "split"],
+      cwd: fixture.dir,
+      cols: 220,
+      rows: 12,
+    });
+
+    try {
+      const initial = await session.waitForText(/Press \? for help/, {
+        timeout: ptyTimeouts.waitForText,
+      });
+      expect(initial).toContain("alphaOnly = true");
+
+      // A click used to give the diff's scroll box OpenTUI's focus, so it took arrow keys too.
+      await session.click(/alphaOnly = true/);
+      await session.press(["shift", "s"]);
+      for (let index = 0; index < 4; index += 1) {
+        await session.press("down");
+      }
+      await session.waitIdle();
+
+      expect(await session.text()).toContain("alphaOnly = true");
     } finally {
       session.close();
     }
@@ -446,7 +615,7 @@ ptyDescribe("live UI integration", () => {
       expect(initial).toContain("betaValue = 2");
       expect(initial).not.toContain("deltaOnly = true");
 
-      await session.click(/M delta\.ts/);
+      await session.click(/○ delta\.ts/);
       const jumped = await harness.waitForSnapshot(
         session,
         (text) => text.includes("deltaOnly = true") && !text.includes("alphaOnly = true"),
@@ -485,26 +654,31 @@ ptyDescribe("live UI integration", () => {
         await session.press("down");
       }
 
+      // With both side panes open the right half is clipped, so read the old side's lines.
       const scrolled = await harness.waitForSnapshot(
         session,
-        (text) => text.includes("line08 = 108") && text.includes("first.ts"),
+        (text) =>
+          text.includes("line09 = 9;") &&
+          !text.includes("line01 = 1;") &&
+          text.includes("first.ts"),
         ptyTimeouts.waitForSnapshot,
       );
 
       expect(scrolled).toContain("first.ts");
 
-      await session.click(/M second\.ts/);
+      await session.click(/○ second\.ts/);
       const pinned = await harness.waitForSnapshot(
         session,
         (text) =>
           text.includes("second.ts") &&
-          text.includes("line17 = 117") &&
-          harness.countMatches(text, /first\.ts/g) === 1,
+          text.includes("line17 = 17;") &&
+          !text.includes("line09 = 9;"),
         ptyTimeouts.waitForSnapshot,
       );
 
-      expect(pinned).toContain("second.ts");
-      expect(pinned).toContain("line17 = 117");
+      // The second file now owns the review: its first line shows and the first file's body is gone.
+      expect(pinned).toContain("line17 = 17;");
+      // first.ts stays listed in the file list only.
       expect(harness.countMatches(pinned, /first\.ts/g)).toBe(1);
     } finally {
       session.close();
@@ -520,68 +694,91 @@ ptyDescribe("live UI integration", () => {
       rows: 10,
     });
 
-    try {
-      const initial = await session.waitForText(/Press \? for help/, {
-        timeout: ptyTimeouts.waitForText,
-      });
-
-      expect(initial).toContain("first.ts");
-      expect(initial).toContain("second.ts");
-
-      await session.scrollDown(17);
-      const boundary = await harness.waitForSnapshot(
-        session,
-        (text) =>
-          harness.countMatches(text, /first\.ts/g) === 2 &&
-          harness.countMatches(text, /second\.ts/g) === 2 &&
-          text.includes("@@ -1,16 +1,16 @@") &&
-          text.includes("line17 = 117"),
-        ptyTimeouts.waitForSnapshot,
-      );
-
-      expect(boundary).toContain("first.ts");
-      expect(boundary).toContain("second.ts");
-      expect(boundary).toContain("@@ -1,16 +1,16 @@");
-      expect(boundary).toContain("line17 = 117");
-
-      await session.scrollDown(1);
-      const nextHeader = await harness.waitForSnapshot(
-        session,
-        (text) =>
-          harness.countMatches(text, /first\.ts/g) === 2 &&
-          harness.countMatches(text, /second\.ts/g) === 2 &&
-          text.includes("line18 = 118"),
-        ptyTimeouts.waitForSnapshot,
-      );
-
-      expect(nextHeader).toContain("first.ts");
-      expect(nextHeader).toContain("second.ts");
-      expect(nextHeader).toContain("line18 = 118");
-
-      let handedOff: string | null = null;
-      for (let attempt = 0; attempt < 10; attempt += 1) {
+    /** Scroll one wheel step at a time until a snapshot matches; real PTY wheel steps vary. */
+    async function scrollUntil(predicate: (text: string) => boolean) {
+      for (let attempt = 0; attempt < 30; attempt += 1) {
         await session.scrollDown(1);
-
         try {
-          handedOff = await harness.waitForSnapshot(
-            session,
-            (text) =>
-              harness.countMatches(text, /first\.ts/g) === 1 &&
-              harness.countMatches(text, /second\.ts/g) === 2 &&
-              !text.includes("@@ -1,16 +1,16 @@"),
-            700,
-          );
-          break;
+          return await harness.waitForSnapshot(session, predicate, 400);
         } catch {
-          // Real PTY wheel events can land a few rows differently across environments.
           // Keep scrolling a little farther before declaring the handoff broken.
         }
       }
+      return null;
+    }
 
+    try {
+      await session.waitForText(/Press \? for help/, { timeout: ptyTimeouts.waitForText });
+      // Open the file list so each filename shows once there, plus wherever its header is.
+      await session.press("s");
+      await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("○ first.ts") && text.includes("○ second.ts"),
+        ptyTimeouts.waitForSnapshot,
+      );
+
+      // Near the boundary both headers are on screen: first.ts pinned, second.ts in the stream.
+      const boundary = await scrollUntil(
+        (text) =>
+          harness.countMatches(text, /first\.ts/g) === 2 &&
+          harness.countMatches(text, /second\.ts/g) === 2 &&
+          text.includes("line17 = 17;"),
+      );
+      expect(boundary).not.toBeNull();
+
+      // Past it, second.ts takes over the pinned header and first.ts remains only in the list.
+      const handedOff = await scrollUntil(
+        (text) =>
+          harness.countMatches(text, /first\.ts/g) === 1 &&
+          harness.countMatches(text, /second\.ts/g) === 2 &&
+          !text.includes("line16 = 16;"),
+      );
       expect(handedOff).not.toBeNull();
       expect(harness.countMatches(handedOff!, /first\.ts/g)).toBe(1);
       expect(harness.countMatches(handedOff!, /second\.ts/g)).toBe(2);
-      expect(handedOff!).not.toContain("@@ -1,16 +1,16 @@");
+    } finally {
+      session.close();
+    }
+    // Wheel steps are retried one by one, which needs more than the suite's default budget.
+  }, 20_000);
+
+  test("adding a comment keeps the review where it was", async () => {
+    const fixture = harness.createPinnedHeaderRepoFixture();
+    const session = await harness.launchHunk({
+      args: ["diff", "--mode", "stack"],
+      cwd: fixture.dir,
+      cols: 120,
+      rows: 14,
+    });
+
+    /** First code row on screen, which pins the vertical scroll position. */
+    const firstCodeRow = (text: string) =>
+      text.split("\n").find((line) => /\d+ {3}export const line/.test(line)) ?? "";
+
+    try {
+      await session.waitForText(/Press \? for help/, { timeout: ptyTimeouts.waitForText });
+      for (let index = 0; index < 5; index += 1) {
+        await session.press("down");
+      }
+      const scrolled = await harness.waitForSnapshot(
+        session,
+        (text) => !text.includes("line01 = 1;"),
+        ptyTimeouts.waitForSnapshot,
+      );
+      const before = firstCodeRow(scrolled);
+      expect(before).not.toBe("");
+
+      await session.press("a");
+      await session.waitForText(/Add comment/);
+      await session.type("revisa esto");
+      await session.press("enter");
+      const after = await harness.waitForSnapshot(
+        session,
+        (text) => text.includes("Comment added"),
+        ptyTimeouts.waitForSnapshot,
+      );
+
+      expect(firstCodeRow(after)).toBe(before);
     } finally {
       session.close();
     }
@@ -597,17 +794,28 @@ ptyDescribe("live UI integration", () => {
     });
 
     try {
-      const wide = await session.waitForText(/Press \? for help/, {
+      await session.waitForText(/Press \? for help/, {
         timeout: ptyTimeouts.waitForText,
       });
+      // The file list starts closed; open it so the wide layout shows it beside the review.
+      await session.press("s");
+      const wide = await harness.waitForSnapshot(
+        session,
+        (text) => harness.countMatches(text, /alpha\.ts/g) >= 2,
+        ptyTimeouts.waitForSnapshot,
+      );
 
-      expect(harness.countMatches(wide, /alpha\.ts/g)).toBeGreaterThanOrEqual(2);
-      expect(wide).toMatch(/▌.*▌/);
+      expect(hasSplitDiffRowTest(wide)).toBe(true);
 
       session.resize({ cols: 140, rows: 24 });
       const tight = await harness.waitForSnapshot(
         session,
-        (text) => /▌.*▌/.test(text) && harness.countMatches(text, /alpha\.ts/g) === 1,
+        // Right after a resize the terminal can still show the wide layout clipped, with the file
+        // tree cut off on the right; wait for the re-laid-out frame, which fits the new side.
+        (text) =>
+          hasSplitDiffRowTest(text) &&
+          harness.countMatches(text, /alpha\.ts/g) === 1 &&
+          text.includes("betaValue = 1"),
         ptyTimeouts.waitForSnapshot,
       );
 
@@ -632,16 +840,18 @@ ptyDescribe("live UI integration", () => {
       });
 
       expect(harness.countMatches(narrow, /alpha\.ts/g)).toBe(1);
-      expect(narrow).not.toMatch(/▌.*▌/);
+      expect(hasSplitDiffRowTest(narrow)).toBe(false);
 
+      // The file list starts closed; ask for it so the wide layout can show it.
+      await session.press("s");
       session.resize({ cols: 220, rows: 24 });
       const wide = await harness.waitForSnapshot(
         session,
-        (text) => !/▌.*▌/.test(text) && harness.countMatches(text, /alpha\.ts/g) >= 2,
+        (text) => !hasSplitDiffRowTest(text) && harness.countMatches(text, /alpha\.ts/g) >= 2,
         ptyTimeouts.waitForSnapshot,
       );
 
-      expect(wide).toContain("1   -  export const alpha = 1;");
+      expect(wide).toContain("1   export const alpha = 1;");
     } finally {
       session.close();
     }
@@ -931,7 +1141,7 @@ ptyDescribe("live UI integration", () => {
       expect(harness.countMatches(initial, /scroll\.ts/g)).toBe(1);
 
       await session.press("s");
-      const sidebarRow = /\bM scroll\.ts\s+\+40 -40/;
+      const sidebarRow = /○ scroll\.ts/;
       const withSidebar = await harness.waitForSnapshot(
         session,
         (text) => sidebarRow.test(text),
@@ -1030,36 +1240,44 @@ ptyDescribe("live UI integration", () => {
         timeout: ptyTimeouts.waitForText,
       });
 
-      expect(initial).not.toMatch(/▌.*▌/);
-      expect(initial).toContain("1   -  export const alpha = 1;");
+      expect(hasSplitDiffRowTest(initial)).toBe(false);
+      expect(initial).toContain("1   export const alpha = 1;");
+
+      // The file list starts closed; open it so wide layouts show it beside the review.
+      await session.press("s");
+      await harness.waitForSnapshot(
+        session,
+        (text) => harness.countMatches(text, /alpha\.ts/g) >= 2,
+        ptyTimeouts.waitForSnapshot,
+      );
 
       await session.press("1");
       const split = await harness.waitForSnapshot(
         session,
-        (text) => /▌.*▌/.test(text) && harness.countMatches(text, /alpha\.ts/g) >= 2,
+        (text) => hasSplitDiffRowTest(text) && harness.countMatches(text, /alpha\.ts/g) >= 2,
         ptyTimeouts.waitForSnapshot,
       );
 
-      expect(split).toMatch(/▌.*▌/);
+      expect(hasSplitDiffRowTest(split)).toBe(true);
 
       await session.press("2");
       const stack = await harness.waitForSnapshot(
         session,
-        (text) => !/▌.*▌/.test(text) && text.includes("1   -  export const alpha = 1;"),
+        (text) => !hasSplitDiffRowTest(text) && text.includes("1   export const alpha = 1;"),
         ptyTimeouts.waitForSnapshot,
       );
 
-      expect(stack).not.toMatch(/▌.*▌/);
-      expect(stack).toContain("1   -  export const alpha = 1;");
+      expect(hasSplitDiffRowTest(stack)).toBe(false);
+      expect(stack).toContain("1   export const alpha = 1;");
 
       await session.press("0");
       const auto = await harness.waitForSnapshot(
         session,
-        (text) => /▌.*▌/.test(text) && harness.countMatches(text, /alpha\.ts/g) >= 2,
+        (text) => hasSplitDiffRowTest(text) && harness.countMatches(text, /alpha\.ts/g) >= 2,
         ptyTimeouts.waitForSnapshot,
       );
 
-      expect(auto).toMatch(/▌.*▌/);
+      expect(hasSplitDiffRowTest(auto)).toBe(true);
     } finally {
       session.close();
     }
@@ -1101,7 +1319,7 @@ ptyDescribe("live UI integration", () => {
       await session.press("2");
       const stacked = await harness.waitForSnapshot(
         session,
-        (text) => !/▌.*▌/.test(text) && text.includes(`line${anchoredLineNumber} =`),
+        (text) => !hasSplitDiffRowTest(text) && text.includes(`line${anchoredLineNumber} =`),
         ptyTimeouts.waitForSnapshot,
       );
 
@@ -1110,7 +1328,7 @@ ptyDescribe("live UI integration", () => {
       await session.press("1");
       const split = await harness.waitForSnapshot(
         session,
-        (text) => /▌.*▌/.test(text) && text.includes(`line${anchoredLineNumber} =`),
+        (text) => hasSplitDiffRowTest(text) && text.includes(`line${anchoredLineNumber} =`),
         ptyTimeouts.waitForSnapshot,
       );
 
@@ -1177,7 +1395,7 @@ ptyDescribe("live UI integration", () => {
         timeout: ptyTimeouts.waitForText,
       });
 
-      expect(initial).toContain("this is a very long");
+      expect(initial).toContain("this is a");
       expect(initial).not.toContain("ge';");
 
       let shifted = initial;
@@ -1190,18 +1408,18 @@ ptyDescribe("live UI integration", () => {
       }
 
       expect(shifted).toContain("ge';");
-      expect(shifted).not.toContain("this is a very long");
+      expect(shifted).not.toContain("this is a");
 
       let restored = shifted;
       for (let index = 0; index < 96; index += 1) {
         await session.press("left");
         restored = await session.text();
-        if (restored.includes("this is a very long") && !restored.includes("ge';")) {
+        if (restored.includes("this is a") && !restored.includes("ge';")) {
           break;
         }
       }
 
-      expect(restored).toContain("this is a very long");
+      expect(restored).toContain("this is a");
       expect(restored).not.toContain("ge';");
     } finally {
       session.close();
@@ -1221,7 +1439,7 @@ ptyDescribe("live UI integration", () => {
         timeout: ptyTimeouts.waitForText,
       });
 
-      expect(initial).toContain("this is a very long");
+      expect(initial).toContain("this is a");
       expect(initial).not.toContain("ge';");
 
       let shifted = initial;
@@ -1234,7 +1452,7 @@ ptyDescribe("live UI integration", () => {
       }
 
       expect(shifted).toContain("ge';");
-      expect(shifted).not.toContain("this is a very long");
+      expect(shifted).not.toContain("this is a");
 
       await session.press("w");
       const wrapped = await harness.waitForSnapshot(
@@ -1243,17 +1461,17 @@ ptyDescribe("live UI integration", () => {
         ptyTimeouts.waitForSnapshot,
       );
 
-      expect(wrapped).toContain("this is a very long");
+      expect(wrapped).toContain("this is a");
       expect(wrapped).toContain("ge';");
 
       await session.press("w");
       const reset = await harness.waitForSnapshot(
         session,
-        (text) => text.includes("this is a very long") && !text.includes("ge';"),
+        (text) => text.includes("this is a") && !text.includes("ge';"),
         ptyTimeouts.waitForSnapshot,
       );
 
-      expect(reset).toContain("this is a very long");
+      expect(reset).toContain("this is a");
       expect(reset).not.toContain("ge';");
     } finally {
       session.close();
@@ -1277,16 +1495,16 @@ ptyDescribe("live UI integration", () => {
 
       expect(initial).toContain("aaa-collapsed.ts");
       expect(initial).toContain("··· 362 unchanged lines ···");
-      expect(initial).not.toContain("366 - export const line366 = 366;");
+      expect(initial).not.toContain("366   export const line366 = 366;");
 
       await session.scrollDown(1);
       const advanced = await harness.waitForSnapshot(
         session,
-        (text) => text.includes("366 - export const line366 = 366;"),
+        (text) => text.includes("366   export const line366 = 366;"),
         ptyTimeouts.waitForSnapshot,
       );
 
-      expect(advanced).toContain("366 - export const line366 = 366;");
+      expect(advanced).toContain("366   export const line366 = 366;");
     } finally {
       session.close();
     }
@@ -1311,7 +1529,7 @@ ptyDescribe("live UI integration", () => {
       await session.scrollDown(1);
       await harness.waitForSnapshot(
         session,
-        (text) => text.includes("366 - export const line366 = 366;"),
+        (text) => text.includes("366   export const line366 = 366;"),
         ptyTimeouts.waitForSnapshot,
       );
 
@@ -1325,7 +1543,7 @@ ptyDescribe("live UI integration", () => {
       );
 
       expect(restored).toContain("··· 362 unchanged lines ···");
-      expect(restored).not.toContain("366 - export const line366 = 366;");
+      expect(restored).not.toContain("366   export const line366 = 366;");
       expect(harness.countMatches(restored, /aaa-collapsed\.ts/g)).toBe(initialHeaderCount);
     } finally {
       session.close();

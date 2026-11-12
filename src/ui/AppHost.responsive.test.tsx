@@ -5,10 +5,11 @@ import { act } from "react";
 import type { AppBootstrap, LayoutMode } from "../core/types";
 import { createTestVcsAppBootstrap } from "../../test/helpers/app-bootstrap";
 import { createTestDiffFile } from "../../test/helpers/diff-helpers";
+import { hasSplitDiffRowTest } from "../../test/helpers/diff-frame";
 
 const { AppHost } = await import("./AppHost");
 
-test("workspace uses the base background while the adjoining tree and diff retain a resizable edge", async () => {
+test("workspace and tree share the base background and gaps while the tree edge stays resizable", async () => {
   const setup = await testRender(<AppHost bootstrap={createBootstrap()} />, {
     width: 280,
     height: 24,
@@ -26,28 +27,33 @@ test("workspace uses the base background while the adjoining tree and diff retai
     const workspace = setup.renderer.root.findDescendantById("workspace-pane");
     const tree = setup.renderer.root.findDescendantById("file-tree-pane");
     const diff = setup.renderer.root.findDescendantById("diff-pane");
-    const tasks = setup.renderer.root.findDescendantById("workspace-section-Tasks");
-    const reviews = setup.renderer.root.findDescendantById("workspace-section-Reviews");
+    const tasks = setup.renderer.root.findDescendantById("workspace-section-todo");
+    const approval = setup.renderer.root.findDescendantById("workspace-section-approval");
     if (
       !(workspace instanceof BoxRenderable) ||
       !(tree instanceof BoxRenderable) ||
       !(diff instanceof BoxRenderable) ||
       !(tasks instanceof BoxRenderable) ||
-      !(reviews instanceof BoxRenderable)
+      !(approval instanceof BoxRenderable)
     ) {
       throw new Error("Missing review surface");
     }
-    expect(tree.x - workspace.x - workspace.width).toBe(2);
-    expect(diff.x - tree.x - tree.width).toBe(0);
-    expect(reviews.y - tasks.y - tasks.height).toBe(1);
+    // Workspace on the left, the diff in the middle, the file tree at the far right.
+    expect(diff.x - workspace.x - workspace.width).toBe(2);
+    // The file tree opens at the same width as the tasks workspace.
+    expect(tree.width).toBe(workspace.width);
+    // The tree sits on the same base surface as the workspace, with the same gap after the diff.
+    expect(tree.x - diff.x - diff.width).toBe(2);
+    expect(approval.y - tasks.y - tasks.height).toBe(1);
     expect(tasks.backgroundColor).toEqual(workspace.backgroundColor);
-    expect(reviews.backgroundColor).toEqual(workspace.backgroundColor);
-    expect(tasks.backgroundColor).not.toEqual(tree.backgroundColor);
+    expect(approval.backgroundColor).toEqual(workspace.backgroundColor);
+    expect(tree.backgroundColor).toEqual(workspace.backgroundColor);
     expect(setup.captureCharFrame()).not.toContain("│");
     expect(setup.captureCharFrame()).not.toContain("───");
     const initialTreeWidth = tree.width;
     const initialDiffWidth = diff.width;
-    const gutterX = tree.x + tree.width;
+    // The tree's resize edge is its left side; dragging it left widens the tree.
+    const gutterX = tree.x - 1;
     await act(async () => {
       await setup.mockMouse.pressDown(gutterX, 5);
     });
@@ -55,20 +61,20 @@ test("workspace uses the base background while the adjoining tree and diff retai
       await setup.renderOnce();
     });
     await act(async () => {
-      await setup.mockMouse.emitMouseEvent("drag", gutterX + 6, 5);
+      await setup.mockMouse.emitMouseEvent("drag", gutterX - 6, 5);
     });
     await act(async () => {
       await setup.renderOnce();
     });
     await act(async () => {
-      await setup.mockMouse.release(gutterX + 6, 5);
+      await setup.mockMouse.release(gutterX - 6, 5);
     });
     await act(async () => {
       await setup.renderOnce();
     });
     expect(tree.width).toBe(initialTreeWidth + 6);
     expect(diff.width).toBe(initialDiffWidth - 6);
-    expect(diff.x - tree.x - tree.width).toBe(0);
+    expect(tree.x - diff.x - diff.width).toBe(2);
   } finally {
     await act(async () => {
       setup.renderer.destroy();
@@ -77,9 +83,9 @@ test("workspace uses the base background while the adjoining tree and diff retai
 });
 
 test("workspace yields space on narrow terminals and stays out of pager mode", async () => {
-  expect(await captureFrameForBootstrap(createBootstrap(), 280)).toContain("Tasks");
-  expect(await captureFrameForBootstrap(createBootstrap(), 100)).not.toContain("Tasks");
-  expect(await captureFrameForBootstrap(createBootstrap("auto", true), 280)).not.toContain("Tasks");
+  expect(await captureFrameForBootstrap(createBootstrap(), 280)).toContain("To do");
+  expect(await captureFrameForBootstrap(createBootstrap(), 100)).not.toContain("To do");
+  expect(await captureFrameForBootstrap(createBootstrap("auto", true), 280)).not.toContain("To do");
 });
 
 test("workspace starts open and hidden workspace releases keyboard focus", async () => {
@@ -91,20 +97,28 @@ test("workspace starts open and hidden workspace releases keyboard focus", async
     await act(async () => {
       await setup.renderOnce();
     });
+    // First S focuses the open workspace; the second hides it.
     await act(async () => {
       await setup.mockInput.typeText("S");
     });
     await act(async () => {
       await setup.renderOnce();
     });
-    expect(setup.captureCharFrame()).not.toContain("Tasks");
+    expect(setup.captureCharFrame()).toContain("To do");
     await act(async () => {
       await setup.mockInput.typeText("S");
     });
     await act(async () => {
       await setup.renderOnce();
     });
-    expect(setup.captureCharFrame()).toContain("Tasks");
+    expect(setup.captureCharFrame()).not.toContain("To do");
+    await act(async () => {
+      await setup.mockInput.typeText("S");
+    });
+    await act(async () => {
+      await setup.renderOnce();
+    });
+    expect(setup.captureCharFrame()).toContain("To do");
     await act(async () => {
       setup.resize(79, 24);
       await setup.renderOnce();
@@ -112,7 +126,7 @@ test("workspace starts open and hidden workspace releases keyboard focus", async
     await act(async () => {
       await setup.renderOnce();
     });
-    expect(setup.captureCharFrame()).not.toContain("Tasks");
+    expect(setup.captureCharFrame()).not.toContain("To do");
     await act(async () => {
       await setup.mockInput.pressTab();
     });
@@ -130,7 +144,7 @@ test("workspace starts open and hidden workspace releases keyboard focus", async
       setup.resize(280, 24);
       await setup.renderOnce();
     });
-    expect(setup.captureCharFrame()).toContain("Tasks");
+    expect(setup.captureCharFrame()).toContain("To do");
   } finally {
     await act(async () => {
       setup.renderer.destroy();
@@ -232,15 +246,15 @@ describe("responsive app", () => {
 
     expect((full.match(/alpha\.ts/g) ?? []).length).toBe(2);
     expect(full).not.toContain("Changeset summary");
-    expect(full).toMatch(/▌.*▌/);
+    expect(hasSplitDiffRowTest(full)).toBe(true);
 
     expect(medium).not.toContain("Files");
     expect(medium).not.toContain("Changeset summary");
-    expect(medium).toMatch(/▌.*▌/);
+    expect(hasSplitDiffRowTest(medium)).toBe(true);
 
     expect(tight).not.toContain("Files");
     expect(tight).not.toContain("Changeset summary");
-    expect(tight).not.toMatch(/▌.*▌/);
+    expect(hasSplitDiffRowTest(tight)).toBe(false);
   });
 
   test("sidebar shortcut opens the hidden sidebar on medium viewport", async () => {
@@ -279,11 +293,11 @@ describe("responsive app", () => {
 
     expect(forcedSplit).not.toContain("Files");
     expect(forcedSplit).not.toContain("Changeset summary");
-    expect(forcedSplit).toMatch(/▌.*▌/);
+    expect(hasSplitDiffRowTest(forcedSplit)).toBe(true);
 
     expect((forcedStack.match(/alpha\.ts/g) ?? []).length).toBe(1);
     expect(forcedStack).not.toContain("Changeset summary");
-    expect(forcedStack).not.toMatch(/▌.*▌/);
+    expect(hasSplitDiffRowTest(forcedStack)).toBe(false);
   });
 
   test("pager mode stays responsive while hiding app chrome", async () => {
@@ -291,10 +305,10 @@ describe("responsive app", () => {
     const narrow = await captureFrameForBootstrap(createBootstrap("auto", true), 150);
 
     expect((wide.match(/alpha\.ts/g) ?? []).length).toBe(1);
-    expect(wide).toMatch(/▌.*▌/);
+    expect(hasSplitDiffRowTest(wide)).toBe(true);
 
     expect((narrow.match(/alpha\.ts/g) ?? []).length).toBe(1);
-    expect(narrow).not.toMatch(/▌.*▌/);
+    expect(hasSplitDiffRowTest(narrow)).toBe(false);
   });
 
   test("filter focus suppresses global shortcut keys like quit", async () => {

@@ -74,6 +74,8 @@ describe("ui helpers", () => {
     expect(isPageDownKey(createKeyEvent({ sequence: "f" }))).toBe(true);
     expect(isPageUpKey(createKeyEvent({ name: "pageup" }))).toBe(true);
     expect(isPageUpKey(createKeyEvent({ name: "b" }))).toBe(true);
+    // Shift+B shares the lowercase name but switches branch review instead.
+    expect(isPageUpKey(createKeyEvent({ name: "b", shift: true, sequence: "B" }))).toBe(false);
     expect(isPageUpKey(createKeyEvent({ sequence: "b" }))).toBe(true);
     expect(isShiftSpacePageUpKey(createKeyEvent({ name: "space", shift: true }))).toBe(true);
     expect(isHalfPageDownKey(createKeyEvent({ name: "d", ctrl: true }))).toBe(true);
@@ -161,12 +163,13 @@ describe("ui helpers", () => {
     const metrics = measureDiffSectionGeometry(file, "split", false, theme);
 
     expect(metrics.bodyHeight).toBeGreaterThan(0);
-    expect(metrics.hunkAnchorRows.get(0)).toBe(1);
-    expect(metrics.hunkAnchorRows.get(1)).toBe(3);
+    // The fold above the first hunk takes no rows; the fold between hunks keeps its rule row.
+    expect(metrics.hunkAnchorRows.get(0)).toBe(0);
+    expect(metrics.hunkAnchorRows.get(1)).toBe(2);
     expect(metrics.hunkAnchorRows.get(1)).toBeGreaterThan(metrics.hunkAnchorRows.get(0) ?? -1);
-    expect(metrics.hunkBounds.get(0)?.top).toBe(1);
+    expect(metrics.hunkBounds.get(0)?.top).toBe(0);
     expect(metrics.hunkBounds.get(0)?.height).toBe(1);
-    expect(metrics.hunkBounds.get(1)?.top).toBe(3);
+    expect(metrics.hunkBounds.get(1)?.top).toBe(2);
     expect(metrics.hunkBounds.get(1)?.height).toBe(1);
   });
 
@@ -225,4 +228,25 @@ describe("ui helpers", () => {
     expect(missingDark.id).toBe("zed");
     expect(resolveTheme("ember", null).syntaxStyle).toBeDefined();
   });
+
+  test("resolveTheme picks the claude variant that matches the terminal, dark when unknown", () => {
+    expect(resolveTheme("claude", "light").id).toBe("claude-light");
+    expect(resolveTheme("claude", "dark").id).toBe("claude-dark");
+    expect(resolveTheme("claude", null).id).toBe("claude-dark");
+    expect(resolveTheme("claude-light", "dark").id).toBe("claude-light");
+  });
+});
+
+test("comment cards sit on a purple surface in every theme", async () => {
+  const { THEMES } = await import("../themes");
+  for (const theme of THEMES) {
+    const [red, green, blue] = [1, 3, 5].map((offset) =>
+      Number.parseInt(theme.noteBackground.slice(offset, offset + 2), 16),
+    );
+    // Purple: both red and blue sit above green.
+    expect({ theme: theme.id, purple: red! > green! && blue! > green! }).toEqual({
+      theme: theme.id,
+      purple: true,
+    });
+  }
 });

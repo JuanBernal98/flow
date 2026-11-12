@@ -1,28 +1,86 @@
 # Changelog
 
-All notable user-visible changes to `dunk` are documented in this file.
+All notable user-visible changes to `flow` are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-`dunk` was hard-forked from [`hunk`](https://github.com/modem-dev/hunk) at version `0.11.0`. Pre-fork history is preserved in the upstream repository.
+`flow` is a hard fork of [`dunk`](https://github.com/amix/dunk), which was hard-forked from [`hunk`](https://github.com/modem-dev/hunk) at version `0.11.0`. Entries before the rename below still say `dunk`; pre-fork history is preserved upstream.
 
 ## [Unreleased]
 
 ### Added
 
+- `[youtrack] project_keys` (asked by `flow init`, checked against YouTrack) limits which ids count as a review's ticket, so `UTF-8` in an MR title or another squad's ticket is never taken for yours. Without it any `KEY-123` counts, as before.
+
+- `./install.sh` installs flow from a fresh clone in one go: dependencies, the `flow` command, and `flow setup claude`. Setup now offers to fix each missing dependency instead of only listing it — `brew install glab`, `glab auth login`, storing the YouTrack token in the Keychain, and adding the YouTrack MCP with that token — always showing the exact command and running it only after a yes; a no stops setup before anything is installed. Notion and Slack, which need the browser, are explained and checked again. Anything already set up is left alone.
+
+- `flow init` connects a repository: it asks for the YouTrack URL and merged state, the squad's GitLab review label, and its Slack review channel and ID, checks them against YouTrack and GitLab, writes a commented `.flow/config.toml`, and adds `.flow/` to `.git/info/exclude`. Re-running it only asks for missing sections.
+
+- `C` asks the coding agent to commit your uncommitted work: the new `flow-commit-create` skill groups the changes by feature, lists the commit messages in the repo's own format for you to confirm, folds fixes into the branch commit they belong to, and never pushes. `P` asks it to open the merge request with `flow-mr-open`, which still asks before every outside action. Both act on the checked-out branch, and the controls help now groups the workspace keys under **Workspace**, `h`/`g` under **Browser**, and everything you ask the agent for (`X`, `R`, `C`, `P`, all uppercase so they are not pressed by accident) under **Agent actions**.
+
+- `flow setup claude` installs flow's skills and SessionStart hook into Claude Code from your checkout, removes stubs for skills flow no longer ships, after checking the dependencies, all required: bun, `glab` login, the YouTrack token, and the YouTrack, Notion, and Slack connectors. While one is missing it installs nothing and exits with an error; `flow-ticket-context` and `flow-mr-open` likewise stop without Notion or Slack (and `[slack]` in the config). `--dry-run` previews, `--uninstall` removes; re-run it after pulling. The hook runs `flow hook session-start`, so its text is versioned with flow.
+
+- `[youtrack] merged_state` (e.g. `"Done"`) moves your tickets still in `Review` to that state once their MR is merged, on every load, so a merge done in GitLab never leaves the ticket behind. Each ticket is read again first and only moved while it is still assigned to you and in `Review`; tickets with an MR still open are left alone. Off unless set.
+
+- **Ready to merge** section in the workspace, after Needs approval: your tickets in `Review` whose MR someone besides you approved move there with a `✓`. It only appears while it has tickets.
+
+- `B` switches a `flow diff` review between the whole branch and uncommitted changes only, in place; the status bar always says which (`Diff mode: Branch vs origin/main` / `Diff mode: Uncommitted`).
+
+- `claude` theme: an iTerm profile's background, text, and ANSI palette with Claude Code's accents (Claude orange, lavender, its diff greens and reds). It follows the terminal's light or dark mode; `claude-dark` and `claude-light` pin one.
+
+- The `claude` themes highlight code exactly like Claude Code (its "Monokai Extended" palette in dark, "GitHub" in light) and color diff rows with the near-transparent green and red tints Claude Code's diff highlighter uses, plus its word and sign colors. Themes can now pick their own syntax theme (`codeTheme`) instead of Pierre's default.
+
 - Added the `zed` theme, adapted from Zed's official One Dark palette. Select it with `--theme zed`, config, or the theme cycle shortcut.
 
-- Nested, collapsible file tree folders with mouse toggles and keyboard navigation (`F` to focus, arrows to navigate and fold, Enter to open, Escape to return to review).
+- File list beside the review with keyboard navigation (`F` to focus, arrows or `j`/`k` to move, Enter to open, Escape to return to review).
 
-- Workspace beside the file tree, open by default, with mock Tasks and Reviews, minimal section headings with counts, status symbols, task line-change counts, mouse selection, and keyboard navigation (`S` to toggle). Hides automatically on narrow terminals.
+- Workspace beside the file tree, open by default, with Tasks and Reviews, minimal section headings with counts, status symbols, task line-change counts, mouse selection, and keyboard navigation (`S` to toggle). Hides automatically on narrow terminals.
+
+- Workspace tickets link to your GitLab merge request through their branch name (read with `glab`), show its `!iid` on the card, and `g` opens it in the browser. `h` and `g` work from anywhere: on the cursor's ticket in the workspace, otherwise on the checked-out one (`gg` still jumps to the first hunk).
+
+- Workspace Reviews list the open GitLab merge requests labelled `[gitlab] review_label` (e.g. `my-team`) that still wait on a first review: open, not drafts, written by someone else, approved by nobody but their author, and changed in the last 14 days, with the ones asking you for review first. Each review card shows its YouTrack ticket beside the `!iid` (read from the branch, else the MR title), and `h` opens it. Enter checks the MR's branch out locally exactly like a ticket switch: your uncommitted work is parked as `flow:<branch>` and comes back when you return.
+
+- Overview pane (`x`), wider than the workspace, showing what the coding agent understood about the ticket: one-sentence goal, why, what to do, acceptance criteria, where in the code, questions and assumptions, and a plan, under live state, MR, and line totals. The agent stores it with `flow overview write <ticket>` (JSON on stdin, validated) in `.flow/overviews/`; `X` asks the agent to write it for the ticket shown. It always shows the checked-out ticket or review, so moving the workspace cursor never replaces it. On a review card it shows the overview of the ticket the MR names, without "Where in the code" and "Plan", since a review is judged against the ticket's goal.
+
+- `R` asks the coding agent to review a ticket's code against the ticket: a teammate's MR from Reviews, or your own branch (and its MR, if any) from To do. The agent gets `flow request: review <ID> [!<iid>]` and runs the bundled read-only `review` skill, which treats the ticket as the source of truth and reports which acceptance criteria the code meets, misses, or goes beyond, plus a few obvious simplifications.
+
+- The `ticket-context` skill reads every comment on the ticket and its parent (not just the latest 10) and the open comments on linked Notion pages, since decisions often live there; the newest one wins when a comment contradicts the description.
+
+- `/` in the workspace filters its cards by ticket (including the one a review names, e.g. `OPS-12`), MR number (`4100` or `!4100`), title, or author. ↑/↓ pick among the matches while typing. Enter (or Escape) ends the search and shows every card again with the cursor still on the chosen one, without switching branches; the next Enter switches to it. Outside the workspace, `/` still filters files.
+
+- The `ticket`, `ticket-context`, and `mr` agent skills now ship in `skills/` next to `flow-review`; `flow skill show <name>` and `flow skill path <name>` print any of them.
 
 ### Changed
 
-- Start with the file tree closed; `s` toggles it and `F` opens it for keyboard navigation.
+- Agent skills are renamed with the category first so they group and never clash with other skills: `flow-review` → `flow-comments-fix`, `ticket` → `flow-ticket-switch`, `ticket-context` → `flow-ticket-context`, `review` → `flow-review`, `mr` → `flow-mr-open`. Run `flow setup claude` to move your stubs and SessionStart hook to the new names; `flow skill show` without a name now prints `flow-comments-fix`. The watcher's event lines are unchanged.
+
+- Switching to a ticket that already has an overview no longer asks the agent for its context again, to save tokens. Press `X` to refresh it.
+
+- `r` reloads everything from anywhere: the diff and the workspace's tickets, reviews, and MRs, whatever has focus. Loaded tickets and reviews stay on screen while they reload instead of blanking the workspace.
+
+- A bare `flow diff` reviews the whole branch against its base and reloads as code changes, as if run with `--branch --watch`. `--no-branch` and `--no-watch` (or `watch = false`) opt out; a repository with no base to compare against reviews uncommitted changes.
+
+- flow no longer checks npm for updates at startup: it made a network request on every launch, and after the rename it would have asked about an unrelated `flow` package.
+
+- YouTrack and GitLab are configured per repository, in its `.flow/config.toml` (`[youtrack] url`, `[gitlab]` with an optional `review_label`), no longer in the global config or `FLOW_YOUTRACK_URL`. A repository without them makes no YouTrack or GitLab calls and opens with the workspace and Overview closed; `S` and `x` still open them.
+
+- Renamed the fork from `dunk` to `flow` everywhere: the `flow` command, the `.flow/` folder in each repo (comments, overviews, agent requests, config), `~/.config/flow/config.toml`, `FLOW_*` environment variables, the `flow` package, and the `flow-review` agent skill.
+
+- The file tree leaves a blank column between the selection rail and each file's icon, like the workspace's ticket rows.
+
+- Lines skipped between two hunks show `...` in the line-number column instead of a rule across the code, so a jump like 25 → 27 reads as skipped lines.
+
+- The file tree now sits at the far right, after the diff; drag its left edge to resize it.
+
+- On a review, `h` opens the YouTrack ticket named in its branch or title (like `PROJ-20805`) and `g` the MR, matching tickets.
+
+- A ticket split over several branches no longer refuses to switch: Enter goes to the branch of the MR shown on its card, otherwise to the branch with the newest commit.
+
+- Start with the file tree and the ticket Overview open; `s` and `x` toggle them, `F` focuses the tree, and `file_tree` / `overview` in config (or `--no-file-tree` / `--no-overview`) start them closed.
 
 - Start in stack layout by default; config, CLI, and layout shortcuts still override it.
 
-- Keep Tasks and Reviews on the main background, separated from navigation by an empty gutter. The file tree meets the diff directly without a border, while its edge still supports drag resizing.
+- Keep Tasks and Reviews on the main background, separated from navigation by an empty gutter. The file list's edge supports drag resizing.
 
 - Refined diff presentation with emphasized filenames, muted directory paths, tighter header stats, neutral line numbers, and quieter file separators.
 
@@ -31,9 +89,61 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - Use Zed One Dark as the default theme unless overridden by config or CLI.
 - Add a Changes heading and file count above the file tree, matching the workspace section headings.
 
-- Restyled the file tree with plain directory headings, uniform row spacing, indented single-line file rows, inline change counts, and a subtle selection rail.
+- Diff rows no longer draw a colored rail on their left edge. The lead column takes each row's own background, so the diff reads without a border; this also applies to the static pager output. The active hunk now stands out by keeping full-color `+`/`−` signs and line numbers, while other hunks fade theirs.
+
+- Stack view with line numbers (`l`) shows one number column instead of two: the new-file number, or the old one for deleted lines. The narrower gutter leaves more room for code, and the static pager matches.
+
+- In split view, each side lists its lines back to back within a hunk, so a deleted line no longer leaves a gap on the right (and an added line none on the left). The shorter side pads only at the bottom of the hunk, on the plain pane background.
+
+- Each file in the review is drawn as a card. File headers lead with the filename and follow with its folder, starting where the card's code block starts; hunks inside a file are separated by a quiet rule; files are separated by blank rows; and the review starts one row down, level with the side panes' headings.
+
+- Diff rows no longer show `+`/`-` signs; the row tint marks additions and deletions. Line numbers are on by default and sit outside the card, in a margin of fixed width (at least four digits) that stays reserved when they are hidden, so code never shifts when toggling them.
+
+- Hunk `@@` ranges are hidden by default (`m` shows them), and folds at the very top or bottom of a file no longer take rows.
+
+- The file list is flat: filenames only, in review order, with no folder headings or indentation. A file's folder appears, muted, only when another changed file shares its name. States read by shape and color (`○` modified, `+` added, `−` deleted, `→` renamed, `◌` untracked), and the list sits on the same base surface as the workspace, with the same gap before the diff.
+
+- The file tree opens at the same width as the tasks workspace, so both columns line up; it can still be resized by dragging its edge.
+
+- `flow focus <file>[:line]` lets an agent make the open review jump to a file and line, through `.flow/focus.json`; the status bar says where it was sent.
+
+- Comment cards read like a chat on a purple surface in every theme: `Yo:` with your comment in a softer color, then `Agente:` with each agent reply in the normal text color. The accent bar is gone.
+
+- Comments record who wrote them (`author`: `user` or `agent`). `flow comments add <file> <start-end> <text>` lets an agent leave its own comment, anchored automatically; it renders as `Agente:`, shows as `(agent)` in `flow comments list`, and `flow watch` does not announce it back to the agent.
+
+- Agents can answer review comments with `flow comments reply <id> <text>`. Replies show under the comment, marked `↳` in `flow comments list`/`show`; the comment stays open until you close it.
+
+- `flow skill show` prints the bundled review skill, so an agent's skill can point at the installed version instead of a copy that drifts. The skill now covers the watcher events and asks for fixes to stay uncommitted unless the user asks to commit.
+
+- `flow watch` streams review events for a coding agent's terminal: new comments and flow requests, each printed once. A newer watcher for the same repo replaces the previous one, and delivered requests are not replayed.
+
+- After switching to a ticket, flow writes a `ticket-context` request to `.flow/requests.json`, keeping only the newest one, so a coding agent watching the file can load that ticket's context in its own terminal.
+
+- Workspace ticket cards with a branch show, at their right edge, the lines it changes against `origin/main`; the checked-out ticket also counts uncommitted edits.
+
+- `S` focuses the workspace when it is open but unfocused, and hides it when it is already focused. The ticket of the checked-out branch keeps a solid rail, one column away from its icon, wherever the cursor moves and even when the pane is unfocused; the cursor itself is a faint background shown only while the pane is focused, and it starts on that ticket when tickets load.
+
+- `bun run install:bin` installs the local source as `flow` instead of `flow`, so it can live next to a released `flow`.
+
+- The workspace lists real YouTrack tickets: unresolved tickets assigned to you under **To do**, and those in the `Review` state under **Needs approval**. With the workspace focused, press `h` to open the selected ticket in the browser or `r` to reload. `Enter` switches to the ticket's branch (creating it from `origin/main` if needed). Uncommitted changes are stashed per branch on the way out and restored automatically when you return to that ticket. Set the instance under `[youtrack] url` and the token in the Keychain item `flow-youtrack`; see the README.
 
 ### Fixed
+
+- Moving merged tickets to `merged_state` failed with "YouTrack responded 400": the command wrapped the state in braces (`State {Done}`), which YouTrack rejects. It now sends `State Done`, and YouTrack errors show its reason instead of only the status code.
+
+- `g` on a ticket whose MR was opened after flow started now asks GitLab again and opens it, instead of doing nothing until the tasks were reloaded.
+
+- Clicking into the diff no longer makes arrow keys scroll it while you move through the workspace's tickets: panes no longer take keyboard focus on click.
+
+- Rewritten lines no longer show as a solid block of the strong word-diff color: words are only emphasized when part of a line changed, so mostly-new lines keep the softer row tint.
+
+- Reviews of stacked MRs only show the MR's own changes: checking one out records its target branch as the branch's review base (`branch.<name>.flowBase`), which `diff --branch` uses instead of `origin/main`.
+
+- Adding a comment no longer scrolls the review: the status bar confirms it, and the view stays put.
+
+- Switching tickets no longer fails with "could not write index" while the review is open: flow's git reads skip optional index locks, and a switch briefly retries when another process holds `index.lock`.
+
+- `--watch` no longer freezes the UI in large repos: change checks run their git processes in a worker thread, once a second and never overlapping, instead of blocking rendering and input four times a second.
 
 - Keep file tree rows at a consistent height and calculate filename space from the pane width without stacking padding deductions.
 
