@@ -70,6 +70,10 @@ function App() {
   const [comments, setComments] = useState<PersistedComment[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const pendingG = useRef(0);
+  const [userName, setUserName] = useState("You");
+  useEffect(() => {
+    void api<{ name: string }>("/api/me").then((me) => setUserName(me.name));
+  }, []);
 
   const reload = useCallback(() => {
     // The diff is local and fast; the workspace waits on YouTrack and GitLab, so neither blocks the other.
@@ -314,6 +318,7 @@ function App() {
           editing={editing && zone === "review"}
           onSaveComment={saveComment}
           onCancelComment={() => setEditing(false)}
+          userName={userName}
           onFocusHunk={(index) => {
             setZone("review");
             setHunkIndex(index);
@@ -609,15 +614,38 @@ function FilesPane({ files }: { files: WindowDiffFile[] | null }) {
   );
 }
 
-/** One message in a thread, chat style: avatar, author, then the text. */
-function ThreadMessage({ author, body }: { author: "user" | "agent"; body: string }) {
+/** Two initials from a name: "Juan Bernal" → "JB", "juan" → "J". */
+function initials(name: string) {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  return words
+    .slice(0, 2)
+    .map((word) => word[0]?.toUpperCase() ?? "")
+    .join("");
+}
+
+/** One message in a thread, chat style: avatar, author and action, then the text. */
+function ThreadMessage({
+  author,
+  userName,
+  action,
+  body,
+}: {
+  author: "user" | "agent";
+  userName: string;
+  action: string;
+  body: string;
+}) {
+  const agent = author === "agent";
   return (
     <div className={`thread-message ${author}`}>
       <span className="avatar" aria-hidden="true">
-        {author === "agent" ? "C" : "Y"}
+        {agent ? "✻" : initials(userName)}
       </span>
       <div className="thread-text">
-        <span className="thread-author">{author === "agent" ? "Claude" : "You"}</span>
+        <div className="thread-meta">
+          <span className="thread-author">{agent ? "Claude" : userName}</span>
+          <span className="thread-action">{action}</span>
+        </div>
         <div className="thread-body">{body}</div>
       </div>
     </div>
@@ -627,24 +655,60 @@ function ThreadMessage({ author, body }: { author: "user" | "agent"; body: strin
 /** Every comment on one line and its replies in a single box, a row per message. */
 function CommentThread({
   comments,
+  userName,
   editor,
 }: {
   comments: PersistedComment[];
+  userName: string;
   editor: React.ReactNode;
 }) {
+  const first = comments[0];
+  const messages = comments.reduce(
+    (count, comment) => count + 1 + (comment.replies?.length ?? 0),
+    0,
+  );
   return (
     <div className={`thread${editor ? " editing" : ""}`}>
+      {first ? (
+        <div className="thread-header">
+          <span>
+            {first.range[0] === first.range[1]
+              ? `Line ${first.range[0]}`
+              : `Lines ${first.range[0]}–${first.range[1]}`}
+          </span>
+          <span>
+            {messages} {messages === 1 ? "message" : "messages"}
+          </span>
+        </div>
+      ) : null}
       {comments.flatMap((comment) => [
         <ThreadMessage
           key={`${comment.id}`}
           author={comment.author === "agent" ? "agent" : "user"}
+          userName={userName}
+          action="commented"
           body={comment.body}
         />,
         ...(comment.replies ?? []).map((reply, index) => (
-          <ThreadMessage key={`${comment.id}-${index}`} author="agent" body={reply.body} />
+          <ThreadMessage
+            key={`${comment.id}-${index}`}
+            author="agent"
+            userName={userName}
+            action="replied"
+            body={reply.body}
+          />
         )),
       ])}
-      {editor}
+      {editor ?? (
+        <div className="thread-footer">
+          <span>
+            <kbd>a</kbd> reply
+          </span>
+          <span>
+            <kbd>d</kbd> resolve
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -909,6 +973,7 @@ function DiffPane({
   onSaveComment,
   onCancelComment,
   onFocusHunk,
+  userName,
 }: {
   files: WindowDiffFile[] | null;
   diffStyle: DiffStyle;
@@ -920,6 +985,7 @@ function DiffPane({
   onSaveComment: (body: string) => void;
   onCancelComment: () => void;
   onFocusHunk: (index: number) => void;
+  userName: string;
 }) {
   const codeTheme = theme?.codeTheme;
   const appearance = theme?.appearance;
@@ -964,6 +1030,7 @@ function DiffPane({
       return (
         <CommentThread
           comments={note.comments}
+          userName={userName}
           editor={
             note.editing ? (
               <CommentEditor onSave={onSaveComment} onCancel={onCancelComment} />
@@ -972,7 +1039,7 @@ function DiffPane({
         />
       );
     },
-    [onSaveComment, onCancelComment],
+    [onSaveComment, onCancelComment, userName],
   );
 
   // Wait for the theme so code is not highlighted twice on launch.

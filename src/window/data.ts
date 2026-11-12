@@ -275,3 +275,8 @@ export function addWindowComment(
 export function removeWindowComment(repoRoot: string, id: number) {
   mutateCommentsFile(repoRoot, (current) => withRemovedComment(current, id));
 }
+
+/** The git user's name, for the user's avatar and name in comment threads. */
+export function loadWindowUserName(repoRoot: string) {
+  return git(repoRoot, ["config", "user.name"]).trim() || "You";
+}

@@ -556,13 +556,14 @@ kbd {
 
 /* Comment threads, GitLab style: one box per commented line, a chat row per message. */
 .thread {
-  margin: 6px 12px 8px 2ch;
+  margin: 8px 14px 10px 2ch;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: 10px;
   background: var(--sidebar);
   overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   font:
-    12.5px/1.45 -apple-system,
+    13px/1.5 -apple-system,
     BlinkMacSystemFont,
     "SF Pro Text",
     system-ui,
@@ -576,54 +577,95 @@ kbd {
   border-color: color-mix(in srgb, var(--accent) 60%, var(--line));
 }
 
+.thread-header,
+.thread-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 7px 14px;
+  color: var(--faint);
+  font-size: 11.5px;
+}
+
+.thread-header {
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--sidebar) 70%, var(--bg));
+}
+
+.thread-footer {
+  justify-content: flex-start;
+  border-top: 1px solid var(--line);
+}
+
+.thread-footer kbd {
+  margin-right: 4px;
+}
+
 .thread-message,
 .thread-editor {
   display: flex;
-  gap: 10px;
-  padding: 10px 12px;
+  gap: 12px;
+  padding: 12px 14px;
 }
 
 .thread-message + .thread-message,
 .thread-message + .thread-editor {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent);
 }
 
 .avatar {
   flex-shrink: 0;
   display: grid;
   place-items: center;
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 700;
+  letter-spacing: 0.02em;
   color: #fff;
 }
 
 .thread-message.user .avatar {
-  background: var(--accent);
+  background: linear-gradient(135deg, #8a6cf0, #5b5bd6);
 }
 
+/* Claude's mark on Claude's orange. */
 .thread-message.agent .avatar {
-  background: #8a6cf0;
+  background: #d97757;
+  font-size: 15px;
+  font-weight: 400;
 }
 
 .thread-text {
+  flex: 1;
   min-width: 0;
+}
+
+.thread-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
 }
 
 .thread-author {
   font-weight: 600;
 }
 
+.thread-action {
+  color: var(--faint);
+  font-size: 12px;
+}
+
 .thread-body {
-  margin-top: 2px;
+  margin-top: 3px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
 .thread-editor textarea {
   flex: 1;
+  min-height: 44px;
   border: 0;
   outline: none;
   resize: vertical;

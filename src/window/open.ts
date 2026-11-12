@@ -15,6 +15,7 @@ import {
   loadWindowDiff,
   loadWindowOverview,
   loadWindowThemes,
+  loadWindowUserName,
   loadWindowWorkspace,
   removeWindowComment,
 } from "./data";
@@ -43,6 +44,8 @@ export function startWindowServer(repoRoot: string) {
         authorized(request) ? Response.json(await loadWindowWorkspace(repoRoot)) : forbidden(),
       "/api/themes": async (request) =>
         authorized(request) ? Response.json(await loadWindowThemes(repoRoot)) : forbidden(),
+      "/api/me": (request) =>
+        authorized(request) ? Response.json({ name: loadWindowUserName(repoRoot) }) : forbidden(),
       "/api/comments": {
         GET: (request) =>
           authorized(request) ? Response.json(loadWindowComments(repoRoot)) : forbidden(),
