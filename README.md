@@ -16,7 +16,7 @@ full context  →  Claude writes  →  you review  →  Claude improves  →  sh
 - **Overview.** See what Claude understood before it writes a line. The ticket and docs stay the source of truth.
 - **Ticket-vs-code review.** `R` checks the code against the ticket's acceptance criteria, not just for bugs.
 - **Inline loop.** Comment a hunk; Claude fixes it and replies in place.
-- **Ticket to done, automated.** Commits, MR, Slack, ticket state: one key each, you just approve.
+- **The whole ticket lifecycle on autopilot.** Your queue is always in view: what to build, what waits for approval, what's ready to merge, what to review. From there, one key each sets up the branch, writes the commits, opens the merge request, pings your squad on Slack, and moves the ticket, and merged tickets close themselves. You just approve.
 
 ## Quick start
 
