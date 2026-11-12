@@ -638,16 +638,14 @@ function ThreadMessage({
   const agent = author === "agent";
   return (
     <div className={`thread-message ${author}`}>
-      <span className="avatar" aria-hidden="true">
-        {agent ? "✻" : initials(userName)}
-      </span>
-      <div className="thread-text">
-        <div className="thread-meta">
-          <span className="thread-author">{agent ? "Claude" : userName}</span>
-          <span className="thread-action">{action}</span>
-        </div>
-        <div className="thread-body">{body}</div>
+      <div className="thread-meta">
+        <span className="avatar" aria-hidden="true">
+          {agent ? "✻" : initials(userName)}
+        </span>
+        <span className="thread-author">{agent ? "Claude" : userName}</span>
+        <span className="thread-action">{action}</span>
       </div>
+      <div className="thread-body">{body}</div>
     </div>
   );
 }
@@ -699,16 +697,7 @@ function CommentThread({
           />
         )),
       ])}
-      {editor ?? (
-        <div className="thread-footer">
-          <span>
-            <kbd>a</kbd> reply
-          </span>
-          <span>
-            <kbd>d</kbd> resolve
-          </span>
-        </div>
-      )}
+      {editor}
     </div>
   );
 }
