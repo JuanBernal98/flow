@@ -8,14 +8,14 @@ The slow part of coding with an AI is not the coding: it is handing it the conte
 
 The code itself stays a human–AI loop: you and Claude write it and review it together, in the diff.
 
-## What makes it nice
+## Why you'll like it
 
-- **Context in one key.** Switch to a ticket and Claude reads it all: the ticket, its parent, linked Notion pages, every comment.
-- **An overview to check Claude got it.** What Claude understood, as goal, acceptance criteria, where in the code, and plan. It tells you whether Claude understood the task, and gives you a second reading of it — but the source of truth is still the ticket, its Notion pages, and the official docs: rely on those.
-- **Review is ticket vs. code.** `R` checks the branch against the ticket's acceptance criteria, flags what it does beyond them, then bugs. It works on teammates' MRs too.
-- **Inline comments, both ways.** Comment a hunk and Claude fixes it and replies under your comment.
-- **Commits and MRs you only confirm.** `C` proposes commits in your repo's format, `P` pushes, opens the MR, and pings your squad's Slack.
-- **Tickets that move themselves.** Approved MRs show as Ready to merge; once merged, the ticket moves to Done.
+- **Claude knows the ticket before you explain it.** Pick a ticket and Claude has already read it, its parent, the linked Notion pages, and every comment. No more copy-pasting context.
+- **See what Claude understood, at a glance.** The Overview lays out the goal, acceptance criteria, where in the code, and the plan, so you catch a misunderstanding before a single line is written. A second reading of the task, too — but the ticket, Notion, and official docs stay the source of truth.
+- **Reviews that ask "does it do what the ticket says?"** `R` checks the code against the ticket's acceptance criteria and flags anything outside its scope, then bugs. For your branch and for teammates' MRs.
+- **Talk to Claude right on the code.** Comment any change and Claude fixes it and answers in place, like a pull-request thread in your terminal.
+- **Commit and ship with one key.** `C` writes the commits in your team's style, `P` pushes, opens the MR, and pings your squad on Slack. You just say yes.
+- **Your board updates itself.** Approved MRs show up as ready to merge, and merged tickets move to Done without you touching YouTrack.
 
 ## Quick start
 
