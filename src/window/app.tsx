@@ -644,6 +644,20 @@ function DiffPane({
   );
 }
 
+/** Digits in the highest line number a patch shows, on either side. */
+function widestLineNumber(patch: string) {
+  let highest = 1;
+  for (const match of patch.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
+    const [, oldStart, oldCount = "1", newStart, newCount = "1"] = match;
+    highest = Math.max(
+      highest,
+      Number(oldStart) + Number(oldCount),
+      Number(newStart) + Number(newCount),
+    );
+  }
+  return String(highest).length;
+}
+
 const DiffFile = memo(function DiffFile({
   file,
   options,
@@ -651,8 +665,14 @@ const DiffFile = memo(function DiffFile({
   file: WindowDiffFile;
   options: React.ComponentProps<typeof PatchDiff>["options"];
 }) {
+  // The gutter fits this file's widest line number exactly, so the margin left of the numbers
+  // never depends on how many digits they have.
+  const gutter = useMemo(
+    () => ({ "--gutter-width": `${widestLineNumber(file.patch) + 1.5}ch` }),
+    [file.patch],
+  );
   return (
-    <div className="file" id={fileAnchor(file.path)}>
+    <div className="file" id={fileAnchor(file.path)} style={gutter as React.CSSProperties}>
       <div className="file-header">
         <span>
           <span className="gutter-spacer" aria-hidden="true" />

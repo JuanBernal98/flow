@@ -233,8 +233,8 @@ body {
 .diff {
   overflow-y: auto;
   min-width: 0;
-  /* Equal room on both sides: the numbers on the left sit as far from the edge as the box on the right. */
-  padding: 0 12px 16px 4px;
+  /* Equal room on both sides: each file's gutter fits its widest number (app.tsx). */
+  padding: 0 20px 16px;
 }
 
 .stat {
