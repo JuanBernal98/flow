@@ -8,14 +8,15 @@ The slow part of coding with an AI is not the coding: it is handing it the conte
 
 The code itself stays a human–AI loop: you and Claude write it and review it together, in the diff.
 
-## Why you'll like it
+## How it works
 
-- **Claude knows the ticket before you explain it.** Pick a ticket and Claude has already read it, its parent, the linked Notion pages, and every comment. No more copy-pasting context.
-- **See what Claude understood, at a glance.** The Overview lays out the goal, acceptance criteria, where in the code, and the plan, so you catch a misunderstanding before a single line is written. A second reading of the task, too — but the ticket, Notion, and official docs stay the source of truth.
-- **Reviews that ask "does it do what the ticket says?"** `R` checks the code against the ticket's acceptance criteria and flags anything outside its scope, then bugs. For your branch and for teammates' MRs.
-- **Talk to Claude right on the code.** Comment any change and Claude fixes it and answers in place, like a pull-request thread in your terminal.
-- **Commit and ship with one key.** `C` writes the commits in your team's style, `P` pushes, opens the MR, and pings your squad on Slack. You just say yes.
-- **Your board updates itself.** Approved MRs show up as ready to merge, and merged tickets move to Done without you touching YouTrack.
+- **Context loader.** Switching to a ticket emits a `ticket-context` request; Claude reads the ticket, its parent, linked Notion pages, and every comment, and writes a validated overview to `.flow/overviews/<ID>.json`.
+- **Overview as a contract.** A fixed schema — goal, acceptance criteria, code locations, assumptions, plan — rendered beside the diff with live state (MR, line totals, commits since). It verifies Claude understood the task and gives a second reading; the ticket, Notion, and official docs remain the source of truth.
+- **Ticket-scoped review.** `R` diffs the branch (or a teammate's MR) against the ticket's acceptance criteria: met, missed, or out of scope, then bugs and quick simplifications.
+- **Bidirectional inline comments.** Hunk-anchored comments in `.flow/comments.json` that survive edits; Claude fixes, replies in place, and can comment back.
+- **Event bus, no daemon.** Keys write requests to `.flow/`; `flow watch` streams them to Claude Code, which runs the matching skill. Idle costs no tokens.
+- **Gated write pipeline.** `C` commits in the repo's own format, `P` pushes, opens the MR, posts to Slack, and moves the ticket — each step approved by you.
+- **Board sync.** MR approvals surface as Ready to merge; merged MRs move their ticket to `merged_state`, re-checked against YouTrack before writing.
 
 ## Quick start
 
