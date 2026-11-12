@@ -811,16 +811,26 @@ function PaletteIcon() {
 
 // Mark a pane while it scrolls, so its scrollbar shows only then (see app.css).
 const scrollTimers = new WeakMap<Element, number>();
+
+/** Hide a pane's scrollbar again; WebKit only repaints it after the overflow is re-laid out. */
+function endScrolling(pane: HTMLElement) {
+  pane.classList.remove("is-scrolling");
+  const overflow = pane.style.overflow;
+  pane.style.overflow = "hidden";
+  void pane.offsetHeight;
+  pane.style.overflow = overflow;
+}
+
 document.addEventListener(
   "scroll",
   (event) => {
-    if (!(event.target instanceof Element)) return;
+    if (!(event.target instanceof HTMLElement)) return;
     const pane = event.target;
     pane.classList.add("is-scrolling");
     window.clearTimeout(scrollTimers.get(pane));
     scrollTimers.set(
       pane,
-      window.setTimeout(() => pane.classList.remove("is-scrolling"), 700),
+      window.setTimeout(() => endScrolling(pane), 700),
     );
   },
   { capture: true, passive: true },
