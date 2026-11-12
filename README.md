@@ -18,11 +18,11 @@ zero-prompt context ──▶ Claude                               you ──▶
 
 ## How it works
 
+- **Native Claude.** Claude Code runs in its own terminal, as always. One session, full context, no gaps.
 - **Zero-prompt context.** Claude already knows the ticket. You never paste context again.
 - **Overview.** See what Claude understood, before a single line is written.
 - **Ticket-vs-code review.** Not just "does it work?", but "is it what the ticket asked?"
 - **Inline loop.** Talk to Claude right on the code. Every round, better.
-- **Native Claude.** Claude Code runs in its own terminal, as always. One session, full context, no gaps.
 - **Delivery, built in.** Commits, merge requests, team updates. All from one place.
 
 ## Quick start
