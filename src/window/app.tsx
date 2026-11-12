@@ -868,6 +868,14 @@ pre,
   text-align: right;
   color: var(--faint);
 }
+/* Pierre mixes each row's tint with the background; the terminal paints the tint as is. */
+[data-line],
+[data-column-number],
+[data-gutter-buffer],
+[data-no-newline] {
+  --mix-light: 0%;
+  --mix-dark: 0%;
+}
 /* Breathing room inside the box: the first and last rows grow, so the room takes their color (green
    on a new line) and the gutter rows grow alike, keeping numbers on their lines. */
 [data-content] > :first-child,

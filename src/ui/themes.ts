@@ -359,8 +359,8 @@ export const THEMES: AppTheme[] = [
       // near-black green and red tints that read as transparent over the background, slightly
       // stronger tints for changed words, and its decoration colors for the +/- signs. Context
       // sits on the plain background.
-      addedBg: "#022800",
-      removedBg: "#3d0100",
+      addedBg: "#002800",
+      removedBg: "#430000",
       contextBg: "#15191f",
       addedContentBg: "#044700",
       removedContentBg: "#5c0200",
