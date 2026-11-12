@@ -4,7 +4,7 @@
 
 **Everything you need to work, in one place.** Your tickets, your squad's reviews, the code, and Claude, side by side in one terminal: no more jumping between YouTrack, GitLab, Notion, and Slack.
 
-flow minimizes distractions and leaves only what matters: review, iteration, and judgment, in a human–AI loop. Claude starts every ticket already knowing it, and everything around the code runs itself:
+**flow** minimizes distractions and leaves only what matters: review, iteration, and judgment, in a human–AI loop. Claude starts every ticket already knowing it, and everything around the code runs itself:
 
 ```text
 full context  →  Claude writes  →  you review  →  Claude improves  →  shipped
@@ -48,6 +48,6 @@ Reviewing a teammate's MR works the same: pick it under **Reviews**, `Enter`, `R
 
 - **Nothing leaves without you.** Commits, pushes, MRs, and Slack posts wait for your yes.
 - **No company details in flow.** Each squad's YouTrack, GitLab label, and Slack channel live in a local `.flow/config.toml`.
-- **Idle costs nothing.** flow and Claude talk through files in `.flow/`; no daemon, no tokens while you work.
+- **Idle costs nothing.** **flow** and Claude talk through files in `.flow/`; no daemon, no tokens while you work.
 
 Built on [dunk](https://github.com/amix/dunk)'s diff viewer. Development notes in [`AGENTS.md`](AGENTS.md). [MIT](LICENSE).
