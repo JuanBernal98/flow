@@ -2,7 +2,7 @@
 /**
  * The flow window: workspace sidebar, ticket overview, and the branch's diff rendered by Pierre's
  * web components. Keys mirror the terminal UI: j/k or arrows move, Enter shows that ticket's
- * overview, x toggles the overview, / filters, r reloads.
+ * overview, x toggles the overview, r reloads.
  */
 import { PatchDiff } from "@pierre/diffs/react";
 import type React from "react";
@@ -54,9 +54,7 @@ function App() {
   useEffect(() => {
     void api<WindowThemes>("/api/themes").then(setThemes);
   }, []);
-  const [filter, setFilter] = useState("");
   const [timing, setTiming] = useState<string>("");
-  const filterRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(() => {
     // The diff is local and fast; the workspace waits on YouTrack and GitLab, so neither blocks the other.
@@ -80,19 +78,11 @@ function App() {
   useEffect(reload, [reload]);
 
   const [collapsed, setCollapsed] = useState<ReadonlySet<WorkspaceSectionId>>(new Set());
-  const filtering = filter.trim() !== "";
-  const matchingItems = useMemo(() => {
-    const query = filter.trim().toLowerCase();
-    const items = workspace?.items ?? [];
-    return query
-      ? items.filter((item) => `${item.ticketId ?? ""} ${item.title}`.toLowerCase().includes(query))
-      : items;
-  }, [workspace, filter]);
-  // The items the keyboard walks: folded sections are skipped, except while filtering.
+  const allItems = useMemo(() => workspace?.items ?? [], [workspace]);
+  // The items the keyboard walks: folded sections are skipped.
   const visibleItems = useMemo(
-    () =>
-      filtering ? matchingItems : matchingItems.filter((item) => !collapsed.has(item.section)),
-    [matchingItems, collapsed, filtering],
+    () => allItems.filter((item) => !collapsed.has(item.section)),
+    [allItems, collapsed],
   );
   const toggleSection = useCallback((id: WorkspaceSectionId) => {
     setCollapsed((current) => {
@@ -107,10 +97,6 @@ function App() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.target === filterRef.current) {
-        if (event.key === "Escape" || event.key === "Enter") filterRef.current?.blur();
-        return;
-      }
       if (event.metaKey || event.ctrlKey) return;
       if (event.key === "j" || event.key === "ArrowDown") {
         setCursor((index) => Math.min(index + 1, visibleItems.length - 1));
@@ -129,10 +115,6 @@ function App() {
         setDiffStyle("split");
       } else if (event.key === "2") {
         setDiffStyle("unified");
-      } else if (event.key === "/") {
-        event.preventDefault();
-        setWorkspaceOpen(true);
-        filterRef.current?.focus();
       } else if (event.key === "r") {
         reload();
       } else if (event.key === "t" && themes) {
@@ -148,22 +130,6 @@ function App() {
 
   return (
     <div className="window">
-      <TopBar>
-        <label className="search">
-          <SearchIcon />
-          <input
-            ref={filterRef}
-            placeholder="Filter tickets and reviews"
-            value={filter}
-            onChange={(event) => {
-              setFilter(event.target.value);
-              setCursor(0);
-              setWorkspaceOpen(true);
-            }}
-          />
-          {filter ? null : <kbd>/</kbd>}
-        </label>
-      </TopBar>
       <div
         className="panes"
         style={{ gridTemplateColumns: paneColumns(workspaceOpen, overviewOpen, filesOpen) }}
@@ -173,8 +139,8 @@ function App() {
             <div className="sections">
               {workspace === null ? <div className="section-title">Loading…</div> : null}
               {SECTIONS.map((section) => {
-                const items = matchingItems.filter((item) => item.section === section.id);
-                const open = filtering || !collapsed.has(section.id);
+                const items = allItems.filter((item) => item.section === section.id);
+                const open = !collapsed.has(section.id);
                 return (
                   <section key={section.id} className={`section${open ? " open" : ""}`}>
                     <button
@@ -238,49 +204,16 @@ type DiffStyle = "split" | "unified";
 
 declare global {
   interface Window {
-    /** Bound by the native window on macOS: drag or zoom it from the page's own top bar. */
+    /** Bound by the native window on macOS: drag or zoom it from the title bar strip. */
     flowDragWindow?: () => Promise<void>;
     flowZoomWindow?: () => Promise<void>;
   }
-}
-
-/**
- * The top bar, drawn under the macOS traffic lights. Pressing its empty space drags the window and
- * a double click zooms it, like a native title bar; controls inside it keep their own clicks.
- */
-function TopBar({ children }: { children: React.ReactNode }) {
-  const isBackground = (target: EventTarget) =>
-    target instanceof HTMLElement && target.closest("input, button, label") === null;
-  return (
-    <header
-      className="topbar"
-      onMouseDown={(event) => {
-        if (event.button === 0 && event.detail === 1 && isBackground(event.target)) {
-          void window.flowDragWindow?.();
-        }
-      }}
-      onDoubleClick={(event) => {
-        if (isBackground(event.target)) void window.flowZoomWindow?.();
-      }}
-    >
-      {children}
-    </header>
-  );
 }
 
 function ChevronIcon() {
   return (
     <svg {...ICON} width={10} height={10} className="chevron">
       <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.6} />
-    </svg>
-  );
-}
-
-function SearchIcon() {
-  return (
-    <svg {...ICON} width={13} height={13}>
-      <circle cx="7" cy="7" r="4.5" />
-      <path d="M10.5 10.5 14 14" strokeLinecap="round" />
     </svg>
   );
 }
@@ -942,6 +875,21 @@ document.addEventListener(
   },
   { capture: true, passive: true },
 );
+
+// No title bar is drawn, so the strip under the traffic lights acts as one across the window:
+// pressing its empty space drags the window and a double click zooms it.
+const TITLE_BAR_HEIGHT = 28;
+const isTitleBarPress = (event: MouseEvent) =>
+  event.clientY < TITLE_BAR_HEIGHT &&
+  event.target instanceof Element &&
+  event.target.closest("button, a, input, select, label") === null;
+document.addEventListener("mousedown", (event) => {
+  if (event.button === 0 && event.detail === 1 && isTitleBarPress(event))
+    void window.flowDragWindow?.();
+});
+document.addEventListener("dblclick", (event) => {
+  if (isTitleBarPress(event)) void window.flowZoomWindow?.();
+});
 
 const root = document.getElementById("root");
 if (root) createRoot(root).render(<App />);

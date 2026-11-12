@@ -67,7 +67,7 @@ body {
 
 .window {
   display: grid;
-  grid-template-rows: 28px minmax(0, 1fr) 26px;
+  grid-template-rows: minmax(0, 1fr) 26px;
   height: 100%;
 }
 
@@ -78,11 +78,17 @@ body {
 
 /* Sidebar */
 .sidebar {
-  background: var(--bg);
+  background: var(--sidebar);
   border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+
+/* On macOS the traffic lights sit over the first pane's top (the sidebar, or the overview when it
+   is hidden), so that pane's content starts below them. */
+.native-mac .panes > :first-child {
+  padding-top: 32px;
 }
 
 .sections {
@@ -476,51 +482,6 @@ kbd {
   background: var(--bg);
   color: var(--text);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-}
-
-/* Top bar: on macOS the traffic lights float over its left end. */
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--line);
-  background: var(--bg);
-  -webkit-user-select: none;
-}
-
-.native-mac .topbar {
-  padding-left: 76px;
-}
-
-.search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: min(360px, 100%);
-  height: 18px;
-  color: var(--faint);
-  font-size: 12px;
-  border-bottom: 1px solid transparent;
-  transition: border-color 120ms;
-}
-
-.search:focus-within {
-  border-bottom-color: var(--accent);
-}
-
-.search input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: none;
-  color: var(--text);
-  font: inherit;
-}
-
-.search input::placeholder {
-  color: var(--faint);
 }
 
 .theme-picker {
