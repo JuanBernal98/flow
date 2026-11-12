@@ -166,7 +166,7 @@ function App() {
       </TopBar>
       <div
         className="panes"
-        style={{ gridTemplateColumns: paneColumns(workspaceOpen, overviewOpen, filesOpen) }}
+        style={{ gridTemplateColumns: paneColumns(workspaceOpen, overviewOpen) }}
       >
         {workspaceOpen ? (
           <aside className="sidebar">
@@ -213,8 +213,14 @@ function App() {
           </aside>
         ) : null}
         {overviewOpen ? <OverviewPane item={selected} /> : null}
-        <DiffPane files={diff} diffStyle={diffStyle} theme={theme} />
-        {filesOpen ? <FilesPane files={diff} /> : null}
+        {/* The changed-files list belongs to the diff's half, not to the split. */}
+        <div
+          className="review"
+          style={{ gridTemplateColumns: filesOpen ? "minmax(0, 1fr) 240px" : "minmax(0, 1fr)" }}
+        >
+          <DiffPane files={diff} diffStyle={diffStyle} theme={theme} />
+          {filesOpen ? <FilesPane files={diff} /> : null}
+        </div>
       </div>
       <StatusBar
         workspace={workspace}
@@ -285,10 +291,10 @@ function SearchIcon() {
   );
 }
 
-/** Grid columns for the open panes: the overview and the diff split what the sidebars leave. */
-function paneColumns(workspace: boolean, overview: boolean, files: boolean) {
+/** Grid columns for the open panes: the overview and the review (diff plus its files) split evenly. */
+function paneColumns(workspace: boolean, overview: boolean) {
   const body = overview ? "minmax(0, 1fr) minmax(0, 1fr)" : "minmax(0, 1fr)";
-  return [workspace ? "280px" : "", body, files ? "240px" : ""].filter(Boolean).join(" ");
+  return [workspace ? "280px" : "", body].filter(Boolean).join(" ");
 }
 
 /** The bottom bar: panel toggles on the edges, the branch and change totals in between. */

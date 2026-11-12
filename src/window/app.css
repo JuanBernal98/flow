@@ -71,9 +71,11 @@ body {
   height: 100%;
 }
 
-.panes {
+.panes,
+.review {
   display: grid;
   min-height: 0;
+  min-width: 0;
 }
 
 /* Sidebar */
