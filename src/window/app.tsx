@@ -435,14 +435,15 @@ function FilesPane({ files }: { files: WindowDiffFile[] | null }) {
           <button
             type="button"
             key={file.path}
-            className="file-row"
-            title={file.path}
+            className={`file-row ${file.status}`}
+            title={`${file.path} (${file.status})`}
             onClick={() =>
               document
                 .getElementById(fileAnchor(file.path))
                 ?.scrollIntoView({ behavior: "smooth", block: "start" })
             }
           >
+            <FileIcon path={file.path} />
             <span className="file-name">
               {file.path.slice(slash + 1)}
               <span className="file-dir">{slash > 0 ? file.path.slice(0, slash) : ""}</span>
@@ -455,6 +456,52 @@ function FilesPane({ files }: { files: WindowDiffFile[] | null }) {
         );
       })}
     </nav>
+  );
+}
+
+/** Language colors for file icons, by extension; anything else gets the muted file color. */
+const FILE_COLORS: Record<string, string> = {
+  ts: "#3178c6",
+  tsx: "#3178c6",
+  mts: "#3178c6",
+  js: "#e8c547",
+  jsx: "#e8c547",
+  mjs: "#e8c547",
+  json: "#cbcb41",
+  md: "#519aba",
+  css: "#a86fd9",
+  scss: "#cd6799",
+  html: "#e34c26",
+  rs: "#dea584",
+  py: "#4b8bbe",
+  go: "#00add8",
+  java: "#e76f00",
+  kt: "#a97bff",
+  rb: "#cc342d",
+  sh: "#89e051",
+  toml: "#9c4221",
+  yml: "#cb171e",
+  yaml: "#cb171e",
+  sql: "#e38c00",
+};
+
+/** A small document icon tinted with the file's language color. */
+function FileIcon({ path }: { path: string }) {
+  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase();
+  const color = FILE_COLORS[extension] ?? "var(--faint)";
+  return (
+    <svg className="file-icon" width={14} height={14} viewBox="0 0 16 16" aria-hidden="true">
+      <path
+        d="M4 1.5h5l3.5 3.5v9a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2a.5.5 0 0 1 .5-.5Z"
+        fill="none"
+        stroke={color}
+        strokeWidth={1.3}
+        strokeLinejoin="round"
+      />
+      <path d="M9 1.5V5h3.5" fill="none" stroke={color} strokeWidth={1.3} strokeLinejoin="round" />
+      <rect x="5.5" y="8" width="5" height="1.4" rx=".7" fill={color} />
+      <rect x="5.5" y="10.8" width="3.5" height="1.4" rx=".7" fill={color} />
+    </svg>
   );
 }
 
@@ -652,7 +699,8 @@ const DiffFile = memo(function DiffFile({
       <div className="file-header">
         <span>
           <span className="gutter-spacer" aria-hidden="true" />
-          <span className="file-header-name">
+          <FileIcon path={file.path} />
+          <span className={`file-header-name ${file.status}`}>
             {file.path.slice(file.path.lastIndexOf("/") + 1)}
           </span>
           <span className="file-header-dir">

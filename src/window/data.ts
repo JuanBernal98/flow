@@ -61,6 +61,7 @@ export interface WindowThemes {
 export interface WindowDiffFile {
   path: string;
   patch: string;
+  status: "added" | "deleted" | "renamed" | "modified";
   additions: number;
   deletions: number;
 }
@@ -161,9 +162,17 @@ export function loadWindowDiff(repoRoot: string): WindowDiffFile[] {
       const path =
         /^\+\+\+ b\/(.+)$/m.exec(chunk)?.[1] ?? /^--- a\/(.+)$/m.exec(chunk)?.[1] ?? "file";
       const lines = chunk.split("\n");
+      const status = /^new file mode/m.test(chunk)
+        ? "added"
+        : /^deleted file mode/m.test(chunk)
+          ? "deleted"
+          : /^rename from/m.test(chunk)
+            ? "renamed"
+            : "modified";
       return {
         path,
         patch: chunk,
+        status,
         additions: lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length,
         deletions: lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length,
       };

@@ -523,3 +523,33 @@ kbd {
   opacity: 1;
   transition-duration: 80ms;
 }
+
+/* File icons and status: new files read green, deleted ones red and struck through. */
+.file-icon {
+  flex-shrink: 0;
+}
+
+.file-row {
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.file-row .file-name {
+  flex: 1;
+}
+
+.file-row.added .file-name,
+.file-header-name.added {
+  color: var(--add);
+}
+
+.file-row.deleted .file-name,
+.file-header-name.deleted {
+  color: var(--del);
+  text-decoration: line-through;
+}
+
+.file-header .file-icon {
+  margin-right: 6px;
+  vertical-align: -2px;
+}
