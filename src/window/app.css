@@ -1,7 +1,8 @@
 :root {
   /* The diff line-number column, in the code font; the file title is indented by the same. */
   --gutter-width: 7ch;
-  --block-inset: 4px;
+  /* Like the terminal, which keeps the diff one cell off the pane edge. */
+  --block-inset: 14px;
   --block-end: 16px;
   --code-font: 12.5px ui-monospace, "SF Mono", Menlo, monospace;
   --bg: #ffffff;
@@ -283,7 +284,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  padding: 12px var(--block-end) 2px var(--block-inset);
+  padding: 12px var(--block-end) 5px var(--block-inset);
   line-height: 1.2;
   background: var(--bg);
   font-size: 12.5px;

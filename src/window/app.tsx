@@ -773,6 +773,24 @@ code {
   border-radius: 6px;
   overflow: hidden;
 }
+/* Skipped lines between hunks: the box runs on unbroken and the gutter shows an ellipsis. */
+[data-separator="simple"] {
+  min-height: 1lh;
+}
+[data-content] [data-separator="simple"] {
+  background-color: var(--code-bg);
+}
+[data-gutter] [data-separator="simple"] {
+  background-color: var(--bg);
+  position: relative;
+}
+[data-gutter] [data-separator="simple"]::after {
+  content: "⋯";
+  position: absolute;
+  inset: 0 1ch 0 0;
+  text-align: right;
+  color: var(--faint);
+}
 [data-column-number] {
   border-right: 0;
   --diffs-fg-number-addition-override: var(--faint);
