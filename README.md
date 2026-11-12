@@ -23,7 +23,7 @@ zero-prompt context ──▶ Claude                               you ──▶
 - **Overview.** See what Claude understood, before a single line is written.
 - **Ticket-vs-code review.** Not just "does it work?", but "is it what the ticket asked?"
 - **Inline loop.** Talk to Claude right on the code. Every round, better.
-- **Delivery, built in.** Ticket updates, commits, merge requests, Slack team updates. All from one place.
+- **Automate the busywork.** Ticket updates, commits, merge requests, Slack team updates. All from one place.
 
 ## Quick start
 
