@@ -760,6 +760,10 @@ code {
 [data-code] {
   --diffs-code-grid: var(--gutter-width) minmax(0, 1fr);
   grid-template-columns: var(--gutter-width) minmax(0, 1fr);
+  /* No reserved scrollbar lane or outer padding, so the box spans exactly under its title. */
+  --diffs-scrollbar-gutter-override: 0px;
+  scrollbar-gutter: auto;
+  padding-block: 0;
 }
 /* Like Zed: line numbers on the window background, the code in a framed, slightly darker box. */
 [data-content] {

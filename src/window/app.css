@@ -283,7 +283,8 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  padding: 10px var(--block-end) 4px var(--block-inset);
+  padding: 12px var(--block-end) 2px var(--block-inset);
+  line-height: 1.2;
   background: var(--bg);
   font-size: 12.5px;
   position: sticky;
