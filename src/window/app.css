@@ -499,7 +499,7 @@ kbd {
   outline: none;
 }
 
-/* Scrollbars stay hidden until a pane scrolls or is hovered, like macOS overlay scrollbars. */
+/* Scrollbars stay hidden and show only while a pane scrolls, like macOS overlay scrollbars. */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -513,8 +513,7 @@ kbd {
   background-color: transparent;
 }
 
-.is-scrolling::-webkit-scrollbar-thumb,
-:hover::-webkit-scrollbar-thumb {
+.is-scrolling::-webkit-scrollbar-thumb {
   background-color: color-mix(in srgb, var(--faint) 55%, transparent);
 }
 
