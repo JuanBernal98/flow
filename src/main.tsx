@@ -155,10 +155,17 @@ async function main() {
       workspaceTasksLoader={youtrackUrl ? () => loadYouTrackTasks({ url: youtrackUrl }) : undefined}
       issueUrl={youtrackUrl ? (ticketId) => youTrackIssueUrl(youtrackUrl, ticketId) : undefined}
       projectKeys={integrations.projectKeys}
+      workflow={integrations.workflow}
       startupNotice={startupNotice}
       closeMergedTicket={
         youtrackUrl && mergedState
-          ? (ticketId) => moveMergedTicket(ticketId, mergedState, { url: youtrackUrl })
+          ? (ticketId) =>
+              moveMergedTicket(
+                ticketId,
+                mergedState,
+                { url: youtrackUrl },
+                integrations.workflow.reviewState,
+              )
           : undefined
       }
       loadMergeRequests={

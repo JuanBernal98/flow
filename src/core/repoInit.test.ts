@@ -41,6 +41,8 @@ function createTestInitDeps(
     isYouTrackProject: async () => true,
     hasGitLabLabel: async () => true,
     git: (args) => {
+      // The throwaway repo has no remote: every origin branch a test names counts as existing.
+      if (args[0] === "rev-parse" && args.includes("--verify")) return { exitCode: 0, stdout: "" };
       const result = Bun.spawnSync(["git", ...args], {
         cwd: root,
         stdout: "pipe",
@@ -52,14 +54,15 @@ function createTestInitDeps(
   };
 }
 
-const FULL_ANSWERS = ["https://yt.test", "", "", "my-team", "#team-reviews"];
+const FULL_ANSWERS = ["https://yt.test", "", "", "", "my-team", "#team-reviews", ""];
 
 describe("missingConfigSections", () => {
   test("lists the sections a config does not declare", () => {
-    expect(missingConfigSections(undefined)).toEqual(["youtrack", "gitlab", "slack"]);
+    expect(missingConfigSections(undefined)).toEqual(["youtrack", "gitlab", "slack", "git"]);
     expect(missingConfigSections('theme = "zed"\n[gitlab]\nreview_label = "x"\n')).toEqual([
       "youtrack",
       "slack",
+      "git",
     ]);
   });
 });
@@ -73,13 +76,14 @@ describe("runRepoInit", () => {
     const config = readFileSync(join(root, ".flow", "config.toml"), "utf8");
     const parsed = Bun.TOML.parse(config);
     expect(parsed).toEqual({
-      youtrack: { url: "https://yt.test", merged_state: "Done" },
+      youtrack: { url: "https://yt.test", merged_state: "Done", review_state: "Review" },
       gitlab: { review_label: "my-team" },
       slack: { review_channel: "#team-reviews" },
+      git: { base_branch: "main" },
     });
     expect(config).toContain("# Your tickets still in Review move to this state");
     expect(readFileSync(join(root, ".git", "info", "exclude"), "utf8")).toContain(".flow/\n");
-    expect(deps.lines.at(-1)).toContain("flow diff");
+    expect(deps.lines.at(-1)).toContain("run `flow`");
   });
 
   test("asks again, saying why, until an answer checks out", async () => {
@@ -92,6 +96,7 @@ describe("runRepoInit", () => {
         "https://yt.test",
         "Finished",
         "Done",
+        "",
         "proj",
         "NOPE",
         "PROJ, OPS",
@@ -99,13 +104,14 @@ describe("runRepoInit", () => {
         "my-team",
         "team",
         "#team",
+        "",
       ],
       {
         checkYouTrack: async () =>
           ++youTrackTries === 1
             ? { ok: false, message: "YouTrack is unreachable" }
             : { ok: true, login: "me" },
-        isYouTrackState: async (_url, state) => state === "Done",
+        isYouTrackState: async (_url, state) => state === "Done" || state === "Review",
         isYouTrackProject: async (_url, key) => key !== "NOPE",
         hasGitLabLabel: async (label) => label === "my-team",
       },
@@ -124,7 +130,7 @@ describe("runRepoInit", () => {
 
   test("offers the YouTrack URL setup remembered, so Enter is enough", async () => {
     const root = createTestGitRepo();
-    const deps = createTestInitDeps(root, ["", "", "", "my-team", "#team-reviews"], {
+    const deps = createTestInitDeps(root, ["", "", "", "", "my-team", "#team-reviews", ""], {
       defaultYouTrackUrl: "https://remembered.test",
     });
     await runRepoInit(root, deps);
@@ -140,10 +146,14 @@ describe("runRepoInit", () => {
       join(root, ".flow", "config.toml"),
       'theme = "claude"\n\n[youtrack]\nurl = "https://yt.test"\n',
     );
-    const deps = createTestInitDeps(root, ["my-team", "#team-reviews"]);
+    const deps = createTestInitDeps(root, ["my-team", "#team-reviews", ""]);
     await runRepoInit(root, deps);
 
-    expect(deps.questions).toEqual(["GitLab label of your squad's MRs", "Slack review channel"]);
+    expect(deps.questions).toEqual([
+      "GitLab label of your squad's MRs",
+      "Slack review channel",
+      "Base branch for tickets and MRs",
+    ]);
     const parsed = Bun.TOML.parse(readFileSync(join(root, ".flow", "config.toml"), "utf8"));
     expect(parsed).toMatchObject({
       theme: "claude",

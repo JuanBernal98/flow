@@ -32,7 +32,7 @@ export type TicketSwitchResult =
   | { kind: "failed"; message: string };
 
 // Same base `/flow-ticket-switch` branches new tickets from.
-export const NEW_TICKET_BASE = "origin/main";
+export const DEFAULT_TICKET_BASE = "origin/main";
 const STASH_PREFIX = "flow:";
 
 /** Build an async git runner bound to one repository. */
@@ -240,6 +240,7 @@ export async function switchToTicket(
   git: GitRun,
   ticketId: string,
   preferredBranch?: string,
+  base = DEFAULT_TICKET_BASE,
 ): Promise<TicketSwitchResult> {
   return switchParkingWork(
     git,
@@ -251,7 +252,7 @@ export async function switchToTicket(
           kind: "target",
           branch: ticketId,
           origin: "created",
-          switchArgs: ["switch", "--no-track", "-c", ticketId, NEW_TICKET_BASE],
+          switchArgs: ["switch", "--no-track", "-c", ticketId, base],
         };
       }
       const { name, location } = ticketBranch;

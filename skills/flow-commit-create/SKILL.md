@@ -17,11 +17,13 @@ reglas, no lo hagas y avísalo en el resumen.
 
 ## 1. Qué hay
 
+`<base>` es `[git] base_branch` del `.flow/config.toml` del repo (por defecto `main`).
+
 - Rama: `git branch --show-current`. Si es `main` (o la rama por defecto), dilo y para.
 - Cambios: `git status --porcelain`, `git diff`, `git diff --staged`, y lee los archivos nuevos. Ignora
   `.flow/`. Si no hay cambios, dilo y para.
 - Commits de la rama que aún no están en el remoto: `git log --oneline @{u}..HEAD` (sin upstream,
-  `git log --oneline origin/main..HEAD`). Solo esos se pueden reescribir.
+  `git log --oneline origin/<base>..HEAD`). Solo esos se pueden reescribir.
 - Ticket: `<argumentos>` si trae un ID, si no el prefijo `^[A-Z]+-[0-9]+` de la rama. Con ticket,
   `mcp__youtrack__get_issue` (`recentCommentsCount: 0`) para entender el porqué de los cambios.
 

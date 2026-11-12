@@ -33,7 +33,7 @@ describe("readRepoIntegrations", () => {
       ].join("\n"),
     );
     const integrations = readRepoIntegrations(root);
-    expect(integrations).toEqual({
+    expect(integrations).toMatchObject({
       youtrackUrl: "https://yt.test",
       gitlab: true,
       reviewLabel: "my-team",
@@ -64,6 +64,24 @@ describe("readRepoIntegrations", () => {
     ).toEqual([]);
   });
 
+  test("the squad's workflow comes from the config, with Review and main by default", () => {
+    expect(readRepoIntegrations(createTestRepoRoot("[gitlab]\n")).workflow).toEqual({
+      reviewState: "Review",
+      inProgressStates: [],
+      baseBranch: "main",
+    });
+    const custom = readRepoIntegrations(
+      createTestRepoRoot(
+        '[youtrack]\nreview_state = "Code Review"\nin_progress_states = ["Doing"]\n[git]\nbase_branch = "develop"\n',
+      ),
+    );
+    expect(custom.workflow).toEqual({
+      reviewState: "Code Review",
+      inProgressStates: ["Doing"],
+      baseBranch: "develop",
+    });
+  });
+
   test("a broken config connects to nothing but says why", () => {
     expect(readRepoIntegrations(createTestRepoRoot("[youtrack\nbroken")).error).toContain(
       "TOML Parse error",
@@ -75,7 +93,7 @@ describe("readRepoIntegrations", () => {
   });
 
   test("an empty [gitlab] section turns GitLab on without a review label", () => {
-    expect(readRepoIntegrations(createTestRepoRoot("[gitlab]\n"))).toEqual({
+    expect(readRepoIntegrations(createTestRepoRoot("[gitlab]\n"))).toMatchObject({
       youtrackUrl: undefined,
       gitlab: true,
       reviewLabel: undefined,
@@ -86,7 +104,7 @@ describe("readRepoIntegrations", () => {
   test("a repository without sections, config, or root connects to nothing", () => {
     for (const root of [createTestRepoRoot('theme = "zed"\n'), createTestRepoRoot(), null]) {
       const integrations = readRepoIntegrations(root);
-      expect(integrations).toEqual({ gitlab: false, projectKeys: [] });
+      expect(integrations).toMatchObject({ gitlab: false, projectKeys: [] });
       expect(hasWorkspaceIntegrations(integrations)).toBe(false);
     }
     expect(readRepoIntegrations(createTestRepoRoot("[youtrack\nbroken"))).toMatchObject({

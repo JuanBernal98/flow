@@ -1,4 +1,5 @@
 import type { ReviewMergeRequest, WorkspaceReviewsResult } from "../../core/gitlab";
+import { DEFAULT_WORKFLOW, type TicketWorkflow } from "../../core/repoIntegrations";
 import { belongsToTicket } from "../../core/ticketSwitch";
 import type { WorkspaceTasksResult, YouTrackTask } from "../../core/youtrack";
 
@@ -44,17 +45,28 @@ export interface WorkspaceItem {
   state?: string;
 }
 
-/** Tickets in YouTrack's Review state wait on someone else's approval. */
-function isInReview(task: YouTrackTask) {
-  return task.state?.toLowerCase() === "review";
+/** Tickets in the squad's review state wait on someone else's approval. */
+function isInReview(task: YouTrackTask, workflow: TicketWorkflow) {
+  return task.state?.toLowerCase() === workflow.reviewState.toLowerCase();
 }
 
-/** Treat any YouTrack state that reads as active work as in progress; everything else is open. */
-function taskStatus(task: YouTrackTask): WorkspaceStatus {
-  if (isInReview(task)) {
+/**
+ * In progress when the state is one of the squad's in-progress states, or, without that list, any
+ * state that reads as active work; everything else is open.
+ */
+function taskStatus(task: YouTrackTask, workflow: TicketWorkflow): WorkspaceStatus {
+  if (isInReview(task, workflow)) {
     return "awaitingReview";
   }
-  return task.state && /progress|develop|doing/i.test(task.state) ? "inProgress" : "pending";
+  const state = task.state?.toLowerCase();
+  if (!state) {
+    return "pending";
+  }
+  const inProgress =
+    workflow.inProgressStates.length > 0
+      ? workflow.inProgressStates.some((name) => name.toLowerCase() === state)
+      : /progress|develop|doing/.test(state);
+  return inProgress ? "inProgress" : "pending";
 }
 
 // Ticket ids such as PROJ-20805 or OPS-590, which branches and MR titles carry by convention.
@@ -141,6 +153,7 @@ export function buildWorkspaceItems(
   reviews: WorkspaceReviewsState,
   issueUrl: (ticketId: string) => string | undefined = () => undefined,
   projectKeys: readonly string[] = [],
+  workflow: TicketWorkflow = DEFAULT_WORKFLOW,
 ): WorkspaceItem[] {
   const taskItems: WorkspaceItem[] =
     tasks.kind === "ready"
@@ -148,8 +161,8 @@ export function buildWorkspaceItems(
           id: task.id,
           ticketId: task.id,
           title: task.summary || task.id,
-          section: isInReview(task) ? "approval" : "todo",
-          status: taskStatus(task),
+          section: isInReview(task, workflow) ? "approval" : "todo",
+          status: taskStatus(task, workflow),
           url: task.url,
           state: task.state,
         }))

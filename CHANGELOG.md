@@ -10,6 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Each squad's workflow is configurable instead of assumed: `[youtrack] review_state` (default `Review`) drives Needs approval, Ready to merge, closing merged tickets, and the state `flow-mr-open` sets; `[youtrack] in_progress_states` lists the states shown as in progress (default: any state reading like active work); `[git] base_branch` (default `main`) is where ticket branches start, what card line totals compare against, and where MRs merge. `flow init` asks for the review state (checked against YouTrack) and the base branch (proposing the remote's default).
+
 - `[youtrack] project_keys` (asked by `flow init`, checked against YouTrack) limits which ids count as a review's ticket, so `UTF-8` in an MR title or another squad's ticket is never taken for yours. Without it any `KEY-123` counts, as before.
 
 - `./install.sh` installs flow from a fresh clone in one go: dependencies, the `flow` command, and `flow setup claude`. Setup now offers to fix each missing dependency instead of only listing it — `brew install glab`, `glab auth login`, storing the YouTrack token in the Keychain, and adding the YouTrack MCP with that token — always showing the exact command and running it only after a yes; a no stops setup before anything is installed. Notion and Slack, which need the browser, are explained and checked again. Anything already set up is left alone.

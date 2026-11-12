@@ -14,8 +14,6 @@ const KEYCHAIN_SERVICE_PREFIX = "flow-youtrack";
 // All my open tickets in one request; the workspace splits off the ones in Review by State.
 const ASSIGNED_TASKS_QUERY = "for: me #Unresolved sort by: updated desc";
 const ISSUE_FIELDS = "idReadable,summary,customFields(name,value(name))";
-// The workspace only ever moves a ticket out of this state, and only when it is still mine.
-const REVIEW_STATE = "review";
 const MAX_TASKS = 50;
 const DEFAULT_FETCH_TIMEOUT_MS = 10_000;
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -349,6 +347,7 @@ export async function moveMergedTicket(
   ticketId: string,
   targetState: string,
   deps: YouTrackDeps = {},
+  reviewState = "Review",
 ): Promise<MergedTicketResult> {
   const connection = resolveConnection(deps);
   if ("kind" in connection) {
@@ -377,7 +376,10 @@ export async function moveMergedTicket(
   if (!assignee.success || assignee.data.login !== login.data.login) {
     return { kind: "skipped", reason: "not assigned to you" };
   }
-  if (customFieldName(fields.data.customFields, "State")?.toLowerCase() !== REVIEW_STATE) {
+  // The workspace only ever moves a ticket out of the review state, and only while it is still mine.
+  if (
+    customFieldName(fields.data.customFields, "State")?.toLowerCase() !== reviewState.toLowerCase()
+  ) {
     return { kind: "skipped", reason: "no longer in Review" };
   }
 

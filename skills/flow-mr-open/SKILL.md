@@ -1,6 +1,6 @@
 ---
 name: flow-mr-open
-description: Crea el MR de la rama actual, envía la petición de review al canal de Slack del equipo y pasa el ticket de YouTrack a Review, cada cosa solo tras la aprobación del usuario. Úsalo cuando llegue un evento "flow request: mr-open [<ID>]" del watcher (el usuario pulsó P), o cuando el usuario pida abrir el MR.
+description: Crea el MR de la rama actual, envía la petición de review al canal de Slack del equipo y pasa el ticket de YouTrack a su estado de review, cada cosa solo tras la aprobación del usuario. Úsalo cuando llegue un evento "flow request: mr-open [<ID>]" del watcher (el usuario pulsó P), o cuando el usuario pida abrir el MR.
 argument-hint: "[locally|staging|tests]"
 ---
 
@@ -19,6 +19,9 @@ Los datos del equipo viven en el `.flow/config.toml` del repo, que es local y no
 desde la raíz del repo y usa estos valores en todo el skill:
 
 - `<youtrack>`: `[youtrack] url` (p. ej. `https://youtrack.example.com`).
+
+- `<base>`: `[git] base_branch` (por defecto `main`), la rama de destino del MR.
+- `<review>`: `[youtrack] review_state` (por defecto `Review`), el estado al que pasa el ticket.
 - `<canal>`: `[slack] review_channel` (p. ej. `#team-reviews`).
 - `<canal-id>`: `[slack] review_channel_id` si está. Si no, búscalo con
   `mcp__claude_ai_Slack__slack_search_channels` (`keywords`: el nombre sin `#`,
@@ -39,14 +42,14 @@ otra conversación o de los ejemplos.
   solo formato.
 - `git status --porcelain`: si hay cambios sin commitear, muéstralos y pregunta si seguir sin ellos o
   parar (`C` en flow los commitea con `flow-commit-create`). No commitees ni hagas stash por tu cuenta.
-- `git fetch origin --quiet` y `git log --oneline origin/main..HEAD`: si no hay commits, para.
+- `git fetch origin --quiet` y `git log --oneline origin/<base>..HEAD`: si no hay commits, para.
 - Si `glab auth status` va bien (glab saca el host del remote del repo), mira si ya existe un MR abierto de esta
   rama (`glab mr list --source-branch <rama>`). Si existe, avisa y ofrece solo los pasos 5-6 con ese MR.
 
 ## 2. Preparar la propuesta
 
 - Ticket: `mcp__youtrack__get_issue` (`recentCommentsCount: 0`) para el summary y el State actual.
-- Cambio: `git log origin/main..HEAD --format='%s%n%b'` y `git diff --stat origin/main...HEAD`.
+- Cambio: `git log origin/<base>..HEAD --format='%s%n%b'` y `git diff --stat origin/<base>...HEAD`.
 - **Título del MR**: `<ID>: <resumen breve y muy descriptivo de lo que hace la rama>` (estilo:
   "PROJ-20887: Keep N-1 overlay badge on one line"). Inglés.
 - **Descripción del MR**: una frase en inglés con el efecto del cambio, no la mecánica (sin nombres de
@@ -60,7 +63,7 @@ otra conversación o de los ejemplos.
   :code-review: <URL del MR>
   • [<ID>](<youtrack>/issue/<ID>): <resumen del título, sin el ID>
   ```
-- **YouTrack**: State actual → `Review`.
+- **YouTrack**: State actual → `<review>`.
 
 ## 3. Aprobación
 
@@ -79,7 +82,7 @@ una, las tres opciones llevan el mismo `preview` con el contenido exacto tal com
    ```
 2. header `Slack`: "¿Envío este mensaje a `<canal>`?". Preview: el mensaje exacto, con
    `<URL del MR>` como marcador.
-3. header `YouTrack`: "¿Paso <ID> a Review?". Preview: `<ID>: <State actual> → Review`.
+3. header `YouTrack`: "¿Paso <ID> a <review>?". Preview: `<ID>: <State actual> → <review>`.
 
 Opciones de cada pregunta:
 
@@ -101,7 +104,7 @@ Después:
 
 ```bash
 git push -u origin <rama>
-glab mr create --source-branch <rama> --target-branch main --remove-source-branch \
+glab mr create --source-branch <rama> --target-branch <base> --remove-source-branch \
   --assignee @me --yes --title "<título>" --description "<descripción>"
 ```
 
@@ -109,7 +112,7 @@ glab mr create --source-branch <rama> --target-branch main --remove-source-branc
 - El hook de pre-push lanza mypy y puede tardar; usa un timeout largo. Si falla, enseña el error y para.
 - Saca la URL del MR de la salida de `glab`. Si dice que ya existía, usa esa.
 - Si `glab` no está autenticado, crea el MR con push options (`-o merge_request.create`,
-  `.target=main`, `.title`, `.description`, `.remove_source_branch`), con las líneas de la descripción
+  `.target=<base>`, `.title`, `.description`, `.remove_source_branch`), con las líneas de la descripción
   unidas por espacios, y avisa de que faltan los saltos de línea y el assignee.
 
 ## 5. Slack
@@ -119,11 +122,11 @@ en `<canal-id>`, con la URL real del MR. Sin ese `Sí`, no envíes nada.
 
 ## 6. YouTrack
 
-`mcp__youtrack__update_issue` con `customFields: {"State": "Review"}`. Si ya estaba en Review, no hagas
+`mcp__youtrack__update_issue` con `customFields: {"State": "<review>"}`. Si ya estaba en `<review>`, no hagas
 nada. Si falla (valor no válido para el proyecto), mira `get_issue_fields_schema` y dilo; no inventes
 otro estado.
 
 ## 7. Resumen
 
 Corto: URL del MR, enlace al mensaje enviado en `<canal>`, State
-anterior → Review. Di claramente cualquier paso que haya fallado o se haya saltado.
+anterior → `<review>`. Di claramente cualquier paso que haya fallado o se haya saltado.

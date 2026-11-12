@@ -31,6 +31,20 @@ describe("switchToTicket", () => {
     expect(upstream.exitCode).not.toBe(0);
   }, 15_000);
 
+  test("creates the ticket branch from the squad's base branch when one is configured", async () => {
+    const { work, git } = createTestTicketRepo();
+    gitTest(work, ["switch", "-q", "-c", "develop"]);
+    gitTest(work, ["commit", "-q", "--allow-empty", "-m", "develop only"]);
+    gitTest(work, ["push", "-q", "origin", "develop"]);
+    const developHead = gitTest(work, ["rev-parse", "HEAD"]);
+    gitTest(work, ["switch", "-q", "main"]);
+
+    await switchToTicket(git, "PROJ-9", undefined, "origin/develop");
+
+    expect(gitTest(work, ["branch", "--show-current"])).toBe("PROJ-9");
+    expect(gitTest(work, ["rev-parse", "HEAD"])).toBe(developHead);
+  }, 15_000);
+
   test("tracks a branch that only exists on origin", async () => {
     const { work, git } = createTestTicketRepo();
     gitTest(work, ["push", "--quiet", "origin", "main:PROJ-2-remote-work"]);

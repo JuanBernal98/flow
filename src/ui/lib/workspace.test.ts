@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  buildWorkspaceItems,
   filterWorkspaceItems,
   mergedTicketIds,
   moveApprovedToReadyToMerge,
@@ -123,5 +124,32 @@ describe("mergedTicketIds", () => {
       "!9": "merged",
     };
     expect(mergedTicketIds(items, (item) => states[item.id])).toEqual(["PROJ-2"]);
+  });
+});
+
+describe("buildWorkspaceItems with a squad's workflow", () => {
+  test("sorts tickets by the squad's own review and in-progress states", () => {
+    const task = (id: string, state: string) => ({
+      id,
+      summary: id,
+      state,
+      url: `https://yt.test/${id}`,
+    });
+    const items = buildWorkspaceItems(
+      {
+        kind: "ready",
+        tasks: [task("PROJ-1", "Code Review"), task("PROJ-2", "Doing"), task("PROJ-3", "Review")],
+      },
+      { kind: "ready", reviews: [] },
+      undefined,
+      [],
+      { reviewState: "Code Review", inProgressStates: ["Doing"], baseBranch: "main" },
+    );
+    expect(items.map((item) => [item.id, item.section, item.status])).toEqual([
+      ["PROJ-2", "todo", "inProgress"],
+      // "Review" is just another state for this squad.
+      ["PROJ-3", "todo", "pending"],
+      ["PROJ-1", "approval", "awaitingReview"],
+    ]);
   });
 });

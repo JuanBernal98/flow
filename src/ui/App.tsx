@@ -51,6 +51,7 @@ import { DiffPane } from "./components/panes/DiffPane";
 import { SidebarPane } from "./components/panes/SidebarPane";
 import { TicketOverviewPane } from "./components/panes/TicketOverviewPane";
 import { useTicketOverview } from "./hooks/useTicketOverview";
+import { DEFAULT_WORKFLOW, type TicketWorkflow } from "../core/repoIntegrations";
 import { readTicketOverview, type StoredTicketOverview } from "../core/ticketOverview";
 import { WorkspaceSidebar } from "./components/panes/WorkspaceSidebar";
 import { PaneDivider } from "./components/panes/PaneDivider";
@@ -155,6 +156,7 @@ export function App({
   readOverview = readTicketOverview,
   issueUrl,
   projectKeys = NO_PROJECT_KEYS,
+  workflow = DEFAULT_WORKFLOW,
   startupNotice,
   workspaceConnected = true,
 }: {
@@ -188,6 +190,8 @@ export function App({
   issueUrl?: (ticketId: string) => string | undefined;
   /** Projects whose ids count as tickets in MR branches and titles (`[youtrack] project_keys`). */
   projectKeys?: readonly string[];
+  /** The squad's review state, in-progress states, and base branch (Review and main by default). */
+  workflow?: TicketWorkflow;
   /** A one-time note for the status bar at launch, such as that `flow setup` should run. */
   startupNotice?: string;
   /** Whether this repository connects to YouTrack or GitLab; without either, the workspace and
@@ -244,8 +248,8 @@ export function App({
   );
   // Cards as YouTrack and the Reviews load sort them, before MR approvals move any.
   const loadedWorkspaceItems = useMemo(
-    () => buildWorkspaceItems(workspaceTasks, workspaceReviews, issueUrl, projectKeys),
-    [workspaceTasks, workspaceReviews, issueUrl, projectKeys],
+    () => buildWorkspaceItems(workspaceTasks, workspaceReviews, issueUrl, projectKeys, workflow),
+    [workspaceTasks, workspaceReviews, issueUrl, projectKeys, workflow],
   );
 
   // The checked-out branch; its ticket or review keeps the workspace rail wherever the cursor is.
@@ -310,13 +314,16 @@ export function App({
     const ticketIds = workspaceItems
       .filter((item) => item.section !== "reviews")
       .map((item) => item.id);
-    void loadTicketLineStats(createTicketGit(repoRoot), ticketIds, preferredTicketBranches).then(
-      (stats) => {
-        if (!cancelled) {
-          setTicketStats(stats);
-        }
-      },
-    );
+    void loadTicketLineStats(
+      createTicketGit(repoRoot),
+      ticketIds,
+      preferredTicketBranches,
+      `origin/${workflow.baseBranch}`,
+    ).then((stats) => {
+      if (!cancelled) {
+        setTicketStats(stats);
+      }
+    });
     return () => {
       cancelled = true;
     };
@@ -327,6 +334,7 @@ export function App({
     preferredTicketBranches,
     repoRoot,
     createTicketGit,
+    workflow.baseBranch,
   ]);
 
   // Refetch merge requests with every tickets (re)load, so `r` also picks up a freshly opened MR.
@@ -1394,7 +1402,12 @@ export function App({
       const git = createTicketGit(repoRoot);
       const result = item.branch
         ? await switchToReviewBranch(git, item.branch, item.baseBranch ?? "main")
-        : await switchToTicket(git, item.id, preferredTicketBranches.get(item.id));
+        : await switchToTicket(
+            git,
+            item.id,
+            preferredTicketBranches.get(item.id),
+            `origin/${workflow.baseBranch}`,
+          );
       flashStatus(describeTicketSwitch(result), 5_000);
       if (result.kind === "switched" || result.kind === "already-on") {
         setCheckedOutBranch(result.branch);

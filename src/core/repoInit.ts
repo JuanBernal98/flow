@@ -10,16 +10,20 @@ import { dirname, isAbsolute, join } from "node:path";
 import { FLOW_CONFIG_RELATIVE_PATH, FLOW_DIR } from "./flowPaths";
 
 /** The config sections `flow init` fills, in file order. */
-export const REPO_CONFIG_SECTIONS = ["youtrack", "gitlab", "slack"] as const;
+export const REPO_CONFIG_SECTIONS = ["youtrack", "gitlab", "slack", "git"] as const;
 export type RepoConfigSection = (typeof REPO_CONFIG_SECTIONS)[number];
 
 export interface RepoConfigValues {
   youtrackUrl: string;
   mergedState: string;
+  /** The state of tickets waiting on review. */
+  reviewState: string;
   /** Ticket prefixes of the squad's projects; empty means any. */
   projectKeys: string[];
   reviewLabel: string;
   slackChannel: string;
+  /** Where ticket branches start and merge requests merge into. */
+  baseBranch: string;
 }
 
 export interface RepoInitDeps {
@@ -66,6 +70,9 @@ export function renderConfigSections(sections: RepoConfigSection[], values: Repo
       `url = ${JSON.stringify(values.youtrackUrl)}`,
       "# Your tickets still in Review move to this state once their MR is merged.",
       `merged_state = ${JSON.stringify(values.mergedState)}`,
+      "# The state your tickets sit in while waiting on review.",
+      `review_state = ${JSON.stringify(values.reviewState)}`,
+      '# in_progress_states = ["In Progress"]  # optional; else any state reading like active work',
       ...(values.projectKeys.length > 0
         ? [
             "# Only these projects' ids count as tickets in MR branches and titles.",
@@ -82,6 +89,11 @@ export function renderConfigSections(sections: RepoConfigSection[], values: Repo
       "[slack]",
       "# Where the flow-mr-open skill posts the review request; it looks the channel up by name.",
       `review_channel = ${JSON.stringify(values.slackChannel)}`,
+    ],
+    git: [
+      "[git]",
+      "# Where ticket branches start and merge requests merge into.",
+      `base_branch = ${JSON.stringify(values.baseBranch)}`,
     ],
   };
   return `${sections.map((section) => blocks[section].join("\n")).join("\n\n")}\n`;
@@ -139,9 +151,11 @@ export async function runRepoInit(repoRoot: string, deps: RepoInitDeps) {
   const values: RepoConfigValues = {
     youtrackUrl: "",
     mergedState: "",
+    reviewState: "",
     projectKeys: [],
     reviewLabel: "",
     slackChannel: "",
+    baseBranch: "",
   };
 
   if (missing.includes("youtrack")) {
@@ -164,6 +178,17 @@ export async function runRepoInit(repoRoot: string, deps: RepoInitDeps) {
       );
       return undefined;
     });
+    values.reviewState = await askUntil(
+      deps,
+      "State of tickets waiting on review",
+      "Review",
+      async (state) => {
+        const known = await deps.isYouTrackState(values.youtrackUrl, state);
+        if (known === false) return `"${state}" is not a State on this YouTrack`;
+        deps.say(known ? "  ✓ state exists" : "  · could not check the state");
+        return undefined;
+      },
+    );
     const keys = await askUntil(
       deps,
       "Ticket prefixes of your squad, comma-separated (empty: any)",
@@ -203,6 +228,24 @@ export async function runRepoInit(repoRoot: string, deps: RepoInitDeps) {
     );
   }
 
+  if (missing.includes("git")) {
+    // The remote's default branch is the usual base; `origin/HEAD` names it when it is set.
+    const remoteHead = deps
+      .git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"])
+      .stdout.trim();
+    const detected = remoteHead.startsWith("origin/") ? remoteHead.slice("origin/".length) : "main";
+    values.baseBranch = await askUntil(
+      deps,
+      "Base branch for tickets and MRs",
+      detected,
+      async (branch) =>
+        deps.git(["rev-parse", "--verify", "--quiet", `refs/remotes/origin/${branch}`]).exitCode ===
+        0
+          ? undefined
+          : `there is no origin/${branch}`,
+    );
+  }
+
   mkdirSync(join(repoRoot, FLOW_DIR), { recursive: true });
   const added = renderConfigSections(missing, values);
   writeFileSync(configPath, existing ? `${existing.trimEnd()}\n\n${added}` : added);
@@ -210,5 +253,5 @@ export async function runRepoInit(repoRoot: string, deps: RepoInitDeps) {
   if (ensureFlowDirIgnored(repoRoot, deps.git)) {
     deps.say("Added .flow/ to .git/info/exclude, so your comments and overviews stay local.");
   }
-  deps.say("Next: open a new Claude Code session here, then run `flow diff`.");
+  deps.say("Next: open a new Claude Code session here, then run `flow`.");
 }

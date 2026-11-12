@@ -7,10 +7,15 @@
  * [youtrack]
  * url = "https://youtrack.example.com"
  * merged_state = "Done"   # optional; my tickets in Review move here once their MR is merged
+ * review_state = "Review" # optional; the state of tickets waiting on review
+ * in_progress_states = ["In Progress"]  # optional; else any state reading like active work
  * project_keys = ["PROJ"]  # optional; only these projects' ids count as ticket ids in MRs
  *
  * [gitlab]
  * review_label = "my-team"   # optional; without it Reviews stays empty
+ *
+ * [git]
+ * base_branch = "main"     # optional; where ticket branches start and MRs merge into
  * ```
  */
 import fs from "node:fs";
@@ -25,6 +30,8 @@ export interface RepoIntegrations {
   mergedState?: string;
   /** Projects whose ids count as tickets in MR branches and titles; empty means any. */
   projectKeys: string[];
+  /** The squad's states and base branch, defaulting to Review and main. */
+  workflow: TicketWorkflow;
   /** Whether GitLab is on: ticket MR links and Reviews, read through `glab`. */
   gitlab: boolean;
   /** Label that marks the squad's merge requests listed under Reviews. */
@@ -33,13 +40,35 @@ export interface RepoIntegrations {
   error?: string;
 }
 
-const NO_INTEGRATIONS: RepoIntegrations = { gitlab: false, projectKeys: [] };
+/** How a squad's tickets move, so states and branches are never assumed in code. */
+export interface TicketWorkflow {
+  /** The YouTrack state of tickets waiting on review. */
+  reviewState: string;
+  /** States that count as work in progress; empty means any state that reads like it. */
+  inProgressStates: string[];
+  /** The branch tickets start from and merge requests target. */
+  baseBranch: string;
+}
+
+export const DEFAULT_WORKFLOW: TicketWorkflow = {
+  reviewState: "Review",
+  inProgressStates: [],
+  baseBranch: "main",
+};
+
+const NO_INTEGRATIONS: RepoIntegrations = {
+  gitlab: false,
+  projectKeys: [],
+  workflow: DEFAULT_WORKFLOW,
+};
 
 const IntegrationsSchema = z.object({
   youtrack: z
     .object({
       url: z.string().trim().min(1).optional(),
       merged_state: z.string().trim().min(1).optional(),
+      review_state: z.string().trim().min(1).optional(),
+      in_progress_states: z.array(z.string().trim().min(1)).optional(),
       project_keys: z
         .array(
           z
@@ -51,6 +80,7 @@ const IntegrationsSchema = z.object({
     })
     .optional(),
   gitlab: z.object({ review_label: z.string().trim().min(1).optional() }).optional(),
+  git: z.object({ base_branch: z.string().trim().min(1).optional() }).optional(),
 });
 
 /**
@@ -78,6 +108,11 @@ export function readRepoIntegrations(repoRoot: string | null | undefined): RepoI
       projectKeys: parsed.data.youtrack?.project_keys ?? [],
       gitlab: parsed.data.gitlab !== undefined,
       reviewLabel: parsed.data.gitlab?.review_label,
+      workflow: {
+        reviewState: parsed.data.youtrack?.review_state ?? DEFAULT_WORKFLOW.reviewState,
+        inProgressStates: parsed.data.youtrack?.in_progress_states ?? [],
+        baseBranch: parsed.data.git?.base_branch ?? DEFAULT_WORKFLOW.baseBranch,
+      },
     };
   } catch (error) {
     return {

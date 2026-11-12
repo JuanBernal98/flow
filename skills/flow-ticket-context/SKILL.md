@@ -46,8 +46,10 @@ conectar la que falte y para.
 
 ## 2. Rama
 
+`<base>` es `[git] base_branch` del `.flow/config.toml` del repo (por defecto `main`).
+
 Solo lectura. `git branch --show-current`; si la rama actual es la del ticket (`<ID>` o `<ID>-…`):
-`git log --oneline origin/main..HEAD` y `git status -sb` para ver qué hay hecho y si va por delante o por
+`git log --oneline origin/<base>..HEAD` y `git status -sb` para ver qué hay hecho y si va por delante o por
 detrás de su remota. Si la rama actual no es la del ticket, dilo en el resumen y no cambies de rama: de eso
 se encarga quien la pidió (flow o `/flow-ticket-switch`).
 

@@ -31,10 +31,12 @@ son la lista contra la que mides el código.
 
 ## 2. Código
 
+`<base>` es `[git] base_branch` del `.flow/config.toml` del repo (por defecto `main`).
+
 - **Con `!<iid>`**: `glab mr view <iid> --comments` para la descripción y las discusiones abiertas, y
   `glab mr diff <iid>` para el cambio. Si `glab` no está autenticado (`glab auth status`), dilo y para.
 - **Sin MR** (mi rama antes de abrirlo): busca la rama del ticket, `<ID>` o `<ID>-…`, local o en `origin`.
-  Su base es `git config branch.<rama>.flowBase` si existe, si no `origin/main`. Lee
+  Su base es `git config branch.<rama>.flowBase` si existe, si no `origin/<base>`. Lee
   `git log --oneline <base>..<rama>` y `git diff <base>...<rama>`; si es la rama actual, suma también los
   cambios sin commitear (`git diff HEAD`). Sin rama, dilo y para.
 

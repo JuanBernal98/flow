@@ -1,3 +1,4 @@
+import type { TicketWorkflow } from "../core/repoIntegrations";
 import { useCallback, useState } from "react";
 import { resolveConfiguredCliInput } from "../core/config";
 import { loadAppBootstrap } from "../core/loaders";
@@ -29,6 +30,7 @@ export function AppHost({
   readOverview,
   issueUrl,
   projectKeys,
+  workflow,
   startupNotice,
   workspaceConnected,
 }: {
@@ -48,6 +50,7 @@ export function AppHost({
   readOverview?: (repoRoot: string, ticketId: string) => StoredTicketOverview | null;
   issueUrl?: (ticketId: string) => string | undefined;
   projectKeys?: readonly string[];
+  workflow?: TicketWorkflow;
   startupNotice?: string;
   workspaceConnected?: boolean;
 }) {
@@ -99,6 +102,7 @@ export function AppHost({
       readOverview={readOverview}
       issueUrl={issueUrl}
       projectKeys={projectKeys}
+      workflow={workflow}
       startupNotice={startupNotice}
       workspaceConnected={workspaceConnected}
     />

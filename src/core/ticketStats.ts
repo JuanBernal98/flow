@@ -2,7 +2,12 @@
  * Line totals for each ticket's branch, measured against where it forked from the ticket base.
  * The checked-out ticket also counts uncommitted edits, matching what `diff --branch` shows.
  */
-import { belongsToTicket, findTicketBranch, NEW_TICKET_BASE, type GitRun } from "./ticketSwitch";
+import {
+  belongsToTicket,
+  DEFAULT_TICKET_BASE,
+  findTicketBranch,
+  type GitRun,
+} from "./ticketSwitch";
 
 export interface LineStats {
   additions: number;
@@ -23,9 +28,10 @@ async function loadTicketStats(
   ticketId: string,
   currentBranch: string,
   preferredBranch: string | undefined,
+  base: string,
 ): Promise<LineStats | undefined> {
   if (currentBranch && belongsToTicket(currentBranch, ticketId)) {
-    const mergeBase = (await git(["merge-base", NEW_TICKET_BASE, "HEAD"])).stdout;
+    const mergeBase = (await git(["merge-base", base, "HEAD"])).stdout;
     if (!mergeBase) {
       return undefined;
     }
@@ -39,7 +45,7 @@ async function loadTicketStats(
     return undefined;
   }
   const ref = branch.location === "local" ? branch.name : `origin/${branch.name}`;
-  const diff = await git(["diff", "--shortstat", `${NEW_TICKET_BASE}...${ref}`]);
+  const diff = await git(["diff", "--shortstat", `${base}...${ref}`]);
   return diff.ok ? parseShortstat(diff.stdout) : undefined;
 }
 
@@ -51,12 +57,16 @@ export async function loadTicketLineStats(
   git: GitRun,
   ticketIds: string[],
   preferredBranches: ReadonlyMap<string, string> = new Map(),
+  base = DEFAULT_TICKET_BASE,
 ) {
   const currentBranch = (await git(["branch", "--show-current"])).stdout;
   const entries = await Promise.all(
     ticketIds.map(
       async (id) =>
-        [id, await loadTicketStats(git, id, currentBranch, preferredBranches.get(id))] as const,
+        [
+          id,
+          await loadTicketStats(git, id, currentBranch, preferredBranches.get(id), base),
+        ] as const,
     ),
   );
   return new Map(

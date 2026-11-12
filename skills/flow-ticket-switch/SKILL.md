@@ -1,6 +1,6 @@
 ---
 name: flow-ticket-switch
-description: Lista mis tickets de YouTrack asignados, cambia a la rama del elegido (la crea desde origin/main si no existe) y carga su contexto.
+description: Lista mis tickets de YouTrack asignados, cambia a la rama del elegido (la crea desde la rama base del repo si no existe) y carga su contexto.
 argument-hint: "[ID]"
 disable-model-invocation: true
 ---
@@ -15,6 +15,8 @@ reglas, no lo hagas y avísalo en el resumen.
 Si las herramientas `mcp__youtrack__*` no están disponibles, dilo, sugiere ejecutar `/mcp` para reconectar `youtrack` y para.
 
 ## 1. Elegir ticket
+
+`<base>` es `[git] base_branch` del `.flow/config.toml` del repo (por defecto `main`).
 
 - Si `<argumentos>` contiene un ID (p. ej. `PROJ-20887`), úsalo y pasa al paso 2.
 - Si no, llama a `mcp__youtrack__search_issues` con query `for: me #Unresolved State: -Review sort by: updated desc`,
@@ -45,9 +47,9 @@ o cancelar. **No hagas stash, commit ni descartes nada sin que lo diga.** No sig
    - Una rama local → `git switch <rama>`.
    - Solo existe en remoto → `git switch --track origin/<rama>`.
    - Varias candidatas → lístalas y pregunta cuál. Para hasta que responda.
-   - Ninguna → `git switch --no-track -c <ID> origin/main` (la rama se llama solo con el ID; `--no-track`
+   - Ninguna → `git switch --no-track -c <ID> origin/<base>` (la rama se llama solo con el ID; `--no-track`
      para que no quede siguiendo a main).
-4. Si la rama ya existía: `git log --oneline origin/main..HEAD` y `git status -sb` para ver qué hay hecho
+4. Si la rama ya existía: `git log --oneline origin/<base>..HEAD` y `git status -sb` para ver qué hay hecho
    y si va por delante o por detrás de su remota. No hagas pull ni rebase sin preguntar.
 
 ## 4. Contexto y resumen
