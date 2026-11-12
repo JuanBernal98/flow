@@ -9,6 +9,14 @@ import {
   loadSquadReviews,
 } from "../core/gitlab";
 import { resolveConfiguredCliInput } from "../core/config";
+import {
+  computeAnchorForFile,
+  mutateCommentsFile,
+  readCommentsFile,
+  withAddedComment,
+  withRemovedComment,
+  type PersistedComment,
+} from "../core/comments";
 import { readRepoIntegrations } from "../core/repoIntegrations";
 import { readTicketOverview } from "../core/ticketOverview";
 import { loadYouTrackTasks, youTrackIssueUrl } from "../core/youtrack";
@@ -220,4 +228,50 @@ export async function loadWindowThemes(repoRoot: string): Promise<WindowThemes> 
       },
     })),
   };
+}
+
+/** The review comments in `.flow/comments.json`, as the terminal UI and the agent read them. */
+export function loadWindowComments(repoRoot: string): PersistedComment[] {
+  return readCommentsFile(repoRoot).comments;
+}
+
+/**
+ * Add the user's comment on a hunk, like `a` in the terminal: it sits on the hunk's last new-side
+ * line, anchored to that line's text so it can follow the code as it moves.
+ */
+export function addWindowComment(
+  repoRoot: string,
+  draft: { file: string; range: [number, number]; body: string },
+): PersistedComment {
+  const body = draft.body.trim();
+  if (!body) {
+    throw new Error("A comment needs some text.");
+  }
+  const line = draft.range[1];
+  const anchor = computeAnchorForFile(repoRoot, draft.file, line);
+  if (!anchor) {
+    throw new Error(`${draft.file} has no line ${line} to comment on.`);
+  }
+  let added: PersistedComment | undefined;
+  mutateCommentsFile(repoRoot, (current) => {
+    const next = withAddedComment(current, {
+      file: draft.file,
+      line,
+      range: draft.range,
+      anchor,
+      body,
+      author: "user",
+    });
+    added = next.comment;
+    return next.file;
+  });
+  if (!added) {
+    throw new Error("The comment was not saved.");
+  }
+  return added;
+}
+
+/** Remove one comment, like resolving it in the terminal. */
+export function removeWindowComment(repoRoot: string, id: number) {
+  mutateCommentsFile(repoRoot, (current) => withRemovedComment(current, id));
 }

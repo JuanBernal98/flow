@@ -6,10 +6,26 @@
  */
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
+import { z } from "zod";
 import { findRepoRoot } from "../core/config";
 import { FlowUserError } from "../core/errors";
-import { loadWindowDiff, loadWindowOverview, loadWindowThemes, loadWindowWorkspace } from "./data";
+import {
+  addWindowComment,
+  loadWindowComments,
+  loadWindowDiff,
+  loadWindowOverview,
+  loadWindowThemes,
+  loadWindowWorkspace,
+  removeWindowComment,
+} from "./data";
 import page from "./index.html";
+
+/** What the window sends to add a comment. */
+const NewCommentSchema = z.object({
+  file: z.string().min(1),
+  range: z.tuple([z.number().int().positive(), z.number().int().positive()]),
+  body: z.string(),
+});
 
 /** Serve the window UI for one repository on a random localhost port; the URL carries the secret. */
 export function startWindowServer(repoRoot: string) {
@@ -27,6 +43,29 @@ export function startWindowServer(repoRoot: string) {
         authorized(request) ? Response.json(await loadWindowWorkspace(repoRoot)) : forbidden(),
       "/api/themes": async (request) =>
         authorized(request) ? Response.json(await loadWindowThemes(repoRoot)) : forbidden(),
+      "/api/comments": {
+        GET: (request) =>
+          authorized(request) ? Response.json(loadWindowComments(repoRoot)) : forbidden(),
+        POST: async (request) => {
+          if (!authorized(request)) return forbidden();
+          try {
+            return Response.json(
+              addWindowComment(repoRoot, NewCommentSchema.parse(await request.json())),
+            );
+          } catch (error) {
+            return new Response(error instanceof Error ? error.message : String(error), {
+              status: 400,
+            });
+          }
+        },
+      },
+      "/api/comments/:id": {
+        DELETE: (request) => {
+          if (!authorized(request)) return forbidden();
+          removeWindowComment(repoRoot, Number(request.params.id));
+          return new Response(null, { status: 204 });
+        },
+      },
       "/api/diff": (request) =>
         authorized(request) ? Response.json(loadWindowDiff(repoRoot)) : forbidden(),
       "/api/overview/:id": (request) =>

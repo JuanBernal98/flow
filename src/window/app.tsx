@@ -1,17 +1,18 @@
 /** @jsxImportSource react */
 /**
  * The flow window: workspace sidebar, ticket overview, and the branch's diff rendered by Pierre's
- * web components. Keys mirror the terminal UI: j/k or arrows move, Enter shows that ticket's
- * overview, x toggles the overview, r reloads.
+ * web components. Everything works from the keyboard with the terminal UI's keys; `?` lists them.
  */
-import { PatchDiff } from "@pierre/diffs/react";
+import { PatchDiff, type DiffLineAnnotation, type PatchDiffProps } from "@pierre/diffs/react";
 import type React from "react";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { registerClaudeCodeThemes } from "../ui/diff/claudeCodeThemes";
+import type { PersistedComment } from "../core/comments";
 import type { StoredTicketOverview } from "../core/ticketOverview";
 import type { WorkspaceItem, WorkspaceSectionId } from "../ui/lib/workspace";
 import type { WindowDiffFile, WindowTheme, WindowThemes, WindowWorkspace } from "./data";
+import { hunkHoldsLine, listWindowHunks, stepFile, type WindowHunk } from "./review";
 
 const SECTIONS: { id: WorkspaceSectionId; title: string }[] = [
   { id: "todo", title: "To do" },
@@ -26,12 +27,19 @@ registerClaudeCodeThemes();
 const startedAt = performance.now();
 const secret = location.hash.slice(1);
 
-/** Fetch one API route with the launch secret. */
-async function api<T>(path: string): Promise<T> {
-  const response = await fetch(path, { headers: { "x-flow-secret": secret } });
-  if (!response.ok) throw new Error(`${path}: ${response.status}`);
-  return (await response.json()) as T;
+/** Call one API route with the launch secret; JSON in and out. */
+async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  const response = await fetch(path, {
+    method: init.method ?? "GET",
+    headers: { "x-flow-secret": secret, "content-type": "application/json" },
+    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+  });
+  if (!response.ok) throw new Error((await response.text()) || `${path}: ${response.status}`);
+  return (response.status === 204 ? null : await response.json()) as T;
 }
+
+/** Where the keyboard acts: the diff (hunks and comments) or the tickets sidebar. */
+type FocusZone = "review" | "workspace";
 
 function App() {
   const [workspace, setWorkspace] = useState<WindowWorkspace | null>(null);
@@ -55,6 +63,13 @@ function App() {
     void api<WindowThemes>("/api/themes").then(setThemes);
   }, []);
   const [timing, setTiming] = useState<string>("");
+  const [zone, setZone] = useState<FocusZone>("review");
+  const [hunkIndex, setHunkIndex] = useState(0);
+  const [editing, setEditing] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [comments, setComments] = useState<PersistedComment[]>([]);
+  const [notice, setNotice] = useState<string | null>(null);
+  const pendingG = useRef(0);
 
   const reload = useCallback(() => {
     // The diff is local and fast; the workspace waits on YouTrack and GitLab, so neither blocks the other.
@@ -77,6 +92,43 @@ function App() {
 
   useEffect(reload, [reload]);
 
+  // Comments change on disk when the agent replies or resolves them, so they are re-read often.
+  const loadComments = useCallback(() => {
+    void api<PersistedComment[]>("/api/comments").then((next) =>
+      setComments((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next)),
+    );
+  }, []);
+  useEffect(() => {
+    loadComments();
+    const timer = window.setInterval(loadComments, 2000);
+    return () => window.clearInterval(timer);
+  }, [loadComments]);
+
+  const hunks = useMemo(() => listWindowHunks(diff ?? []), [diff]);
+  const focusedHunk = hunks[Math.min(hunkIndex, hunks.length - 1)] ?? null;
+  const commentsOn = useCallback(
+    (hunk: WindowHunk) =>
+      comments.filter((comment) => hunkHoldsLine(hunk, comment.file, comment.line)),
+    [comments],
+  );
+
+  const saveComment = useCallback(
+    async (body: string) => {
+      if (!focusedHunk) return;
+      try {
+        await api("/api/comments", {
+          method: "POST",
+          body: { file: focusedHunk.path, range: focusedHunk.newRange, body },
+        });
+        setEditing(false);
+        loadComments();
+      } catch (error) {
+        setNotice(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [focusedHunk, loadComments],
+  );
+
   const [collapsed, setCollapsed] = useState<ReadonlySet<WorkspaceSectionId>>(new Set());
   const allItems = useMemo(() => workspace?.items ?? [], [workspace]);
   // The items the keyboard walks: folded sections are skipped.
@@ -96,29 +148,87 @@ function App() {
   const selected = workspace?.items.find((item) => item.id === selectedId) ?? null;
 
   useEffect(() => {
+    const moveHunk = (next: number) => {
+      setHunkIndex(Math.max(0, Math.min(next, hunks.length - 1)));
+      setEditing(false);
+    };
+    const current = focusedHunk?.index ?? 0;
     const onKey = (event: KeyboardEvent) => {
-      if (event.metaKey || event.ctrlKey) return;
-      if (event.key === "j" || event.key === "ArrowDown") {
+      // Typing in the comment editor or the theme menu keeps its own keys.
+      if (event.target instanceof Element && event.target.closest("textarea, input, select"))
+        return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      const key = event.key;
+      if (helpOpen) {
+        if (key === "Escape" || key === "?") setHelpOpen(false);
+        event.preventDefault();
+        return;
+      }
+      if (key === "?") {
+        setHelpOpen(true);
+      } else if (key === "Escape") {
+        setZone("review");
+        setEditing(false);
+      } else if (key === "S") {
+        // Like the terminal: S focuses the tickets, and again hides them.
+        if (!workspaceOpen) {
+          setWorkspaceOpen(true);
+          setZone("workspace");
+        } else if (zone === "workspace") {
+          setWorkspaceOpen(false);
+          setZone("review");
+        } else {
+          setZone("workspace");
+        }
+      } else if (zone === "workspace" && (key === "j" || key === "ArrowDown")) {
         setCursor((index) => Math.min(index + 1, visibleItems.length - 1));
-      } else if (event.key === "k" || event.key === "ArrowUp") {
+      } else if (zone === "workspace" && (key === "k" || key === "ArrowUp")) {
         setCursor((index) => Math.max(index - 1, 0));
-      } else if (event.key === "Enter") {
+      } else if (zone === "workspace" && key === "Enter") {
         const item = visibleItems[cursor];
         if (item) setSelectedId(item.id);
-      } else if (event.key === "x") {
+      } else if (key === "j" || key === "J" || key === "]") {
+        moveHunk(current + 1);
+      } else if (key === "k" || key === "K" || key === "[") {
+        moveHunk(current - 1);
+      } else if (key === "." || key === ",") {
+        moveHunk(stepFile(hunks, current, key === "." ? 1 : -1));
+      } else if (key === "G") {
+        moveHunk(hunks.length - 1);
+      } else if (key === "g") {
+        // gg: two presses in a row jump to the first hunk.
+        if (Date.now() - pendingG.current < 600) moveHunk(0);
+        pendingG.current = Date.now();
+      } else if (key === "}" || key === "{") {
+        const step = key === "}" ? 1 : -1;
+        for (let index = current + step; index >= 0 && index < hunks.length; index += step) {
+          const hunk = hunks[index];
+          if (hunk && commentsOn(hunk).length > 0) {
+            moveHunk(index);
+            break;
+          }
+        }
+      } else if (key === "a" && focusedHunk) {
+        setZone("review");
+        setEditing(true);
+      } else if (key === "d" && focusedHunk) {
+        const [comment] = commentsOn(focusedHunk);
+        if (comment) {
+          void api(`/api/comments/${comment.id}`, { method: "DELETE" }).then(loadComments);
+        }
+      } else if (key === "x") {
         setOverviewOpen((open) => !open);
-      } else if (event.key === "S") {
-        setWorkspaceOpen((open) => !open);
-      } else if (event.key === "s") {
+      } else if (key === "s") {
         setFilesOpen((open) => !open);
-      } else if (event.key === "1") {
+      } else if (key === "1") {
         setDiffStyle("split");
-      } else if (event.key === "2") {
+      } else if (key === "2") {
         setDiffStyle("unified");
-      } else if (event.key === "r") {
+      } else if (key === "r") {
         reload();
-      } else if (event.key === "t" && themes) {
-        setThemeId((current) => nextThemeId(themes.themes, theme?.id ?? current));
+        loadComments();
+      } else if (key === "t" && themes) {
+        setThemeId((currentTheme) => nextThemeId(themes.themes, theme?.id ?? currentTheme));
       } else {
         return;
       }
@@ -126,7 +236,20 @@ function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [visibleItems, cursor, reload, themes, theme]);
+  }, [
+    visibleItems,
+    cursor,
+    reload,
+    themes,
+    theme,
+    hunks,
+    focusedHunk,
+    commentsOn,
+    helpOpen,
+    zone,
+    workspaceOpen,
+    loadComments,
+  ]);
 
   return (
     <div className="window">
@@ -135,7 +258,7 @@ function App() {
         style={{ gridTemplateColumns: paneColumns(workspaceOpen, overviewOpen, filesOpen) }}
       >
         {workspaceOpen ? (
-          <aside className="sidebar">
+          <aside className={`sidebar${zone === "workspace" ? " focused" : ""}`}>
             <div className="sections">
               {workspace === null ? <div className="section-title">Loading…</div> : null}
               {SECTIONS.map((section) => {
@@ -161,11 +284,14 @@ function App() {
                             <SidebarItem
                               key={item.id}
                               item={item}
-                              active={index === cursor}
+                              active={
+                                zone === "workspace" ? index === cursor : item.id === selectedId
+                              }
                               checkedOut={item.id === workspace?.checkedOutId}
                               onSelect={() => {
                                 setCursor(index);
                                 setSelectedId(item.id);
+                                setZone("workspace");
                               }}
                             />
                           );
@@ -179,10 +305,27 @@ function App() {
           </aside>
         ) : null}
         {overviewOpen ? <OverviewPane item={selected} /> : null}
-        <DiffPane files={diff} diffStyle={diffStyle} theme={theme} />
+        <DiffPane
+          files={diff}
+          diffStyle={diffStyle}
+          theme={theme}
+          focusedHunk={zone === "review" ? focusedHunk : null}
+          comments={comments}
+          editing={editing && zone === "review"}
+          onSaveComment={saveComment}
+          onCancelComment={() => setEditing(false)}
+          onFocusHunk={(index) => {
+            setZone("review");
+            setHunkIndex(index);
+          }}
+          hunks={hunks}
+        />
         {filesOpen ? <FilesPane files={diff} /> : null}
       </div>
+      {helpOpen ? <HelpOverlay onClose={() => setHelpOpen(false)} /> : null}
       <StatusBar
+        zone={zone}
+        notice={notice}
         workspace={workspace}
         files={diff}
         timing={timing}
@@ -226,6 +369,8 @@ function paneColumns(workspace: boolean, overview: boolean, files: boolean) {
 
 /** The bottom bar: panel toggles on the edges, the branch and change totals in between. */
 function StatusBar({
+  zone,
+  notice,
   workspace,
   files,
   timing,
@@ -239,6 +384,8 @@ function StatusBar({
   themeId,
   onTheme,
 }: {
+  zone: FocusZone;
+  notice: string | null;
   workspace: WindowWorkspace | null;
   files: WindowDiffFile[] | null;
   timing: string;
@@ -279,13 +426,16 @@ function StatusBar({
             {workspace.branch}
           </span>
         ) : null}
-        {workspace?.notice ? (
-          <span className="statusbar-item warning" title={workspace.notice}>
-            ⚠︎ {workspace.notice}
+        {(notice ?? workspace?.notice) ? (
+          <span className="statusbar-item warning" title={notice ?? workspace?.notice}>
+            ⚠︎ {notice ?? workspace?.notice}
           </span>
         ) : null}
       </div>
       <div className="statusbar-group">
+        <span className="statusbar-item faint">
+          {zone === "workspace" ? "Tickets" : "Review"} · ? for keys
+        </span>
         {timing ? <span className="statusbar-item faint">{timing}</span> : null}
         {files ? (
           <span className="statusbar-item stat">
@@ -459,6 +609,121 @@ function FilesPane({ files }: { files: WindowDiffFile[] | null }) {
   );
 }
 
+/** A review comment with the agent's replies, like the terminal's comment card. */
+function CommentCard({ comment }: { comment: PersistedComment }) {
+  return (
+    <div className="note">
+      <div className={`note-line ${comment.author === "agent" ? "agent" : "user"}`}>
+        <span className="note-author">{comment.author === "agent" ? "Claude" : "You"}</span>
+        <span className="note-body">{comment.body}</span>
+      </div>
+      {(comment.replies ?? []).map((reply, index) => (
+        <div key={index} className="note-line agent">
+          <span className="note-author">Claude</span>
+          <span className="note-body">{reply.body}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The editor `a` opens: Enter saves, Shift+Enter adds a line, Esc cancels. */
+function CommentEditor({
+  onSave,
+  onCancel,
+}: {
+  onSave: (body: string) => void;
+  onCancel: () => void;
+}) {
+  const [body, setBody] = useState("");
+  return (
+    <div className="note editing">
+      <textarea
+        autoFocus
+        rows={2}
+        value={body}
+        placeholder="Comment for Claude on this hunk…  Enter saves · Shift+Enter new line · Esc cancels"
+        onChange={(event) => setBody(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            if (body.trim()) onSave(body);
+          } else if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+/** Every key, grouped like the terminal's help dialog. */
+const HELP_SECTIONS: { title: string; keys: [string, string][] }[] = [
+  {
+    title: "Review",
+    keys: [
+      ["j / k", "next / previous hunk (also J / K, ] / [)"],
+      [". / ,", "next / previous file"],
+      ["gg / G", "first / last hunk"],
+      ["r", "reload"],
+    ],
+  },
+  {
+    title: "Comments",
+    keys: [
+      ["a", "add a comment on this hunk"],
+      ["Enter", "save · Shift+Enter new line · Esc cancel"],
+      ["} / {", "next / previous commented hunk"],
+      ["d", "delete a comment on this hunk"],
+    ],
+  },
+  {
+    title: "Workspace",
+    keys: [
+      ["S", "focus the tickets; again to hide them"],
+      ["j / k", "select a ticket"],
+      ["Enter", "show its overview"],
+      ["Esc", "back to the diff"],
+    ],
+  },
+  {
+    title: "View",
+    keys: [
+      ["x", "show / hide the overview"],
+      ["s", "show / hide the changed files"],
+      ["1 / 2", "split / stacked diff"],
+      ["t", "next theme"],
+      ["?", "this help"],
+    ],
+  },
+];
+
+function HelpOverlay({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="help-backdrop" onClick={onClose}>
+      <div
+        className="help"
+        role="dialog"
+        aria-label="Keyboard shortcuts"
+        onClick={(event) => event.stopPropagation()}
+      >
+        {HELP_SECTIONS.map((section) => (
+          <section key={section.title}>
+            <h3>{section.title}</h3>
+            {section.keys.map(([keys, action]) => (
+              <div key={keys + action} className="help-row">
+                <kbd>{keys}</kbd>
+                <span>{action}</span>
+              </div>
+            ))}
+          </section>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /** A small document icon in the muted text color. */
 function FileIcon() {
   const color = "var(--faint)";
@@ -601,14 +866,31 @@ function Bullets({ title, items, ordered }: { title: string; items: string[]; or
   );
 }
 
+/** What an inline row in the diff holds: a saved comment, or the editor for a new one. */
+type DiffNote = { kind: "comment"; comment: PersistedComment } | { kind: "draft" };
+
 function DiffPane({
   files,
   diffStyle,
   theme,
+  hunks,
+  focusedHunk,
+  comments,
+  editing,
+  onSaveComment,
+  onCancelComment,
+  onFocusHunk,
 }: {
   files: WindowDiffFile[] | null;
   diffStyle: DiffStyle;
   theme: WindowTheme | null;
+  hunks: WindowHunk[];
+  focusedHunk: WindowHunk | null;
+  comments: PersistedComment[];
+  editing: boolean;
+  onSaveComment: (body: string) => void;
+  onCancelComment: () => void;
+  onFocusHunk: (index: number) => void;
 }) {
   const codeTheme = theme?.codeTheme;
   const appearance = theme?.appearance;
@@ -626,6 +908,39 @@ function DiffPane({
       }) as const,
     [diffStyle, codeTheme, appearance],
   );
+
+  // Keep the focused hunk on screen, once Pierre has drawn its highlighted rows.
+  useEffect(() => {
+    if (!focusedHunk) return;
+    let frames = 0;
+    let handle = 0;
+    const reveal = () => {
+      const host = document
+        .getElementById(fileAnchor(focusedHunk.path))
+        ?.querySelector("diffs-container");
+      const row = host?.shadowRoot?.querySelector("[data-selected-line]");
+      if (row) {
+        row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      } else if (frames++ < 30) {
+        handle = requestAnimationFrame(reveal);
+      }
+    };
+    handle = requestAnimationFrame(reveal);
+    return () => cancelAnimationFrame(handle);
+  }, [focusedHunk]);
+
+  const renderNote = useCallback(
+    (annotation: DiffLineAnnotation<DiffNote>) => {
+      const note = annotation.metadata;
+      return note.kind === "draft" ? (
+        <CommentEditor onSave={onSaveComment} onCancel={onCancelComment} />
+      ) : (
+        <CommentCard comment={note.comment} />
+      );
+    },
+    [onSaveComment, onCancelComment],
+  );
+
   // Wait for the theme so code is not highlighted twice on launch.
   if (files === null || theme === null) {
     return <main className="diff" />;
@@ -633,9 +948,24 @@ function DiffPane({
   return (
     <main className="diff">
       {files.length === 0 ? <p className="empty">No changes on this branch yet.</p> : null}
-      {files.map((file) => (
-        <DiffFile key={file.path} file={file} options={options} />
-      ))}
+      {files.map((file) => {
+        const focused = focusedHunk?.path === file.path ? focusedHunk : null;
+        return (
+          <DiffFile
+            key={file.path}
+            file={file}
+            options={options}
+            focused={focused}
+            comments={comments}
+            editing={editing && focused !== null}
+            renderNote={renderNote}
+            onClickHunk={(line) => {
+              const hunk = hunks.find((candidate) => hunkHoldsLine(candidate, file.path, line));
+              if (hunk) onFocusHunk(hunk.index);
+            }}
+          />
+        );
+      })}
     </main>
   );
 }
@@ -657,9 +987,19 @@ function widestLineNumber(patch: string) {
 const DiffFile = memo(function DiffFile({
   file,
   options,
+  focused,
+  comments,
+  editing,
+  renderNote,
+  onClickHunk,
 }: {
   file: WindowDiffFile;
-  options: React.ComponentProps<typeof PatchDiff>["options"];
+  options: PatchDiffProps<DiffNote, undefined>["options"];
+  focused: WindowHunk | null;
+  comments: PersistedComment[];
+  editing: boolean;
+  renderNote: (annotation: DiffLineAnnotation<DiffNote>) => React.ReactNode;
+  onClickHunk: (line: number) => void;
 }) {
   // The gutter fits this file's widest line number exactly, so the margin left of the numbers
   // never depends on how many digits they have.
@@ -667,6 +1007,32 @@ const DiffFile = memo(function DiffFile({
     () => ({ "--gutter-width": `${widestLineNumber(file.patch) + 1.5}ch` }),
     [file.patch],
   );
+  // The focused hunk shows as Pierre's line selection, on the new side like the terminal.
+  const selectedLines = useMemo(
+    () =>
+      focused
+        ? { start: focused.newRange[0], end: focused.newRange[1], side: "additions" as const }
+        : null,
+    [focused],
+  );
+  // Comments sit under the line they are on; the editor opens under the focused hunk's last line.
+  const notes = useMemo(() => {
+    const rows: DiffLineAnnotation<DiffNote>[] = comments
+      .filter((comment) => comment.file === file.path)
+      .map((comment) => ({
+        side: "additions" as const,
+        lineNumber: comment.line,
+        metadata: { kind: "comment" as const, comment },
+      }));
+    if (editing && focused) {
+      rows.push({
+        side: "additions",
+        lineNumber: focused.newRange[1],
+        metadata: { kind: "draft" },
+      });
+    }
+    return rows;
+  }, [comments, file.path, editing, focused]);
   return (
     <div className="file" id={fileAnchor(file.path)} style={gutter as React.CSSProperties}>
       <div className="file-header">
@@ -686,7 +1052,16 @@ const DiffFile = memo(function DiffFile({
         </span>
       </div>
       <div className="code-block">
-        <PatchDiff patch={file.patch} options={options} />
+        <PatchDiff<DiffNote>
+          patch={file.patch}
+          options={{
+            ...options,
+            onLineClick: (props: { lineNumber: number }) => onClickHunk(props.lineNumber),
+          }}
+          selectedLines={selectedLines}
+          lineAnnotations={notes}
+          renderAnnotation={renderNote}
+        />
       </div>
     </div>
   );
@@ -821,6 +1196,18 @@ pre,
   inset: 0 1ch 0 0;
   text-align: right;
   color: var(--faint);
+}
+/* The focused hunk, like the terminal: no tint of its own, only its line numbers at full strength
+   while every other hunk's numbers fade. */
+[data-selected-line] {
+  --diffs-computed-selected-line-bg: var(--diffs-computed-diff-line-bg);
+}
+[data-column-number] {
+  color: color-mix(in srgb, var(--faint) 50%, var(--bg));
+}
+[data-column-number][data-selected-line] {
+  --diffs-selection-number-fg: var(--muted);
+  color: var(--muted);
 }
 /* Pierre mixes each row's tint with the background; the terminal paints the tint as is. */
 [data-line],
