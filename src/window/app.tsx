@@ -756,6 +756,17 @@ code {
   --diffs-font-family: ui-monospace, "SF Mono", Menlo, monospace;
   --diffs-font-size: 12.5px;
 }
+/* Every box spans the pane, however short its lines. */
+:host,
+pre,
+[data-diff],
+[data-code] {
+  display: block;
+  width: 100%;
+}
+[data-code] {
+  display: grid;
+}
 /* A fixed number column, so the file title above can line up with the code box. */
 [data-code] {
   --diffs-code-grid: var(--gutter-width) minmax(0, 1fr);
