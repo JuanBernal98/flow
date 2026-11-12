@@ -20,7 +20,6 @@ function createTestRemedyIo(overrides: Partial<RemedyIo> = {}) {
     confirm: async () => true,
     youTrackUrl: async () => "https://yt.test",
     openUrl: (url) => opened.push(url),
-    migrateYouTrackToken: () => true,
     waitForRecheck: async () => true,
     runInteractive: async (command) => {
       ran.push(command);
@@ -134,24 +133,6 @@ describe("resolveMissingDependencies", () => {
       "fail",
     );
     expect(ran).toEqual([]);
-  });
-
-  test("binds an old server-less token to the instance after a yes", async () => {
-    const migrated: string[] = [];
-    const { io, said } = createTestRemedyIo({
-      migrateYouTrackToken: (url) => {
-        migrated.push(url);
-        return true;
-      },
-    });
-    const legacy: SetupCheck = {
-      status: "fail",
-      name: "YouTrack token",
-      remedy: { kind: "youtrack-token-migrate" },
-    };
-    await resolveMissingDependencies(createTestChecks([[legacy], [OK("YouTrack token")]]), io);
-    expect(migrated).toEqual(["https://yt.test"]);
-    expect(said.some((line) => line.includes("flow-youtrack:yt.test"))).toBe(true);
   });
 
   test("connects the YouTrack MCP from the URL, showing the command with the token hidden", async () => {

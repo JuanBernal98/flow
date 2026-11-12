@@ -20,8 +20,6 @@ export interface RemedyIo {
    * Undefined when the user stops instead of answering.
    */
   youTrackUrl: () => Promise<string | undefined>;
-  /** Move the old server-less Keychain token to the instance's own item; true when it worked. */
-  migrateYouTrackToken: (url: string) => boolean;
   /** Open a page in the user's browser. */
   openUrl: (url: string) => void;
   checkYouTrack: (
@@ -105,21 +103,6 @@ export async function resolveMissingDependencies(
         if (exitCode !== 0) {
           io.say(`  That exited with code ${exitCode}; checking again.`);
         }
-      }
-    } else if (remedy.kind === "youtrack-token-migrate") {
-      const url = await io.youTrackUrl();
-      if (!url) {
-        return checks;
-      }
-      const host = new URL(url).host;
-      io.say(
-        `  flow can move it to ${youTrackKeychainService(host)}, so it is only ever sent to ${host}, and remove the old item.`,
-      );
-      if (!(await io.confirm("  Move it now?"))) {
-        return checks;
-      }
-      if (!io.migrateYouTrackToken(url)) {
-        io.say("  Could not move the token; checking again.");
       }
     } else {
       io.say(

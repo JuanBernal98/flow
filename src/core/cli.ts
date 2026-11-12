@@ -834,11 +834,7 @@ function readYouTrackMcpUrl() {
 
 /** Ask, run, and print in the user's terminal for setup's remedies. */
 async function createTerminalRemedyIo(): Promise<import("./setupRemedies").RemedyIo> {
-  const [
-    readline,
-    { checkYouTrackAccess, migrateLegacyYouTrackToken, readYouTrackToken },
-    userDefaults,
-  ] = await Promise.all([
+  const [readline, { checkYouTrackAccess, readYouTrackToken }, userDefaults] = await Promise.all([
     import("node:readline/promises"),
     import("./youtrack"),
     import("./userDefaults"),
@@ -882,7 +878,6 @@ async function createTerminalRemedyIo(): Promise<import("./setupRemedies").Remed
         process.stdout.write("  Use the https:// address you open YouTrack at.\n");
       }
     },
-    migrateYouTrackToken: (url) => migrateLegacyYouTrackToken(url),
     openUrl: (url) => {
       Bun.spawn([process.platform === "darwin" ? "open" : "xdg-open", url], {
         stdout: "ignore",

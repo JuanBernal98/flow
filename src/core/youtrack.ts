@@ -7,11 +7,10 @@
  * `FLOW_YOUTRACK_URL`. A repository pointing at any other server finds no token, so nothing is sent.
  * Requests never follow redirects, and the token is never logged, persisted, or echoed in errors.
  */
-import { userInfo } from "node:os";
 import { z } from "zod";
 
-// Before tokens were bound to their server, one item held the token for any server.
-const LEGACY_KEYCHAIN_SERVICE = "flow-youtrack";
+// Keychain items are `flow-youtrack:<host>`, one per server.
+const KEYCHAIN_SERVICE_PREFIX = "flow-youtrack";
 // All my open tickets in one request; the workspace splits off the ones in Review by State.
 const ASSIGNED_TASKS_QUERY = "for: me #Unresolved sort by: updated desc";
 const ISSUE_FIELDS = "idReadable,summary,customFields(name,value(name))";
@@ -73,7 +72,7 @@ const AssigneeSchema = z.object({ login: z.string() });
 
 /** The Keychain service that holds the token for one YouTrack host. */
 export function youTrackKeychainService(host: string) {
-  return `${LEGACY_KEYCHAIN_SERVICE}:${host}`;
+  return `${KEYCHAIN_SERVICE_PREFIX}:${host}`;
 }
 
 /** Read one Keychain item's secret without ever routing it through argv or stdout logs. */
@@ -180,45 +179,6 @@ export function hasYouTrackToken(
   deps: Pick<YouTrackDeps, "env" | "platform" | "readKeychainToken"> = {},
 ) {
   return Boolean(readYouTrackToken(instanceUrl, deps));
-}
-
-/** Whether the Keychain still holds a token from before tokens were bound to their server. */
-export function hasLegacyYouTrackToken() {
-  return process.platform === "darwin" && Boolean(readKeychainItem(LEGACY_KEYCHAIN_SERVICE));
-}
-
-/**
- * Bind the old server-less Keychain token to one instance and remove the old item. The token passes
- * through `security`'s arguments for a moment, as the Keychain offers no other non-interactive way.
- */
-export function migrateLegacyYouTrackToken(instanceUrl: string) {
-  const host = parseInstanceUrl(instanceUrl.trim())?.host;
-  const token = readKeychainItem(LEGACY_KEYCHAIN_SERVICE);
-  if (!host || !token) {
-    return false;
-  }
-  const stored = Bun.spawnSync(
-    [
-      "security",
-      "add-generic-password",
-      "-U",
-      "-a",
-      userInfo().username,
-      "-s",
-      youTrackKeychainService(host),
-      "-w",
-      token,
-    ],
-    { stdout: "ignore", stderr: "ignore" },
-  );
-  if (stored.exitCode !== 0 || readKeychainToken(host) !== token) {
-    return false;
-  }
-  Bun.spawnSync(["security", "delete-generic-password", "-s", LEGACY_KEYCHAIN_SERVICE], {
-    stdout: "ignore",
-    stderr: "ignore",
-  });
-  return true;
 }
 
 /** Pull the display name of a single-value custom field such as State. */
