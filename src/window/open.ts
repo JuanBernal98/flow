@@ -47,7 +47,12 @@ export async function openFlowWindow(cwd: string) {
     ]);
   }
   const { server, url } = startWindowServer(repoRoot);
-  const window = Bun.spawn(["bun", "run", join(import.meta.dir, "nativeWindow.ts"), url], {
+  // On macOS the window runs inside Flow.app, so the Dock shows Flow and its icon, not Bun.
+  const runtime =
+    process.platform === "darwin"
+      ? (await import("./appBundle")).ensureFlowAppBundle()
+      : process.execPath;
+  const window = Bun.spawn([runtime, "run", join(import.meta.dir, "nativeWindow.ts"), url], {
     stdout: "inherit",
     stderr: "inherit",
   });
