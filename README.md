@@ -2,7 +2,7 @@
 
 ![flow: your tickets and reviews, the agent's overview of the ticket, the live diff of your branch, and its file tree](assets/flow-screenshot.png)
 
-**The AI-native workspace for shipping tickets.** Tickets, merge requests, and code in one terminal, built around Claude Code.
+**Everything you need to work, in one place.** Your tickets, your squad's reviews, the code, and Claude, side by side in one terminal: no more jumping between YouTrack, GitLab, Notion, and Slack.
 
 flow closes the context gap: Claude starts every ticket already knowing it, and everything around the code runs itself. What's left is the part that matters, a human–AI loop on the code:
 
@@ -16,7 +16,7 @@ full context  →  Claude writes  →  you review  →  Claude improves  →  sh
 - **Overview.** See what Claude understood before it writes a line. The ticket and docs stay the source of truth.
 - **Ticket-vs-code review.** `R` checks the code against the ticket's acceptance criteria, not just for bugs.
 - **Inline loop.** Comment a hunk; Claude fixes it and replies in place.
-- **Everything in one place.** Your tickets, your squad's reviews, the code, and what Claude understood, side by side: no more jumping between YouTrack, GitLab, Notion, and Slack. Delivery happens there too: branch, commits, merge request, Slack ping, and ticket state, one key each, and merged tickets close themselves. You just approve.
+- **Delivery without leaving it.** Branch, commits, merge request, Slack ping, and ticket state, one key each, and merged tickets close themselves. You just approve.
 
 ## Quick start
 
