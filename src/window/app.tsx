@@ -41,7 +41,7 @@ function App() {
   const [workspaceOpen, setWorkspaceOpen] = useState(true);
   const [overviewOpen, setOverviewOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(true);
-  const [diffStyle, setDiffStyle] = useState<DiffStyle>("split");
+  const [diffStyle, setDiffStyle] = useState<DiffStyle>("unified");
   const [themes, setThemes] = useState<WindowThemes | null>(null);
   const [themeId, setThemeId] = useState<string | null>(null);
   const systemAppearance = useSystemAppearance();
@@ -624,6 +624,8 @@ function DiffPane({
         diffStyle,
         overflow: "scroll",
         disableFileHeader: true,
+        diffIndicators: "none",
+        hunkSeparators: "simple",
         unsafeCSS: DIFF_CSS,
       }) as const,
     [diffStyle, codeTheme, appearance],
@@ -652,7 +654,14 @@ const DiffFile = memo(function DiffFile({
   return (
     <div className="file" id={fileAnchor(file.path)}>
       <div className="file-header">
-        <span>{file.path}</span>
+        <span>
+          <span className="file-header-name">
+            {file.path.slice(file.path.lastIndexOf("/") + 1)}
+          </span>
+          <span className="file-header-dir">
+            {file.path.slice(0, file.path.lastIndexOf("/") + 1)}
+          </span>
+        </span>
         <span className="stat">
           <span className="add">+{file.additions}</span>{" "}
           <span className="del">-{file.deletions}</span>
@@ -718,8 +727,8 @@ function applyTheme(theme: WindowTheme) {
   style.setProperty(
     "--code-bg",
     dark
-      ? `color-mix(in srgb, ${colors.background} 72%, black)`
-      : `color-mix(in srgb, ${colors.background} 96%, black)`,
+      ? `color-mix(in srgb, ${colors.background} 86%, black)`
+      : `color-mix(in srgb, ${colors.background} 97.5%, black)`,
   );
   style.setProperty("--diffs-bg-context-override", "var(--code-bg)");
   style.setProperty("--diffs-bg-context-gutter-override", colors.background);
@@ -741,14 +750,23 @@ const DIFF_CSS = `
 :host,
 pre,
 code {
-  --diffs-bg: var(--code-bg);
+  --diffs-bg: var(--bg);
   background-color: var(--bg);
   --diffs-font-family: ui-monospace, "SF Mono", Menlo, monospace;
   --diffs-font-size: 12.5px;
 }
-/* Line numbers sit outside the code block, on the window background. */
+/* Like Zed: line numbers on the window background, the code in a framed, slightly darker box. */
+[data-content] {
+  --diffs-bg: var(--code-bg);
+  background-color: var(--code-bg);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  overflow: hidden;
+}
 [data-column-number] {
-  --diffs-bg: var(--bg);
+  border-right: 0;
+  --diffs-fg-number-addition-override: var(--faint);
+  --diffs-fg-number-deletion-override: var(--faint);
 }
 `;
 

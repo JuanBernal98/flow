@@ -254,22 +254,24 @@ body {
 }
 
 .code-block {
-  margin: 8px 16px 0;
-  border-radius: 8px;
-  overflow: hidden;
+  margin: 6px 16px 0 4px;
+}
+
+.file-header-name {
+  color: var(--text);
+}
+
+.file-header-dir {
+  color: var(--faint);
+  margin-left: 8px;
 }
 
 .file-header {
   display: flex;
   justify-content: space-between;
   padding: 8px 12px;
-  border-bottom: 1px solid var(--line);
   background: var(--bg);
-  font:
-    12px ui-monospace,
-    "SF Mono",
-    Menlo,
-    monospace;
+  font-size: 12.5px;
   position: sticky;
   top: 0;
   z-index: 1;
