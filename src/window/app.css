@@ -1,4 +1,7 @@
 :root {
+  /* The diff line-number column, in the code font; the file title is indented by the same. */
+  --gutter-width: 7ch;
+  --code-font: 12.5px ui-monospace, "SF Mono", Menlo, monospace;
   --bg: #ffffff;
   --sidebar: #f5f5f7;
   --panel: #fbfbfd;
@@ -257,6 +260,12 @@ body {
   margin: 6px 16px 0 4px;
 }
 
+.gutter-spacer {
+  display: inline-block;
+  width: var(--gutter-width);
+  font: var(--code-font);
+}
+
 .file-header-name {
   color: var(--text);
 }
@@ -269,7 +278,7 @@ body {
 .file-header {
   display: flex;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: 8px 12px 0 4px;
   background: var(--bg);
   font-size: 12.5px;
   position: sticky;

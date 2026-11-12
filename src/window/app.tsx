@@ -655,6 +655,7 @@ const DiffFile = memo(function DiffFile({
     <div className="file" id={fileAnchor(file.path)}>
       <div className="file-header">
         <span>
+          <span className="gutter-spacer" aria-hidden="true" />
           <span className="file-header-name">
             {file.path.slice(file.path.lastIndexOf("/") + 1)}
           </span>
@@ -754,6 +755,11 @@ code {
   background-color: var(--bg);
   --diffs-font-family: ui-monospace, "SF Mono", Menlo, monospace;
   --diffs-font-size: 12.5px;
+}
+/* A fixed number column, so the file title above can line up with the code box. */
+[data-code] {
+  --diffs-code-grid: var(--gutter-width) minmax(0, 1fr);
+  grid-template-columns: var(--gutter-width) minmax(0, 1fr);
 }
 /* Like Zed: line numbers on the window background, the code in a framed, slightly darker box. */
 [data-content] {
