@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readUserDefaults, saveUserYouTrackUrl } from "./userDefaults";
+import { readUserDefaults, saveUserLanguage, saveUserYouTrackUrl } from "./userDefaults";
 
 const testRoots: string[] = [];
 
@@ -48,5 +48,13 @@ describe("user defaults", () => {
       theme: "zed",
       defaults: { youtrack_url: "https://yt.test" },
     });
+  });
+
+  test("remembers the language beside the YouTrack URL", () => {
+    const path = createTestConfigPath();
+    saveUserYouTrackUrl("https://yt.test", path);
+    saveUserLanguage("es", path);
+    saveUserLanguage("de", path);
+    expect(readUserDefaults(path)).toEqual({ youtrackUrl: "https://yt.test", language: "de" });
   });
 });

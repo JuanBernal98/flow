@@ -4,7 +4,7 @@ description: Crea el MR de la rama actual, envía la petición de review al cana
 argument-hint: "[locally|staging|tests]"
 ---
 
-Publica el trabajo de la rama actual. Responde en español. Argumento opcional (cómo se probó): `<argumentos>`.
+Publica el trabajo de la rama actual. Responde en el idioma de salida. Argumento opcional (cómo se probó): `<argumentos>`.
 
 Nada sale fuera (push, MR, Slack, YouTrack) sin la aprobación del paso 3, y solo lo aprobado.
 

@@ -4,7 +4,7 @@ description: Propone y crea los commits de los cambios sin commitear de la rama 
 argument-hint: "[ID]"
 ---
 
-Commitea el trabajo sin commitear de la rama actual. Responde en español. Argumento opcional: el ticket
+Commitea el trabajo sin commitear de la rama actual. Responde en el idioma de salida. Argumento opcional: el ticket
 de la rama, `<argumentos>`.
 
 Nada se commitea sin la aprobación del paso 3, y solo lo aprobado. Nunca hagas push, ni `--no-verify`,

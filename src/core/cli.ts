@@ -19,7 +19,7 @@ import {
 } from "./cliComments";
 import { FlowUserError } from "./errors";
 import { WORKTREE_BASE_REF } from "./git";
-import { resolveBundledCommentsFixSkillPath } from "./paths";
+import { resolveBundledCommentsFixSkillPath, resolveGlobalConfigPath } from "./paths";
 import { resolveCliVersion } from "./version";
 import type { BranchReviewRequest } from "./types";
 
@@ -121,9 +121,21 @@ function resolveBundledSkillPath(name: BundledSkill) {
 }
 
 /** Render a bundled skill itself, so agents read the installed version's rules. */
-function renderBundledSkill(name: BundledSkill) {
-  const content = readFileSync(resolveBundledSkillPath(name), "utf8");
-  return content.endsWith("\n") ? content : `${content}\n`;
+async function renderBundledSkill(name: BundledSkill) {
+  const raw = readFileSync(resolveBundledSkillPath(name), "utf8");
+  const content = raw.endsWith("\n") ? raw : `${raw}\n`;
+  // flow-comments-fix answers each comment in its own language; the rest write in the user's.
+  if (name === "flow-comments-fix") {
+    return content;
+  }
+  const [{ readUserDefaults }, { renderLanguageInstruction }] = await Promise.all([
+    import("./userDefaults"),
+    import("./outputLanguage"),
+  ]);
+  const instruction = renderLanguageInstruction(readUserDefaults().language);
+  // Right after the frontmatter, so the skill's header stays where Claude Code expects it.
+  const frontmatter = /^---\n[\s\S]*?\n---\n/.exec(content)?.[0] ?? "";
+  return `${frontmatter}\n${instruction}\n${content.slice(frontmatter.length)}`;
 }
 
 /** Build the `flow skill` help text. */
@@ -753,7 +765,10 @@ async function parseSkillCommand(tokens: string[]): Promise<HelpCommandInput> {
 
   return {
     kind: "help",
-    text: subcommand === "show" ? renderBundledSkill(skill) : `${resolveBundledSkillPath(skill)}\n`,
+    text:
+      subcommand === "show"
+        ? await renderBundledSkill(skill)
+        : `${resolveBundledSkillPath(skill)}\n`,
   };
 }
 
@@ -933,6 +948,54 @@ async function createTerminalRemedyIo(): Promise<import("./setupRemedies").Remed
   };
 }
 
+/**
+ * The language Claude writes overviews, reviews, and summaries in: asked once with a picker (in a
+ * terminal, when none is saved yet), then only reported.
+ */
+async function describeOutputLanguage(canAsk: boolean) {
+  const [userDefaults, { DEFAULT_LANGUAGE, LANGUAGE_CHOICES, languageName }, { selectInTerminal }] =
+    await Promise.all([
+      import("./userDefaults"),
+      import("./outputLanguage"),
+      import("./terminalSelect"),
+    ]);
+  let code = userDefaults.readUserDefaults().language;
+  if (!code && canAsk) {
+    const other = "Other (type a code like nl or pl)";
+    const picked = await selectInTerminal("Language Claude writes overviews and reviews in:", [
+      ...LANGUAGE_CHOICES.map((choice) => `${choice.label} (${choice.code})`),
+      other,
+    ]);
+    if (picked !== undefined && picked < LANGUAGE_CHOICES.length) {
+      code = LANGUAGE_CHOICES[picked]?.code;
+    } else if (picked !== undefined) {
+      const readline = await import("node:readline/promises");
+      const prompt = readline.createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        for (;;) {
+          const answer = (await prompt.question("  Language code (empty for en): "))
+            .trim()
+            .toLowerCase();
+          if (!answer || languageName(answer)) {
+            code = answer || DEFAULT_LANGUAGE;
+            break;
+          }
+          process.stdout.write(`  "${answer}" is not a language code like es or en; try again.\n`);
+        }
+      } finally {
+        prompt.close();
+      }
+    }
+    if (code) {
+      userDefaults.saveUserLanguage(code);
+    }
+  }
+  const resolved = code && languageName(code) ? code : DEFAULT_LANGUAGE;
+  return [
+    `Claude writes in ${languageName(resolved)} (${resolved}); change \`language\` under [defaults] in ${displayPath(resolveGlobalConfigPath() ?? "~/.config/flow/config.toml")}.`,
+  ];
+}
+
 /** Run `bun install` in the checkout flow runs from; a no-op when nothing changed. */
 function installFlowDependencies() {
   const checkout = dirname(dirname(dirname(resolveBundledCommentsFixSkillPath())));
@@ -1030,6 +1093,8 @@ async function parseSetupCommand(flags: string[]): Promise<HelpCommandInput> {
 
   const lines = [
     ...checkLines,
+    "",
+    ...(await describeOutputLanguage(!dryRun && Boolean(process.stdin.isTTY))),
     "",
     ...describeChanges(dryRun ? "Would change" : "Set up", install(dryRun)),
   ];

@@ -440,6 +440,26 @@ describe("skill show", () => {
     expect(parsed.text).toContain("flow comments resolve <id>");
     expect(parsed.text).toContain("flow request: ticket-context <ID>");
     expect(parsed.text.endsWith("\n")).toBe(true);
+    // Comments are answered in their own language, so this skill names none.
+    expect(parsed.text).not.toContain("Idioma de salida");
+  });
+
+  test("opens the other skills with the user's output language", async () => {
+    const configHome = mkdtempSync(join(tmpdir(), "flow-language-"));
+    const previous = process.env.XDG_CONFIG_HOME;
+    process.env.XDG_CONFIG_HOME = configHome;
+    try {
+      const { saveUserLanguage } = await import("./userDefaults");
+      saveUserLanguage("es", join(configHome, "flow", "config.toml"));
+      const parsed = await parseCli(["bun", "flow", "skill", "show", "flow-review"]);
+      if (parsed.kind !== "help") throw new Error("expected skill text");
+      expect(parsed.text).toStartWith("---\nname: flow-review\n");
+      expect(parsed.text).toContain("---\n\nIdioma de salida: **Spanish** (`es`).");
+    } finally {
+      if (previous === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = previous;
+      rmSync(configHome, { recursive: true, force: true });
+    }
   });
 });
 

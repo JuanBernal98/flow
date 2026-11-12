@@ -5,7 +5,7 @@ argument-hint: "<ID>"
 context: fork
 ---
 
-Carga y resume el contexto del ticket `<argumentos>`. Responde en español. Solo lectura: no toques git (más
+Carga y resume el contexto del ticket `<argumentos>`. Responde en el idioma de salida. Solo lectura: no toques git (más
 allá de leer), YouTrack, Notion ni ningún archivo. La única escritura permitida es el overview del paso 3,
 y solo con el comando que se indica ahí.
 
@@ -56,7 +56,7 @@ se encarga quien la pidió (flow o `/flow-ticket-switch`).
 ## 3. Overview para flow
 
 Escribe lo que has entendido del ticket para el panel Overview de flow (tecla `x`). Siempre las mismas
-secciones; todas en español, frases cortas y concretas, sin relleno. No incluyas estado, rama, MR ni
+secciones; todas en el idioma de salida, frases cortas y concretas, sin relleno. No incluyas estado, rama, MR ni
 líneas cambiadas: eso lo pone flow en vivo.
 
 `summary`, `why`, `todo` y `acceptance` son la vara con la que se mide cualquier MR del ticket: escríbelos
