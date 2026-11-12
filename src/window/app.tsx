@@ -285,11 +285,10 @@ function SearchIcon() {
   );
 }
 
-/** Grid columns for the open panes; the diff always takes the rest. */
+/** Grid columns for the open panes: the overview and the diff split what the sidebars leave. */
 function paneColumns(workspace: boolean, overview: boolean, files: boolean) {
-  return [workspace ? "280px" : "", overview ? "380px" : "", "minmax(0, 1fr)", files ? "240px" : ""]
-    .filter(Boolean)
-    .join(" ");
+  const body = overview ? "minmax(0, 1fr) minmax(0, 1fr)" : "minmax(0, 1fr)";
+  return [workspace ? "280px" : "", body, files ? "240px" : ""].filter(Boolean).join(" ");
 }
 
 /** The bottom bar: panel toggles on the edges, the branch and change totals in between. */
