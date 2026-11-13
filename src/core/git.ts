@@ -371,6 +371,7 @@ function runGitCommand({
   try {
     proc = Bun.spawnSync([gitExecutable, ...args], {
       cwd,
+      windowsHide: true,
       env: GIT_ENV,
       stdin: "ignore",
       stdout: "pipe",

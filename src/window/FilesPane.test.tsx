@@ -33,11 +33,20 @@ describe("window change navigation", () => {
     expect(tracked).toContain("staged.ts");
     expect(tracked).toContain('aria-label="Added"');
     expect(tracked).toContain('aria-label="Modified"');
+    expect(tracked).toContain('viewBox="0 0 16 16"');
+    expect(tracked).toContain('<circle cx="8" cy="8" r="5"></circle>');
+    expect(html).not.toContain("stroke-dasharray");
+    expect(html).toContain('aria-label="Untracked" style="color:var(--muted)"');
     expect(tracked).toContain("+12");
     expect(tracked).not.toContain("new.ts");
     expect(untracked).toContain("new.ts");
     expect(untracked).not.toContain('class="stat"');
     expect(html).not.toContain('class="file-icon"');
+    expect(html).toContain('data-phase="propose"');
+    expect(html).toContain("Propose</button>");
+    expect(html.slice(html.indexOf('<footer class="files-footer">'))).not.toContain(
+      "Commit</button>",
+    );
   });
 
   test("keeps navigation independent from multi-file selection and selects whole groups", () => {
@@ -53,14 +62,23 @@ describe("window change navigation", () => {
   });
 
   test("shows loading and empty states without empty group headings", () => {
-    const heading = '<h2 class="files-title">Changes</h2>';
+    const heading = 'id="changes-tab" aria-selected="true" aria-controls="changes-panel">';
     expect(renderTestFilesPane()).toContain(heading);
+    expect(renderTestFilesPane()).toContain("Changes (3)");
     const loading = renderTestFilesPane(new Set(), null);
     expect(loading).toContain(heading);
     expect(loading).toContain("Loading changes");
     const empty = renderTestFilesPane(new Set(), []);
     expect(empty).toContain(heading);
+    expect(empty).toContain("Changes (0)");
     expect(empty).toContain("No changes");
     expect(empty).not.toContain('class="file-group"');
+  });
+
+  test("committed branch files remain navigable but cannot be selected for Propose", () => {
+    const html = renderTestFilesPane(new Set(), [{ ...files[0]!, pending: false }]);
+    expect(html).toContain('aria-label="Select src/staged.ts" disabled=""');
+    expect(html).toContain('title="Already committed on this branch"');
+    expect(html).toContain('class="file-open"');
   });
 });

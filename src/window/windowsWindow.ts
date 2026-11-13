@@ -1,6 +1,19 @@
 /** Windows frame controls for the title bar drawn by the page. */
 import { dlopen, FFIType, JSCallback, ptr, toArrayBuffer, type Pointer } from "bun:ffi";
 import { maximizedWindowBounds } from "./windowsFrameLayout";
+import { join } from "node:path";
+
+const shell32 = dlopen("shell32.dll", {
+  SetCurrentProcessExplicitAppUserModelID: { args: [FFIType.ptr], returns: FFIType.i32 },
+}).symbols;
+
+/** Give Flow its own taskbar group instead of inheriting the Bun runtime's identity. */
+export function setAppIdentity() {
+  const appId = Buffer.from("Flow.Desktop\0", "utf16le");
+  if (shell32.SetCurrentProcessExplicitAppUserModelID(ptr(appId)) < 0) {
+    throw new Error("Unable to set the Flow application identity.");
+  }
+}
 
 const dwm = dlopen("dwmapi.dll", {
   DwmSetWindowAttribute: {
@@ -25,6 +38,16 @@ export function setFrameTheme(window: Pointer, dark: boolean) {
 }
 
 const user32 = dlopen("user32.dll", {
+  LoadImageW: {
+    args: [FFIType.ptr, FFIType.ptr, FFIType.u32, FFIType.i32, FFIType.i32, FFIType.u32],
+    returns: FFIType.ptr,
+  },
+  SendMessageW: {
+    args: [FFIType.ptr, FFIType.u32, FFIType.u64, FFIType.ptr],
+    returns: FFIType.i64,
+  },
+  DestroyIcon: { args: [FFIType.ptr], returns: FFIType.i32 },
+  GetSystemMetrics: { args: [FFIType.i32], returns: FFIType.i32 },
   GetWindowLongW: { args: [FFIType.ptr, FFIType.i32], returns: FFIType.i32 },
   SetWindowLongW: { args: [FFIType.ptr, FFIType.i32, FFIType.i32], returns: FFIType.i32 },
   SetWindowPos: {
@@ -51,6 +74,39 @@ const user32 = dlopen("user32.dll", {
   GetWindowPlacement: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
   SetWindowPlacement: { args: [FFIType.ptr, FFIType.ptr], returns: FFIType.i32 },
 }).symbols;
+
+const windowIcons = new Map<Pointer, Pointer[]>();
+
+/** Set both native icon sizes so the taskbar and Alt+Tab show the bundled Flow artwork. */
+export function setWindowIcon(window: Pointer) {
+  const iconPath = Buffer.from(
+    `${join(import.meta.dir, "..", "..", "assets", "flow.ico")}\0`,
+    "utf16le",
+  );
+  const loaded: Pointer[] = [];
+  for (const [widthMetric, heightMetric] of [
+    [49, 50],
+    [11, 12],
+  ] as const) {
+    const icon = user32.LoadImageW(
+      null,
+      ptr(iconPath),
+      1,
+      user32.GetSystemMetrics(widthMetric),
+      user32.GetSystemMetrics(heightMetric),
+      0x0010,
+    );
+    if (!icon) {
+      for (const handle of loaded) user32.DestroyIcon(handle);
+      throw new Error("Unable to load the Flow window icon.");
+    }
+    loaded.push(Number(icon) as Pointer);
+  }
+  for (const [index, icon] of loaded.entries()) user32.SendMessageW(window, 0x0080, index, icon);
+  const previous = windowIcons.get(window);
+  windowIcons.set(window, loaded);
+  for (const icon of previous ?? []) user32.DestroyIcon(icon);
+}
 
 const comctl32 = dlopen("comctl32.dll", {
   SetWindowSubclass: {
@@ -201,6 +257,8 @@ export function unifyTitleBar(window: Pointer) {
 
 /** Release the subclass after the native event loop has stopped invoking it. */
 export function disposeFrame(window: Pointer) {
+  for (const icon of windowIcons.get(window) ?? []) user32.DestroyIcon(icon);
+  windowIcons.delete(window);
   fullscreenWindows.delete(window);
   if (!frameCallback) return;
   comctl32.RemoveWindowSubclass(window, frameCallback.ptr, FRAME_SUBCLASS_ID);
@@ -234,6 +292,26 @@ export function zoomWindow(window: Pointer): boolean {
   if (fullscreenWindows.has(window)) return false;
   user32.ShowWindow(window, user32.IsZoomed(window) ? SW_RESTORE : SW_MAXIMIZE);
   return Boolean(user32.IsZoomed(window));
+}
+
+/** Start in the monitor's work area without toggling an already maximized window. */
+export function maximizeWindow(window: Pointer) {
+  user32.ShowWindow(window, SW_MAXIMIZE);
+}
+
+/** Resolve the maximized viewport before HTML lays out, without a visible resize transition. */
+export function prepareWindowForFirstPaint(window: Pointer) {
+  const disabled = new Int32Array([1]);
+  dwm.DwmSetWindowAttribute(window, 3, ptr(disabled), disabled.byteLength);
+  user32.ShowWindow(window, SW_MAXIMIZE);
+  user32.ShowWindow(window, 0);
+}
+
+/** Reveal the already-sized window and restore normal OS transitions for later interactions. */
+export function revealPreparedWindow(window: Pointer) {
+  user32.ShowWindow(window, 5);
+  const enabled = new Int32Array([0]);
+  dwm.DwmSetWindowAttribute(window, 3, ptr(enabled), enabled.byteLength);
 }
 
 /** Read the native state, including changes made through snapping and keyboard shortcuts. */

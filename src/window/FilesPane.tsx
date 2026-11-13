@@ -1,5 +1,8 @@
 /** @jsxImportSource react */
 import type { WindowDiffFile } from "./data";
+import { FileRow } from "./FileRow";
+import type { ReactNode } from "react";
+import { CommitActionButton } from "./CommitActionButton";
 
 interface FilesPaneProps {
   files: readonly WindowDiffFile[] | null;
@@ -7,6 +10,10 @@ interface FilesPaneProps {
   selectedPaths: ReadonlySet<string>;
   onSelectionChange: (paths: ReadonlySet<string>) => void;
   onOpen: (path: string) => void;
+  onCommit?: () => void;
+  proposal?: ReactNode;
+  onChanges?: () => void;
+  onCommitTab?: () => void;
 }
 
 /** Compact change navigation with an independent selection for future file actions. */
@@ -16,6 +23,10 @@ export function FilesPane({
   selectedPaths,
   onSelectionChange,
   onOpen,
+  onCommit,
+  proposal,
+  onChanges,
+  onCommitTab,
 }: FilesPaneProps) {
   const groups = [
     { title: "Tracked", files: (files ?? []).filter((file) => !file.untracked) },
@@ -34,108 +45,89 @@ export function FilesPane({
 
   return (
     <nav className="files" aria-label="Changes">
-      <h2 className="files-title">Changes</h2>
-      <div className="files-body">
-        {files === null ? <p className="files-empty">Loading changes…</p> : null}
-        {files?.length === 0 ? <p className="files-empty">No changes</p> : null}
-        {groups
-          .filter((group) => group.files.length > 0)
-          .map((group) => {
-            const selectedCount = group.files.filter((file) => selectedPaths.has(file.path)).length;
-            return (
-              <section className="file-group" aria-label={group.title} key={group.title}>
-                <div className="file-group-heading">
-                  <span>{group.title}</span>
-                  <input
-                    className="file-select"
-                    type="checkbox"
-                    aria-label={`Select all ${group.title.toLowerCase()} files`}
-                    checked={selectedCount === group.files.length}
-                    ref={(input) => {
-                      if (input)
-                        input.indeterminate =
-                          selectedCount > 0 && selectedCount < group.files.length;
-                    }}
-                    onChange={(event) =>
-                      select(
-                        group.files.map((file) => file.path),
-                        event.target.checked,
-                      )
-                    }
-                  />
-                </div>
-                {group.files.map((file) => {
-                  const slash = file.path.lastIndexOf("/");
-                  return (
-                    <div
-                      className={`file-row ${file.status}`}
-                      data-active={activePath === file.path}
-                      data-selected={selectedPaths.has(file.path)}
-                      key={file.path}
-                    >
-                      <button
-                        className="file-open"
-                        type="button"
-                        title={`${file.path} (${file.untracked ? "untracked" : file.status})`}
-                        aria-current={activePath === file.path ? "location" : undefined}
-                        onClick={() => onOpen(file.path)}
-                      >
-                        <FileStatusIcon status={file.status} />
-                        <span className="file-name">
-                          {file.path.slice(slash + 1)}
-                          {slash > 0 ? (
-                            <span className="file-dir">{file.path.slice(0, slash)}</span>
-                          ) : null}
-                        </span>
-                        {!file.untracked ? (
-                          <span className="stat">
-                            <span className="add">+{file.additions}</span>{" "}
-                            <span className="del">−{file.deletions}</span>
-                          </span>
-                        ) : null}
-                      </button>
+      <div className="files-tabs" role="tablist" aria-label="Repository views">
+        <button
+          className="files-tab"
+          type="button"
+          role="tab"
+          id="changes-tab"
+          aria-selected={!proposal}
+          aria-controls="changes-panel"
+          onClick={onChanges}
+        >
+          {files === null ? "Changes" : `Changes (${files.length})`}
+        </button>
+        <button
+          className="files-tab"
+          type="button"
+          role="tab"
+          id="commit-tab"
+          aria-selected={Boolean(proposal)}
+          aria-controls="commit-panel"
+          onClick={onCommitTab}
+        >
+          Commit
+        </button>
+      </div>
+      {proposal ?? (
+        <>
+          <div
+            className="files-body"
+            role="tabpanel"
+            id="changes-panel"
+            aria-labelledby="changes-tab"
+          >
+            {files === null ? <p className="files-empty">Loading changes…</p> : null}
+            {files?.length === 0 ? <p className="files-empty">No changes</p> : null}
+            {groups
+              .filter((group) => group.files.length > 0)
+              .map((group) => {
+                const selectedCount = group.files.filter(
+                  (file) => file.pending !== false && selectedPaths.has(file.path),
+                ).length;
+                const pendingFiles = group.files.filter((file) => file.pending !== false);
+                return (
+                  <section className="file-group" aria-label={group.title} key={group.title}>
+                    <label className="file-group-heading">
+                      <span>{group.title}</span>
                       <input
                         className="file-select"
                         type="checkbox"
-                        aria-label={`Select ${file.path}`}
-                        checked={selectedPaths.has(file.path)}
-                        onChange={(event) => select([file.path], event.target.checked)}
+                        aria-label={`Select all ${group.title.toLowerCase()} files`}
+                        checked={pendingFiles.length > 0 && selectedCount === pendingFiles.length}
+                        disabled={pendingFiles.length === 0}
+                        ref={(input) => {
+                          if (input)
+                            input.indeterminate =
+                              selectedCount > 0 && selectedCount < pendingFiles.length;
+                        }}
+                        onChange={(event) =>
+                          select(
+                            pendingFiles.map((file) => file.path),
+                            event.target.checked,
+                          )
+                        }
                       />
-                    </div>
-                  );
-                })}
-              </section>
-            );
-          })}
-      </div>
+                    </label>
+                    {group.files.map((file) => (
+                      <FileRow
+                        key={file.path}
+                        file={file}
+                        active={activePath === file.path}
+                        selected={selectedPaths.has(file.path)}
+                        onOpen={() => onOpen(file.path)}
+                        onSelectionChange={(checked) => select([file.path], checked)}
+                      />
+                    ))}
+                  </section>
+                );
+              })}
+          </div>
+          <footer className="files-footer">
+            <CommitActionButton label="Propose" phase="propose" onClick={onCommit} />
+          </footer>
+        </>
+      )}
     </nav>
-  );
-}
-
-/** Git status takes the place of a generic document icon. */
-function FileStatusIcon({ status }: { status: WindowDiffFile["status"] }) {
-  const labels = { added: "Added", deleted: "Deleted", renamed: "Renamed", modified: "Modified" };
-  return (
-    <svg
-      className={`file-status ${status}`}
-      width="14"
-      height="14"
-      viewBox="0 0 16 16"
-      role="img"
-      aria-label={labels[status]}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <rect x="2.5" y="2.5" width="11" height="11" rx="1" />
-      {status === "added" ? <path d="M5 8h6M8 5v6" /> : null}
-      {status === "deleted" ? <path d="M5 8h6" /> : null}
-      {status === "renamed" ? <path d="M5 8h6M8 5l3 3-3 3" /> : null}
-      {status === "modified" ? (
-        <rect x="6.5" y="6.5" width="3" height="3" fill="currentColor" stroke="none" />
-      ) : null}
-    </svg>
   );
 }

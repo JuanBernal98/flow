@@ -38,3 +38,17 @@ export function hexColorDistance(left: string, right: string) {
   const b = hexToRgb(right);
   return Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
 }
+
+/** Choose the more readable foreground for a solid theme-colored action button. */
+export function contrastingTextColor(background: string): string {
+  const { r, g, b } = hexToRgb(background);
+  const linear = (channel: number) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  };
+  const luminance = 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
+  const darkLuminance = linear(17);
+  return (luminance + 0.05) / (darkLuminance + 0.05) >= 1.05 / (luminance + 0.05)
+    ? "#111111"
+    : "#ffffff";
+}

@@ -9,6 +9,7 @@ export function FileAccordion({
   path,
   selected,
   onSelectionChange,
+  selectionDisabled = false,
   expandable = true,
   emptyLabel = "No text changes",
 }: {
@@ -16,13 +17,15 @@ export function FileAccordion({
   header: ReactNode;
   children: ReactNode;
   path: string;
-  selected: boolean;
-  onSelectionChange: (checked: boolean) => void;
+  selected?: boolean;
+  onSelectionChange?: (checked: boolean) => void;
+  selectionDisabled?: boolean;
   expandable?: boolean;
   emptyLabel?: string;
 }) {
   const controls = (
     <>
+      <span className="file-sticky-sentinel" aria-hidden="true" />
       {expandable ? (
         <svg
           className="file-chevron"
@@ -39,14 +42,17 @@ export function FileAccordion({
       ) : (
         <span className="file-chevron" aria-hidden="true" />
       )}
-      <input
-        className="file-select"
-        type="checkbox"
-        aria-label={`Select ${path}`}
-        checked={selected}
-        onClick={(event) => event.stopPropagation()}
-        onChange={(event) => onSelectionChange(event.target.checked)}
-      />
+      {onSelectionChange ? (
+        <input
+          className="file-select"
+          type="checkbox"
+          aria-label={`Select ${path}`}
+          checked={selected ?? false}
+          disabled={selectionDisabled}
+          onClick={(event) => event.stopPropagation()}
+          onChange={(event) => onSelectionChange(event.target.checked)}
+        />
+      ) : null}
       {header}
       {!expandable ? <span className="file-empty-label">{emptyLabel}</span> : null}
     </>

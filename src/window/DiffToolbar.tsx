@@ -1,5 +1,6 @@
 /** @jsxImportSource react */
-import type { WindowDiffFile } from "./data";
+import type { WindowDiffFile, WindowDiffScope } from "./data";
+import { DESKTOP_KEYS } from "./shortcuts";
 
 /** Review controls embedded in the custom window title bar. */
 export function DiffToolbar({
@@ -7,11 +8,15 @@ export function DiffToolbar({
   diffStyle,
   onDiffStyle,
   onToggleFold,
+  scope = "pending",
+  onToggleScope,
 }: {
   files: readonly WindowDiffFile[] | null;
   diffStyle: "split" | "unified";
   onDiffStyle: (style: "split" | "unified") => void;
   onToggleFold: () => void;
+  scope?: WindowDiffScope;
+  onToggleScope?: () => void;
 }) {
   const totals = (files ?? []).reduce(
     (sum, file) => ({
@@ -23,6 +28,18 @@ export function DiffToolbar({
   return (
     <div className="diff-toolbar" role="toolbar" aria-label="Diff view controls">
       <div className="diff-toolbar-actions">
+        <button
+          className="diff-scope"
+          type="button"
+          aria-label={
+            scope === "pending"
+              ? `Show branch changes (${DESKTOP_KEYS.scope})`
+              : `Show pending changes (${DESKTOP_KEYS.scope})`
+          }
+          onClick={onToggleScope}
+        >
+          <span>{scope === "pending" ? "Pending changes" : "Branch changes"}</span>
+        </button>
         <button
           type="button"
           className="icon-button"

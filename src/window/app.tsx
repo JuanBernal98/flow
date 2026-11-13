@@ -5,18 +5,34 @@
  */
 import { PatchDiff, type DiffLineAnnotation, type PatchDiffProps } from "@pierre/diffs/react";
 import type React from "react";
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { registerClaudeCodeThemes } from "../ui/diff/claudeCodeThemes";
 import type { PersistedComment } from "../core/comments";
 import type { StoredTicketOverview } from "../core/ticketOverview";
 import type { WorkspaceItem, WorkspaceSectionId } from "../ui/lib/workspace";
-import type { WindowDiffFile, WindowTheme, WindowThemes, WindowWorkspace } from "./data";
+import type {
+  WindowDiffFile,
+  WindowDiffScope,
+  WindowTheme,
+  WindowThemes,
+  WindowWorkspace,
+} from "./data";
 import { hunkHoldsLine, listWindowHunks, stepFile, type WindowHunk } from "./review";
 import { reviewGutterWidth } from "./reviewLayout";
+import { REVIEW_DIFF_CSS } from "./reviewStyles";
+import { DESKTOP_KEYS, HELP_SECTIONS } from "./shortcuts";
+import { applyIndentGuides } from "./indentGuides";
+import { observeStickyFileHeaders } from "./stickyFileHeaders";
 import { FilesPane } from "./FilesPane";
 import { FileAccordion, revealFileAccordion, toggleFileAccordions } from "./FileAccordion";
 import { DiffToolbar } from "./DiffToolbar";
+import { windowThemeStyles } from "./windowTheme";
+import { SettingsPanel, SettingsIcon } from "./SettingsPanel";
+import { CommitProposalPanel } from "./CommitProposalPanel";
+import { useCommitProposal } from "./useCommitProposal";
+import { normalizeWindowPreferences, type WindowPreferences } from "./preferences";
+import type { WindowBootstrap } from "./windowBootstrap";
 
 const SECTIONS: { id: WorkspaceSectionId; title: string }[] = [
   { id: "todo", title: "To do" },
@@ -29,6 +45,7 @@ const SECTIONS: { id: WorkspaceSectionId; title: string }[] = [
 registerClaudeCodeThemes();
 
 const startedAt = performance.now();
+const initialBootstrap = window.flowBootstrap;
 const secret = location.hash.slice(1);
 // WebView2 injects init scripts before documentElement exists; modules run once the DOM is ready.
 if (window.flowNativePlatform) {
@@ -50,8 +67,10 @@ async function api<T>(path: string, init: { method?: string; body?: unknown } = 
 type FocusZone = "review" | "workspace";
 
 function App() {
-  const [workspace, setWorkspace] = useState<WindowWorkspace | null>(null);
-  const [diff, setDiff] = useState<WindowDiffFile[] | null>(null);
+  const [workspace, setWorkspace] = useState<WindowWorkspace | null>(
+    initialBootstrap?.workspace ?? null,
+  );
+  const [diff, setDiff] = useState<WindowDiffFile[] | null>(initialBootstrap?.files ?? null);
   const [cursor, setCursor] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(true);
@@ -62,43 +81,89 @@ function App() {
   const [filesOpen, setFilesOpen] = useState(true);
   const [selectedPaths, setSelectedPaths] = useState<ReadonlySet<string>>(new Set());
   const [diffStyle, setDiffStyle] = useState<DiffStyle>("unified");
-  const [themes, setThemes] = useState<WindowThemes | null>(null);
+  const [diffScope, setDiffScope] = useState<WindowDiffScope>("pending");
+  const diffLoad = useRef(0);
+  const [themes, setThemes] = useState<WindowThemes | null>(initialBootstrap?.themes ?? null);
   const [themeId, setThemeId] = useState<string | null>(null);
   const systemAppearance = useSystemAppearance();
   const theme = themes
     ? resolveWindowTheme(themes.themes, themeId ?? themes.configured, systemAppearance)
     : null;
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (theme) applyTheme(theme);
   }, [theme]);
   useEffect(() => {
+    if (initialBootstrap) return;
     void api<WindowThemes>("/api/themes").then(setThemes);
+  }, []);
+  useEffect(() => {
+    void window.flowReady?.();
   }, []);
   const [timing, setTiming] = useState<string>("");
   const [zone, setZone] = useState<FocusZone>("review");
   const [hunkIndex, setHunkIndex] = useState(0);
   const [editing, setEditing] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [comments, setComments] = useState<PersistedComment[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [preferences, setPreferences] = useState(() =>
+    normalizeWindowPreferences(initialBootstrap?.preferences),
+  );
+  const [preferencesLoaded, setPreferencesLoaded] = useState(Boolean(initialBootstrap));
+  const lastSavedFont = useRef(initialBootstrap?.preferences.diffFontSize);
+  const preferenceSave = useRef(Promise.resolve());
+  const [comments, setComments] = useState<PersistedComment[]>(initialBootstrap?.comments ?? []);
   const [notice, setNotice] = useState<string | null>(null);
-  const pendingG = useRef(0);
-  const [userName, setUserName] = useState("You");
   useEffect(() => {
+    if (initialBootstrap) return;
+    void api<WindowPreferences>("/api/preferences")
+      .then((saved) => {
+        setPreferences(normalizeWindowPreferences(saved));
+        setPreferencesLoaded(true);
+      })
+      .catch((error: unknown) => setNotice(error instanceof Error ? error.message : String(error)));
+  }, []);
+  useEffect(() => {
+    const style = document.documentElement.style;
+    style.setProperty("--diff-font-size", `${preferences.diffFontSize}px`);
+    style.setProperty("--diff-line-height", `${Math.round(preferences.diffFontSize * 1.6)}px`);
+    if (!preferencesLoaded || lastSavedFont.current === preferences.diffFontSize) return;
+    const timer = window.setTimeout(() => {
+      preferenceSave.current = preferenceSave.current
+        .then(() => api("/api/preferences", { method: "PUT", body: preferences }))
+        .then(() => {
+          lastSavedFont.current = preferences.diffFontSize;
+        })
+        .catch((error: unknown) =>
+          setNotice(error instanceof Error ? error.message : String(error)),
+        );
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [preferences, preferencesLoaded]);
+  const pendingG = useRef(0);
+  const [userName, setUserName] = useState(initialBootstrap?.userName ?? "You");
+  useEffect(() => {
+    if (initialBootstrap) return;
     void api<{ name: string }>("/api/me").then((me) => setUserName(me.name));
   }, []);
 
-  const reload = useCallback(() => {
+  const reloadDiff = useCallback(() => {
+    const requestId = ++diffLoad.current;
     // The diff is local and fast; the workspace waits on YouTrack and GitLab, so neither blocks the other.
-    void api<WindowDiffFile[]>("/api/diff").then((files) => {
+    void api<WindowDiffFile[]>(`/api/diff?scope=${diffScope}`).then((files) => {
+      if (requestId !== diffLoad.current) return;
       setDiff(files);
       setSelectedPaths((current) => {
-        const paths = new Set(files.map((file) => file.path));
+        const paths = new Set(
+          files.filter((file) => file.pending !== false).map((file) => file.path),
+        );
         return new Set([...current].filter((path) => paths.has(path)));
       });
       requestAnimationFrame(() =>
         setTiming((current) => current || `diff ${Math.round(performance.now() - startedAt)} ms`),
       );
     });
+  }, [diffScope]);
+  const reloadWorkspace = useCallback(() => {
     void api<WindowWorkspace>("/api/workspace").then((loaded) => {
       setWorkspace(loaded);
       if (!loaded.ticketsEnabled) setZone("review");
@@ -111,7 +176,33 @@ function App() {
     });
   }, []);
 
-  useEffect(reload, [reload]);
+  const reload = useCallback(() => {
+    reloadDiff();
+    reloadWorkspace();
+  }, [reloadDiff, reloadWorkspace]);
+  const initialDiffLoaded = useRef(Boolean(initialBootstrap));
+  useEffect(() => {
+    if (initialDiffLoaded.current) {
+      initialDiffLoaded.current = false;
+      return;
+    }
+    reloadDiff();
+  }, [reloadDiff]);
+  useEffect(reloadWorkspace, [reloadWorkspace]);
+  const selectReviewFile = useCallback((path: string, checked: boolean) => {
+    setSelectedPaths((current) => {
+      const next = new Set(current);
+      if (checked) next.add(path);
+      else next.delete(path);
+      return next;
+    });
+  }, []);
+  const focusReviewHunk = useCallback((index: number) => {
+    setZone("review");
+    setHunkIndex(index);
+  }, []);
+  const cancelComment = useCallback(() => setEditing(false), []);
+  const commitFlow = useCommitProposal(api, reload);
 
   // Comments change on disk when the agent replies or resolves them, so they are re-read often.
   const loadComments = useCallback(() => {
@@ -126,6 +217,16 @@ function App() {
   }, [loadComments]);
 
   const hunks = useMemo(() => listWindowHunks(diff ?? []), [diff]);
+  const openReviewFile = useCallback(
+    (path: string) => {
+      const element = document.getElementById(fileAnchor(path));
+      revealFileAccordion(element);
+      const hunk = hunks.find((candidate) => candidate.path === path);
+      if (hunk) setHunkIndex(hunk.index);
+      element?.scrollIntoView({ behavior: "instant", block: "start" });
+    },
+    [hunks],
+  );
   const focusedHunk = hunks[Math.min(hunkIndex, hunks.length - 1)] ?? null;
   const commentsOn = useCallback(
     (hunk: WindowHunk) =>
@@ -175,6 +276,11 @@ function App() {
     };
     const current = focusedHunk?.index ?? 0;
     const onKey = (event: KeyboardEvent) => {
+      if (event.key === "," && (event.ctrlKey || event.metaKey) && !event.altKey) {
+        event.preventDefault();
+        setSettingsOpen(true);
+        return;
+      }
       if (event.key === "F11" && !event.metaKey && !event.ctrlKey && !event.altKey) {
         event.preventDefault();
         if (!event.repeat) {
@@ -193,7 +299,11 @@ function App() {
         return;
       }
       // Typing in the comment editor or the theme menu keeps its own keys.
-      if (event.target instanceof Element && event.target.closest("textarea, input, select"))
+      if (settingsOpen) return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest('textarea, input:not([type="checkbox"]), select')
+      )
         return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const key = event.key;
@@ -204,6 +314,16 @@ function App() {
       }
       if (key === "?") {
         setHelpOpen(true);
+      } else if (key === DESKTOP_KEYS.scope) {
+        setDiffScope((scope) => (scope === "pending" ? "branch" : "pending"));
+      } else if (key === DESKTOP_KEYS.commitTab) {
+        setFilesOpen(true);
+        if (commitFlow.open) commitFlow.close();
+        else commitFlow.show();
+      } else if (key === DESKTOP_KEYS.commitAction) {
+        const button = document.querySelector<HTMLButtonElement>(".files .commit-button");
+        if (button && !button.disabled) button.click();
+        else if (!filesOpen) setFilesOpen(true);
       } else if (key === "Escape") {
         setZone("review");
         setEditing(false);
@@ -286,10 +406,13 @@ function App() {
     focusedHunk,
     commentsOn,
     helpOpen,
+    settingsOpen,
     zone,
     workspaceOpen,
     ticketsEnabled,
     loadComments,
+    commitFlow.open,
+    filesOpen,
   ]);
 
   return (
@@ -299,6 +422,10 @@ function App() {
           files={diff}
           diffStyle={diffStyle}
           onDiffStyle={setDiffStyle}
+          scope={diffScope}
+          onToggleScope={() =>
+            setDiffScope((scope) => (scope === "pending" ? "branch" : "pending"))
+          }
           onToggleFold={() => toggleFileAccordions(document.querySelector<HTMLElement>(".diff"))}
         />
       </WindowTitleBar>
@@ -357,26 +484,17 @@ function App() {
         <DiffPane
           files={diff}
           selectedPaths={selectedPaths}
-          onSelectFile={(path, checked) =>
-            setSelectedPaths((current) => {
-              const next = new Set(current);
-              if (checked) next.add(path);
-              else next.delete(path);
-              return next;
-            })
-          }
+          onSelectFile={selectReviewFile}
           diffStyle={diffStyle}
+          scope={diffScope}
           theme={theme}
           focusedHunk={zone === "review" ? focusedHunk : null}
           comments={comments}
           editing={editing && zone === "review"}
           onSaveComment={saveComment}
-          onCancelComment={() => setEditing(false)}
+          onCancelComment={cancelComment}
           userName={userName}
-          onFocusHunk={(index) => {
-            setZone("review");
-            setHunkIndex(index);
-          }}
+          onFocusHunk={focusReviewHunk}
           hunks={hunks}
         />
         {filesOpen ? (
@@ -385,18 +503,35 @@ function App() {
             activePath={focusedHunk?.path ?? null}
             selectedPaths={selectedPaths}
             onSelectionChange={setSelectedPaths}
-            onOpen={(path) => {
-              const element = document.getElementById(fileAnchor(path));
-              revealFileAccordion(element);
-              const hunk = hunks.find((candidate) => candidate.path === path);
-              if (hunk) setHunkIndex(hunk.index);
-              element?.scrollIntoView({ behavior: "instant", block: "start" });
-            }}
+            onCommit={() => void commitFlow.request([...selectedPaths])}
+            onChanges={commitFlow.close}
+            onCommitTab={commitFlow.show}
+            onOpen={openReviewFile}
+            proposal={
+              commitFlow.open ? (
+                <CommitProposalPanel
+                  proposal={commitFlow.proposal}
+                  files={diff ?? []}
+                  onOpenFile={openReviewFile}
+                  pending={commitFlow.pending}
+                  error={commitFlow.error}
+                  onApprove={(commits) => void commitFlow.approve(commits)}
+                  onPropose={() => void commitFlow.request([...selectedPaths])}
+                />
+              ) : undefined
+            }
           />
         ) : null}
       </div>
       {helpOpen ? (
         <HelpOverlay ticketsEnabled={ticketsEnabled} onClose={() => setHelpOpen(false)} />
+      ) : null}
+      {settingsOpen ? (
+        <SettingsPanel
+          fontSize={preferences.diffFontSize}
+          onFontSize={(diffFontSize) => setPreferences({ diffFontSize })}
+          onClose={() => setSettingsOpen(false)}
+        />
       ) : null}
       <StatusBar
         zone={zone}
@@ -411,6 +546,8 @@ function App() {
         themes={themes?.themes ?? []}
         themeId={theme?.id ?? null}
         onTheme={setThemeId}
+        settingsOpen={settingsOpen}
+        onToggleSettings={() => setSettingsOpen((open) => !open)}
       />
     </div>
   );
@@ -420,6 +557,8 @@ type DiffStyle = "split" | "unified";
 
 declare global {
   interface Window {
+    flowBootstrap?: WindowBootstrap;
+    flowReady?: () => Promise<void>;
     flowNativePlatform?: "mac" | "windows";
     flowSetFrameTheme?: (dark: boolean) => Promise<void>;
     /** Bound by the native window: drag or zoom it from the title bar strip. */
@@ -528,6 +667,8 @@ function StatusBar({
   themes,
   themeId,
   onTheme,
+  settingsOpen,
+  onToggleSettings,
 }: {
   zone: FocusZone;
   notice: string | null;
@@ -541,6 +682,8 @@ function StatusBar({
   themes: WindowTheme[];
   themeId: string | null;
   onTheme: (id: string) => void;
+  settingsOpen: boolean;
+  onToggleSettings: () => void;
 }) {
   return (
     <footer className="statusbar">
@@ -598,6 +741,17 @@ function StatusBar({
         <IconButton label="Files" shortcut="s" active={panels.files} onClick={onToggleFiles}>
           <SidebarRightIcon />
         </IconButton>
+        <button
+          type="button"
+          className={`icon-button${settingsOpen ? " on" : ""}`}
+          title="Settings (Ctrl+, / Cmd+,)"
+          aria-label="Settings"
+          aria-haspopup="dialog"
+          aria-expanded={settingsOpen}
+          onClick={onToggleSettings}
+        >
+          <SettingsIcon />
+        </button>
       </div>
     </footer>
   );
@@ -690,11 +844,13 @@ function initials(name: string) {
 /** One message in a thread, chat style: avatar, author and action, then the text. */
 function ThreadMessage({
   author,
+  agentName,
   userName,
   action,
   body,
 }: {
   author: "user" | "agent";
+  agentName?: string;
   userName: string;
   action: string;
   body: string;
@@ -706,7 +862,7 @@ function ThreadMessage({
         <span className="avatar" aria-hidden="true">
           {agent ? "✻" : initials(userName)}
         </span>
-        <span className="thread-author">{agent ? "Claude" : userName}</span>
+        <span className="thread-author">{agent ? (agentName ?? "Agent") : userName}</span>
         <span className="thread-action">{action}</span>
       </div>
       <div className="thread-body">{body}</div>
@@ -747,6 +903,7 @@ function CommentThread({
         <ThreadMessage
           key={`${comment.id}`}
           author={comment.author === "agent" ? "agent" : "user"}
+          agentName={comment.agentName}
           userName={userName}
           action="commented"
           body={comment.body}
@@ -755,6 +912,7 @@ function CommentThread({
           <ThreadMessage
             key={`${comment.id}-${index}`}
             author="agent"
+            agentName={reply.agentName}
             userName={userName}
             action="replied"
             body={reply.body}
@@ -796,48 +954,6 @@ function CommentEditor({
     </div>
   );
 }
-
-/** Every key, grouped like the terminal's help dialog. */
-const HELP_SECTIONS: { title: string; keys: [string, string][] }[] = [
-  {
-    title: "Review",
-    keys: [
-      ["j / k", "next / previous hunk (also J / K, ] / [)"],
-      [". / ,", "next / previous file"],
-      ["gg / G", "first / last hunk"],
-      ["r", "reload"],
-    ],
-  },
-  {
-    title: "Comments",
-    keys: [
-      ["a", "add a comment on this hunk"],
-      ["Enter", "save · Shift+Enter new line · Esc cancel"],
-      ["} / {", "next / previous commented hunk"],
-      ["d", "delete a comment on this hunk"],
-    ],
-  },
-  {
-    title: "Workspace",
-    keys: [
-      ["S", "focus the tickets; again to hide them"],
-      ["j / k", "select a ticket"],
-      ["Enter", "show its overview"],
-      ["Esc", "back to the diff"],
-    ],
-  },
-  {
-    title: "View",
-    keys: [
-      ["F11", "toggle fullscreen"],
-      ["x", "show / hide the overview"],
-      ["s", "show / hide the changed files"],
-      ["1 / 2", "split / stacked diff"],
-      ["t", "next theme"],
-      ["?", "this help"],
-    ],
-  },
-];
 
 function HelpOverlay({
   ticketsEnabled,
@@ -1007,11 +1123,12 @@ interface DiffNote {
   editing: boolean;
 }
 
-function DiffPane({
+const DiffPane = memo(function DiffPane({
   files,
   selectedPaths,
   onSelectFile,
   diffStyle,
+  scope,
   theme,
   hunks,
   focusedHunk,
@@ -1026,6 +1143,7 @@ function DiffPane({
   selectedPaths: ReadonlySet<string>;
   onSelectFile: (path: string, checked: boolean) => void;
   diffStyle: DiffStyle;
+  scope: WindowDiffScope;
   theme: WindowTheme | null;
   hunks: WindowHunk[];
   focusedHunk: WindowHunk | null;
@@ -1038,6 +1156,10 @@ function DiffPane({
 }) {
   const codeTheme = theme?.codeTheme;
   const appearance = theme?.appearance;
+  useEffect(
+    () => observeStickyFileHeaders(document.querySelector<HTMLElement>(".diff")),
+    [files, codeTheme],
+  );
   const gutter = useMemo(
     () => ({ "--gutter-width": reviewGutterWidth(files ?? []) }) as React.CSSProperties,
     [files],
@@ -1052,7 +1174,8 @@ function DiffPane({
         disableFileHeader: true,
         diffIndicators: "none",
         hunkSeparators: "simple",
-        unsafeCSS: DIFF_CSS,
+        unsafeCSS: REVIEW_DIFF_CSS,
+        onPostRender: applyIndentGuides,
       }) as const,
     [diffStyle, codeTheme, appearance],
   );
@@ -1102,7 +1225,11 @@ function DiffPane({
   }
   return (
     <main className="diff" style={gutter}>
-      {files.length === 0 ? <p className="empty">No changes on this branch yet.</p> : null}
+      {files.length === 0 ? (
+        <p className="empty">
+          {scope === "pending" ? "No pending changes." : "No changes on this branch yet."}
+        </p>
+      ) : null}
       {files.map((file) => {
         const focused = focusedHunk?.path === file.path ? focusedHunk : null;
         return (
@@ -1125,7 +1252,7 @@ function DiffPane({
       })}
     </main>
   );
-}
+});
 
 const DiffFile = memo(function DiffFile({
   file,
@@ -1180,6 +1307,7 @@ const DiffFile = memo(function DiffFile({
       id={fileAnchor(file.path)}
       path={file.path}
       selected={selected}
+      selectionDisabled={file.pending === false}
       onSelectionChange={onSelectionChange}
       expandable={/^@@ /m.test(file.patch)}
       emptyLabel={
@@ -1246,153 +1374,12 @@ function nextThemeId(themes: WindowTheme[], current: string | null) {
   return themes[(index + 1) % themes.length]?.id ?? current;
 }
 
-/** Paint the window chrome with a terminal theme's colors. */
+/** Apply the same colors used before the native window first becomes visible. */
 function applyTheme(theme: WindowTheme) {
-  const { colors } = theme;
-  const dark = theme.appearance === "dark";
-  void window.flowSetFrameTheme?.(dark);
-  const style = document.documentElement.style;
-  style.colorScheme = theme.appearance;
-  style.setProperty("--bg", colors.background);
-  style.setProperty("--sidebar", colors.panel);
-  style.setProperty("--panel", colors.panelAlt);
-  style.setProperty("--text", colors.text);
-  style.setProperty("--muted", colors.muted);
-  style.setProperty("--faint", colors.faint);
-  // One hairline color for every divider, softer than the theme's border like the terminal's rules.
-  style.setProperty("--line", `color-mix(in srgb, ${colors.border} 55%, transparent)`);
-  style.setProperty("--accent", colors.accent);
-  style.setProperty("--selected", `color-mix(in srgb, ${colors.accent} 18%, transparent)`);
-  style.setProperty("--hover", dark ? "rgba(255, 255, 255, 0.05)" : "rgba(0, 0, 0, 0.04)");
-  style.setProperty("--chip", dark ? "rgba(255, 255, 255, 0.07)" : "rgba(0, 0, 0, 0.05)");
-  style.setProperty("--add", colors.added);
-  style.setProperty("--del", colors.removed);
-  // Pierre reads these through its shadow DOM, so hunks use the terminal's diff colors.
-  // Code sits in a slightly darker block; line numbers stay outside it, on the window background.
-  style.setProperty(
-    "--code-bg",
-    dark
-      ? `color-mix(in srgb, ${colors.background} 86%, black)`
-      : `color-mix(in srgb, ${colors.background} 97.5%, black)`,
-  );
-  style.setProperty("--diffs-bg-context-override", "var(--code-bg)");
-  style.setProperty("--diffs-bg-context-gutter-override", colors.background);
-  // Same scheme as the terminal: rows get the faint tint, changed words the stronger one.
-  style.setProperty("--diffs-bg-addition-override", colors.addedRow);
-  style.setProperty("--diffs-bg-deletion-override", colors.removedRow);
-  style.setProperty("--diffs-bg-addition-emphasis-override", colors.addedWord);
-  style.setProperty("--diffs-bg-deletion-emphasis-override", colors.removedWord);
-  style.setProperty("--diffs-bg-addition-number-override", colors.background);
-  style.setProperty("--diffs-bg-deletion-number-override", colors.background);
-  style.setProperty("--diffs-bg-separator-override", colors.panel);
-  style.setProperty("--diffs-bg-buffer-override", "var(--code-bg)");
-  style.setProperty("--diffs-fg-number-override", colors.faint);
-  style.setProperty("--diffs-addition-color-override", colors.added);
-  style.setProperty("--diffs-deletion-color-override", colors.removed);
+  void window.flowSetFrameTheme?.(theme.appearance === "dark");
+  for (const [name, value] of Object.entries(windowThemeStyles(theme)))
+    document.documentElement.style.setProperty(name, value);
 }
-
-// Pierre paints code with its syntax theme's background in its "theme" layer; this CSS sits in
-// its later "unsafe" layer, so the window's background wins without !important (which would flip
-// the layer order and lose).
-const DIFF_CSS = `
-:host,
-pre,
-code {
-  --diffs-bg: var(--bg);
-  background-color: var(--bg);
-  --diffs-font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  --diffs-font-size: 12.5px;
-}
-/* Every box spans the pane, however short its lines. */
-:host,
-pre,
-[data-diff],
-[data-code] {
-  display: block;
-  width: 100%;
-}
-[data-code] {
-  display: grid;
-}
-/* A fixed number column, so the file title above can line up with the code box. */
-[data-code] {
-  --diffs-code-grid: var(--gutter-width) minmax(0, 1fr);
-  grid-template-columns: var(--gutter-width) minmax(0, 1fr);
-  /* No reserved scrollbar lane or outer padding, so the box spans exactly under its title. */
-  --diffs-scrollbar-gutter-override: 0px;
-  scrollbar-gutter: auto;
-  padding-block: 0;
-  --diffs-min-number-column-width: 0;
-}
-/* Like Zed: line numbers on the window background, the code in a framed, slightly darker box. */
-[data-content] {
-  --diffs-bg: var(--code-bg);
-  background-color: var(--code-bg);
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  overflow: hidden;
-}
-/* Skipped lines between hunks: the box runs on unbroken and the gutter shows an ellipsis. */
-[data-separator="simple"] {
-  min-height: 1lh;
-}
-[data-content] [data-separator="simple"] {
-  background-color: var(--code-bg);
-}
-[data-gutter] [data-separator="simple"] {
-  background-color: var(--bg);
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  padding-inline: 0 1.5ch;
-}
-[data-gutter] [data-separator="simple"]::after {
-  content: "⋯";
-  color: var(--faint);
-}
-[data-gutter-buffer] {
-  padding-inline: 0 1.5ch;
-}
-/* The focused hunk, like the terminal: no tint of its own, only its line numbers at full strength
-   while every other hunk's numbers fade. */
-[data-selected-line] {
-  --diffs-computed-selected-line-bg: var(--diffs-computed-diff-line-bg);
-}
-[data-column-number] {
-  color: color-mix(in srgb, var(--faint) 50%, var(--bg));
-}
-[data-column-number][data-selected-line] {
-  --diffs-selection-number-fg: var(--muted);
-  color: var(--muted);
-}
-/* Pierre mixes each row's tint with the background; the terminal paints the tint as is. */
-[data-line],
-[data-column-number],
-[data-gutter-buffer],
-[data-no-newline] {
-  --mix-light: 0%;
-  --mix-dark: 0%;
-}
-/* Breathing room inside the box: the first and last rows grow, so the room takes their color (green
-   on a new line) and the gutter rows grow alike, keeping numbers on their lines. */
-[data-content] > :first-child,
-[data-gutter] > :first-child {
-  padding-top: 6px;
-}
-[data-content] > :last-child,
-[data-gutter] > :last-child {
-  padding-bottom: 6px;
-}
-[data-column-number] {
-  border-right: 0;
-  padding-left: 0;
-  padding-right: 1.5ch;
-  --diffs-min-number-column-width: 0;
-  --diffs-fg-number-addition-override: var(--faint);
-  --diffs-fg-number-deletion-override: var(--faint);
-}
-`;
-
 function PaletteIcon() {
   return (
     <svg {...ICON} width={13} height={13}>
@@ -1431,6 +1418,15 @@ function showScrollThumb(pane: HTMLElement) {
   window.clearTimeout(entry.timer);
   entry.timer = window.setTimeout(() => thumb.classList.remove("visible"), 700);
 }
+
+document.addEventListener(
+  "wheel",
+  (event) => {
+    // Cancel the webview's page zoom before it changes the review's scale.
+    if (event.ctrlKey) event.preventDefault();
+  },
+  { capture: true, passive: false },
+);
 
 document.addEventListener(
   "scroll",

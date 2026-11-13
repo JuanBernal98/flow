@@ -43,6 +43,7 @@ export function createGlabRun(cwd: string): GlabRun {
     try {
       const proc = Bun.spawn(["glab", ...args], {
         cwd,
+        windowsHide: true,
         stdin: "ignore",
         stdout: "pipe",
         stderr: "ignore",

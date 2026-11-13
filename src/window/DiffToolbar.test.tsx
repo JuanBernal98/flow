@@ -17,6 +17,9 @@ test("diff toolbar exposes the active layout and review totals above the stream"
   expect(html).toContain('class="add">+12');
   expect(html).toContain('class="del">−3');
   expect(html).toContain('aria-label="Expand / collapse all files"');
+  expect(html).toContain('aria-label="Show branch changes (B)"');
+  expect(html).toContain("Pending changes");
+  expect(html).not.toContain("<kbd>");
 });
 
 test("diff toolbar disables folding while loading", () => {

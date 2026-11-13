@@ -2,30 +2,7 @@ import { fileRowId } from "../../lib/ids";
 import type { SidebarEntry } from "../../lib/files";
 import { fitText, padText } from "../../lib/text";
 import type { AppTheme } from "../../themes";
-
-/**
- * Icon and color for a file's change state. Shapes come from the same geometric family as the
- * workspace's ticket states, so each state reads without relying on color alone.
- */
-function getFileStateIcon(entry: SidebarEntry, theme: AppTheme): { icon: string; color: string } {
-  if (entry.isUntracked) {
-    return { icon: "◌", color: theme.fileUntracked };
-  }
-
-  switch (entry.changeType) {
-    case "new":
-      return { icon: "+", color: theme.fileNew };
-    case "deleted":
-      return { icon: "−", color: theme.fileDeleted };
-    case "rename-pure":
-    case "rename-changed":
-      return { icon: "→", color: theme.fileRenamed };
-    case "change":
-      return { icon: "○", color: theme.fileModified };
-    default:
-      return { icon: "", color: theme.text };
-  }
-}
+import { getFileStateIcon } from "../../lib/fileState";
 
 /** Render one file row in the navigation sidebar. */
 export function FileListItem({

@@ -38,3 +38,37 @@ test("window diff distinguishes tracked additions from untracked files for chang
     untracked: true,
   });
 });
+
+test("pending and branch scopes distinguish committable work from already committed review files", () => {
+  const { work } = createTestTicketRepo();
+  gitTest(work, ["switch", "-c", "feature"]);
+  writeFileSync(join(work, "committed.ts"), "export const done = true;\n");
+  gitTest(work, ["add", "committed.ts"]);
+  gitTest(work, ["commit", "-m", "feat: committed change"]);
+  writeFileSync(join(work, "app.ts"), "export const value = 2;\n");
+  expect(loadWindowDiff(work).map((file) => file.path)).toEqual(["app.ts"]);
+  const branch = loadWindowDiff(work, "branch");
+  expect(branch.find((file) => file.path === "committed.ts")?.pending).toBe(false);
+  expect(branch.find((file) => file.path === "app.ts")?.pending).toBe(true);
+});
+
+test("in-process untracked patches preserve empty files, indentation, and missing final newlines", () => {
+  const { work } = createTestTicketRepo();
+  writeFileSync(join(work, "empty.ts"), "");
+  writeFileSync(join(work, "new.ts"), "  const nested = true;");
+  const files = loadWindowDiff(work);
+  expect(files.find((file) => file.path === "empty.ts")).toMatchObject({
+    status: "added",
+    untracked: true,
+    additions: 0,
+  });
+  expect(files.find((file) => file.path === "new.ts")).toMatchObject({
+    status: "added",
+    untracked: true,
+    additions: 1,
+  });
+  expect(files.find((file) => file.path === "new.ts")?.patch).toContain("+  const nested = true;");
+  expect(files.find((file) => file.path === "new.ts")?.patch).toContain(
+    "No newline at end of file",
+  );
+});

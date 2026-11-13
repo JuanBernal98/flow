@@ -10,6 +10,9 @@ import {
 } from "../core/gitlab";
 import { resolveConfiguredCliInput } from "../core/config";
 import { parsePatchFiles } from "@pierre/diffs";
+import { lstatSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { createTwoFilesPatch } from "diff";
 import {
   computeAnchorForFile,
   mutateCommentsFile,
@@ -37,6 +40,16 @@ export interface WindowWorkspace {
   notice?: string;
 }
 
+/** Resolve local pane visibility and the checked-out branch without waiting for remote services. */
+export function loadWindowLocalWorkspace(repoRoot: string): WindowWorkspace {
+  return {
+    ticketsEnabled: Boolean(readRepoIntegrations(repoRoot).youtrackUrl),
+    items: [],
+    branch: git(repoRoot, ["branch", "--show-current"]).trim() || null,
+    checkedOutId: null,
+  };
+}
+
 /** A terminal theme's colors, as the window paints them. */
 export interface WindowTheme {
   id: string;
@@ -55,6 +68,7 @@ export interface WindowTheme {
     faint: string;
     added: string;
     removed: string;
+    modified: string;
     /** A changed row's tint, and the stronger one for the words that changed in it. */
     addedRow: string;
     removedRow: string;
@@ -74,6 +88,8 @@ export interface WindowDiffFile {
   patch: string;
   /** New working-tree files remain distinct from additions already tracked by Git. */
   untracked?: boolean;
+  /** Only pending files can enter a new commit proposal, even in a whole-branch review. */
+  pending?: boolean;
   status: "added" | "deleted" | "renamed" | "modified";
   additions: number;
   deletions: number;
@@ -83,6 +99,7 @@ export interface WindowDiffFile {
 function git(repoRoot: string, args: string[], okExitCodes: readonly number[] = [0]) {
   const result = Bun.spawnSync(["git", ...args], {
     cwd: repoRoot,
+    windowsHide: true,
     stdout: "pipe",
     stderr: "ignore",
   });
@@ -153,24 +170,51 @@ export async function loadWindowWorkspace(repoRoot: string): Promise<WindowWorks
   };
 }
 
-/** Everything on the branch since it left its base, committed or not, one patch per file. */
-export function loadWindowDiff(repoRoot: string): WindowDiffFile[] {
+export type WindowDiffScope = "pending" | "branch";
+
+/** Pending work by default, or the full branch with committed files marked for review only. */
+export function loadWindowDiff(
+  repoRoot: string,
+  scope: WindowDiffScope = "pending",
+): WindowDiffFile[] {
   const base = readRepoIntegrations(repoRoot).workflow.baseBranch;
   // The remote base when there is one, else the local branch (a repository without a remote).
   const mergeBase =
-    git(repoRoot, ["merge-base", `origin/${base}`, "HEAD"]).trim() ||
-    git(repoRoot, ["merge-base", base, "HEAD"]).trim();
+    scope === "branch"
+      ? git(repoRoot, ["merge-base", `origin/${base}`, "HEAD"]).trim() ||
+        git(repoRoot, ["merge-base", base, "HEAD"]).trim()
+      : "HEAD";
   const tracked = git(repoRoot, ["diff", "--no-color", "--no-ext-diff", mergeBase || "HEAD"]);
   // Like `flow diff`, new files count before they are added.
   const untrackedPaths = new Set(
     git(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean),
   );
   const untracked = [...untrackedPaths]
-    .map((path) =>
-      git(repoRoot, ["diff", "--no-color", "--no-index", "--", "/dev/null", path], [0, 1]),
-    )
+    .map((path) => untrackedWindowPatch(repoRoot, path))
     .join("");
-  return parseWindowDiff(`${tracked}${untracked}`, untrackedPaths);
+  const pendingPaths = new Set([
+    ...git(repoRoot, ["diff", "--no-renames", "--name-only", "-z", "HEAD"]).split("\0"),
+    ...untrackedPaths,
+  ]);
+  return parseWindowDiff(`${tracked}${untracked}`, untrackedPaths).map((file) => ({
+    ...file,
+    pending: pendingPaths.has(file.path),
+  }));
+}
+
+/** Synthesize ordinary text additions in-process; Git handles binary files, symlinks and quoted paths. */
+function untrackedWindowPatch(repoRoot: string, path: string) {
+  const fullPath = join(repoRoot, path);
+  try {
+    if (!/[\s"\\]/.test(path) && lstatSync(fullPath).isFile()) {
+      const contents = readFileSync(fullPath);
+      if (!contents.includes(0))
+        return `diff --git a/${path} b/${path}\nnew file mode 100644\n${createTwoFilesPatch("/dev/null", path, "", contents.toString("utf8"))}`;
+    }
+  } catch {
+    /* A file can disappear between listing it and reading its patch. */
+  }
+  return git(repoRoot, ["diff", "--no-color", "--no-index", "--", "/dev/null", path], [0, 1]);
 }
 
 /** Preserve Pierre's filenames even when a patch has no line headers, as with empty files. */
@@ -209,10 +253,7 @@ export function loadWindowOverview(repoRoot: string, ticketId: string) {
 
 /** The terminal's themes and the one the user and repository configs pick, layered the same way. */
 export async function loadWindowThemes(repoRoot: string): Promise<WindowThemes> {
-  const [{ THEMES }, { codeThemeName }] = await Promise.all([
-    import("../ui/themes"),
-    import("../ui/diff/pierre"),
-  ]);
+  const { THEMES } = await import("../ui/themes");
   const configured = resolveConfiguredCliInput(
     { kind: "vcs", staged: false, options: {} },
     { cwd: repoRoot },
@@ -223,7 +264,7 @@ export async function loadWindowThemes(repoRoot: string): Promise<WindowThemes> 
       id: theme.id,
       label: theme.label,
       appearance: theme.appearance,
-      codeTheme: codeThemeName(theme),
+      codeTheme: theme.codeTheme ?? (theme.appearance === "dark" ? "pierre-dark" : "pierre-light"),
       colors: {
         background: theme.background,
         panel: theme.panel,
@@ -236,6 +277,7 @@ export async function loadWindowThemes(repoRoot: string): Promise<WindowThemes> 
         faint: theme.lineNumberFg,
         added: theme.addedSignColor,
         removed: theme.removedSignColor,
+        modified: theme.fileModified,
         addedRow: theme.addedBg,
         removedRow: theme.removedBg,
         addedWord: theme.addedContentBg,
