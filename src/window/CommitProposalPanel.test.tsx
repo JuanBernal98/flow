@@ -25,9 +25,8 @@ const proposal: CommitProposal = {
         files: ["src/a.ts"],
       },
       {
-        kind: "fixup",
-        target: "1234567890abcdef",
-        message: "fixup! feat: add review",
+        kind: "commit",
+        message: "feat: add review",
         files: ["src/b.ts"],
       },
     ],
@@ -52,15 +51,7 @@ function renderTestPanel(value: CommitProposal | null) {
 
 test("the approval panel shares Changes chrome and shows selectable groups without extra metadata", () => {
   const html = renderTestPanel(proposal);
-  for (const text of [
-    "fix: preserve review position",
-    "Explain the behavior.",
-    "src/a.ts",
-    "src/b.ts",
-    "12345678",
-    "rewrites local history",
-    "Commit</button>",
-  ])
+  for (const text of ["fix: preserve review position", "src/a.ts", "src/b.ts", "Commit</button>"])
     expect(html).toContain(text);
   expect(html).toContain('aria-labelledby="commit-tab"');
   expect(html).toContain("Changes (0)");
@@ -69,14 +60,19 @@ test("the approval panel shares Changes chrome and shows selectable groups witho
   expect(html).not.toContain("Back to changes");
   expect(html).not.toContain("Preparing your commits");
   expect(html).not.toContain("Proposed by");
+  expect(html).not.toContain("Explain the behavior.");
+  expect(html).not.toContain("commit-kind");
+  expect(html).not.toContain("commit-target");
+  expect(html).toContain('class="commit-group-message"');
   expect(html).not.toContain("Commits stay local");
   expect(html.match(/type="checkbox"[^>]*checked=""/g)).toHaveLength(2);
   const footer = html.slice(html.indexOf('<footer class="commit-panel-footer">'));
   expect(footer).not.toContain("Cancel proposal");
   expect(html).toContain('class="commit-panel"');
   expect(html).not.toContain("<dialog");
-  expect(html.match(/<details class="file"[^>]* open="">/g)).toHaveLength(2);
-  expect(html).toContain('<summary class="file-header">');
+  expect(html.match(/class="file-group commit-group"/g)).toHaveLength(2);
+  expect(html).toContain('class="file-group-heading commit-group-heading"');
+  expect(html).not.toContain("commit-group-count");
   expect(html).toContain('class="file-row ');
   expect(html).toContain('class="file-name">a.ts');
   expect(html).toContain('class="file-dir">src');
@@ -104,12 +100,16 @@ test("only a ready proposal exposes approval; waiting and execution announce the
   }
 });
 
-test("cancelled proposals use a centered empty state instead of a negative sentence or stale groups", () => {
-  const html = renderTestPanel({ ...proposal, status: "cancelled" });
-  expect(html).toContain("Ready to propose");
-  expect(html).toContain('class="commit-empty"');
-  expect(html).not.toContain("No commits will");
-  expect(html).not.toContain('class="commit-plan"');
+test("completed and cancelled proposals clear old groups and show the centered empty state", () => {
+  for (const status of ["completed", "cancelled"] as const) {
+    const html = renderTestPanel({ ...proposal, status, result: "old commit result" });
+    expect(html).toContain("Ready to propose");
+    expect(html).toContain('class="commit-empty"');
+    expect(html).not.toContain("No commits will");
+    expect(html).not.toContain('class="commit-plan"');
+    expect(html).not.toContain("old commit result");
+    expect(html).not.toContain(proposal.plan!.commits[0]!.message.split("\n")[0]!);
+  }
 });
 
 test("the loading message distinguishes waiting from an agent that has actually picked up the request", () => {

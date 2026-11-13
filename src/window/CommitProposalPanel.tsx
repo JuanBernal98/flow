@@ -1,10 +1,10 @@
 /** @jsxImportSource react */
 import type { CommitProposal } from "../core/commitProposal";
 import type { WindowDiffFile } from "./data";
-import { FileAccordion } from "./FileAccordion";
 import { FileRow } from "./FileRow";
 import { CommitActionButton } from "./CommitActionButton";
 import { useEffect, useState } from "react";
+import type { CommitActivity } from "./useCommitProposal";
 
 interface CommitProposalPanelProps {
   proposal: CommitProposal | null;
@@ -14,6 +14,7 @@ interface CommitProposalPanelProps {
   files?: readonly WindowDiffFile[];
   onOpenFile?: (path: string) => void;
   onPropose?: () => void;
+  activity?: CommitActivity;
 }
 
 /** A focused review of the exact messages and file groups the user is about to commit. */
@@ -25,10 +26,12 @@ export function CommitProposalPanel({
   files = [],
   onOpenFile,
   onPropose,
+  activity,
 }: CommitProposalPanelProps) {
   const status = proposal?.status;
-  const waiting = (!status && pending && !error) || status === "preparing";
-  const running = status === "approved" || status === "executing";
+  const waiting =
+    activity === "proposing" || (!status && pending && !error) || status === "preparing";
+  const running = activity === "committing" || status === "approved" || status === "executing";
   const commits = proposal?.plan?.commits ?? [];
   const [selectedCommits, setSelectedCommits] = useState<ReadonlySet<number>>(
     () => new Set(proposal?.approvedCommits ?? commits.map((_, index) => index)),
@@ -46,7 +49,7 @@ export function CommitProposalPanel({
       aria-labelledby="commit-tab"
     >
       <div className="commit-panel-body">
-        {(!proposal && !pending && !error) || status === "cancelled" ? (
+        {(!proposal && !pending && !error) || status === "cancelled" || status === "completed" ? (
           <div className="commit-empty" role="status">
             <svg
               width="28"
@@ -60,7 +63,11 @@ export function CommitProposalPanel({
               <circle cx="12" cy="12" r="8" />
               <path d="M12 8v8m-4-4h8" />
             </svg>
-            <h3>{status === "cancelled" ? "Ready to propose" : "No proposal yet"}</h3>
+            <h3>
+              {status === "cancelled" || status === "completed"
+                ? "Ready to propose"
+                : "No proposal yet"}
+            </h3>
             <p>Select files in Changes, then choose Propose.</p>
           </div>
         ) : null}
@@ -73,62 +80,45 @@ export function CommitProposalPanel({
                 ? `Grouping ${proposal.snapshot.files.length} files into focused commits.`
                 : "Your proposal will appear here when the agent picks up the request."}
             </p>
-            <p className="commit-hint">You can keep reviewing in Changes.</p>
           </div>
         ) : null}
         {running ? (
           <p className="commit-description" role="status">
             {status === "approved"
-              ? "Approved. Waiting for your agent to start…"
+              ? "Starting local commits…"
               : `${proposal?.completed ?? 0} of ${proposal?.approvedCommits?.length ?? commits.length} commits created…`}
           </p>
         ) : null}
-        {status === "completed" ? (
-          <p className="commit-description" role="status">
-            Changes committed
-          </p>
-        ) : null}
-        {commits.length && status !== "cancelled" ? (
+        {commits.length && !waiting && status !== "cancelled" && status !== "completed" ? (
           <ol className="commit-plan">
             {commits.map((commit, index) => {
-              const [subject, ...body] = commit.message.split("\n");
+              const [subject] = commit.message.split("\n");
               return (
                 <li key={`${proposal?.id}:${index}`}>
-                  <FileAccordion
+                  <section
+                    className="file-group commit-group"
                     id={`commit-${proposal?.id}-${index}`}
-                    path={subject ?? "Commit"}
-                    selected={selectedCommits.has(index)}
-                    selectionDisabled={status !== "ready" || pending}
-                    onSelectionChange={(checked) =>
-                      setSelectedCommits((current) => {
-                        const next = new Set(current);
-                        if (checked) next.add(index);
-                        else next.delete(index);
-                        return next;
-                      })
-                    }
-                    header={
-                      <>
-                        <span className="file-header-label" title={subject}>
-                          {subject}
-                        </span>
-                        {commit.kind === "fixup" ? (
-                          <span className="commit-kind">Fixup</span>
-                        ) : null}
-                        <span className="commit-group-count">
-                          {commit.files.length} {commit.files.length === 1 ? "file" : "files"}
-                        </span>
-                      </>
-                    }
                   >
-                    {body.join("\n").trim() ? (
-                      <p className="commit-message-body">{body.join("\n").trim()}</p>
-                    ) : null}
-                    {commit.kind === "fixup" ? (
-                      <p className="commit-target">
-                        Fold into {commit.target.slice(0, 8)} · rewrites local history
-                      </p>
-                    ) : null}
+                    <label className="file-group-heading commit-group-heading">
+                      <span className="commit-group-message" title={subject}>
+                        {subject}
+                      </span>
+                      <input
+                        className="file-select"
+                        type="checkbox"
+                        aria-label={`Select ${subject ?? "Commit"}`}
+                        checked={selectedCommits.has(index)}
+                        disabled={status !== "ready" || pending}
+                        onChange={(event) =>
+                          setSelectedCommits((current) => {
+                            const next = new Set(current);
+                            if (event.target.checked) next.add(index);
+                            else next.delete(index);
+                            return next;
+                          })
+                        }
+                      />
+                    </label>
                     <ul className="commit-file-list">
                       {commit.files.map((path) => {
                         const file = files.find((candidate) => candidate.path === path);
@@ -142,14 +132,11 @@ export function CommitProposalPanel({
                         );
                       })}
                     </ul>
-                  </FileAccordion>
+                  </section>
                 </li>
               );
             })}
           </ol>
-        ) : null}
-        {status === "completed" && proposal?.result ? (
-          <pre className="commit-result">{proposal.result}</pre>
         ) : null}
         {error || proposal?.error ? (
           <div className="commit-error" role="alert">
@@ -165,19 +152,21 @@ export function CommitProposalPanel({
       </div>
       <footer className="commit-panel-footer">
         <CommitActionButton
-          phase={status === "ready" || running ? "commit" : "propose"}
+          phase={!waiting && (status === "ready" || running) ? "commit" : "propose"}
           label={
-            pending
-              ? "Sending…"
-              : waiting
-                ? "Proposing…"
+            waiting
+              ? "Proposing…"
+              : pending
+                ? status === "ready" || running
+                  ? "Committing…"
+                  : "Sending…"
                 : status === "ready"
                   ? "Commit"
                   : running
                     ? "Committing…"
                     : "Propose"
           }
-          loading={waiting || running}
+          loading={waiting || running || (pending && status === "ready")}
           disabled={pending || (status === "ready" && selectedCommits.size === 0)}
           onClick={
             status === "ready"

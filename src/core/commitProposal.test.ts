@@ -11,6 +11,8 @@ import {
   readCommitProposal,
   requestCommitProposal,
   claimCommitProposal,
+  refreshCommitProposal,
+  readCurrentCommitProposal,
   type CommitPlan,
 } from "./commitProposal";
 import { nextAgentWatchEvents, readAgentWatchSnapshot } from "./agentWatch";
@@ -22,7 +24,6 @@ test("selected files define the only allowed proposal scope and unrelated staged
   const root = createTestProposalRepo();
   const pending = requestCommitProposal(root, ["app.ts"]);
   expect(pending.snapshot.files).toEqual(["app.ts"]);
-  expect(() => requestCommitProposal(root, ["new file.ts"])).toThrow("changing its file selection");
   expect(() => publishCommitProposal(root, pending.id, PLAN)).toThrow("every pending file");
   claimCommitProposal(root, pending.id, "Codex");
   expect(readCommitProposal(root)?.claimedBy).toBe("Codex");
@@ -43,6 +44,34 @@ test("selecting a renamed file includes the old path without adding unrelated ch
     "app.ts",
     "renamed.ts",
   ]);
+});
+
+test("stale proposals refresh selected work without retaining approval or touching other changes", () => {
+  const root = createTestProposalRepo();
+  const pending = requestCommitProposal(root, ["app.ts"]);
+  publishCommitProposal(root, pending.id, { agentName: "Codex", commits: [PLAN.commits[0]] });
+  writeFileSync(join(root, "app.ts"), "export const value = 3;\n");
+  const refreshed = readCurrentCommitProposal(root, readCommitProposal(root))!;
+  expect(refreshed.id).not.toBe(pending.id);
+  expect(refreshed).toMatchObject({
+    status: "preparing",
+    selection: ["app.ts"],
+    snapshot: { files: ["app.ts"] },
+  });
+  expect(refreshed.plan).toBeUndefined();
+  expect(refreshed.approvedCommits).toBeUndefined();
+  expect(gitTest(root, ["diff", "--cached", "--name-only"])).toBe("new file.ts");
+  expect(readAgentWatchSnapshot(root).request?.proposalId).toBe(refreshed.id);
+  writeFileSync(join(root, "app.ts"), "export const value = 1;\n");
+  expect(refreshCommitProposal(root, refreshed.id)?.status).toBe("cancelled");
+});
+
+test("requesting a different file selection replaces the unapproved proposal without a cancel step", () => {
+  const root = createTestProposalRepo();
+  const first = requestCommitProposal(root, ["app.ts"]);
+  const second = requestCommitProposal(root, ["new file.ts"]);
+  expect(second.id).not.toBe(first.id);
+  expect(second.snapshot.files).toEqual(["new file.ts"]);
 });
 
 test("approval can select one proposal while unapproved groups remain uncommitted", () => {
@@ -102,7 +131,7 @@ test("desktop request, proposal, approval and execution share one id and preserv
   approveCommitProposal(root, request.id);
   expect(readAgentWatchSnapshot(root).request).toMatchObject({
     proposalId: request.id,
-    phase: "execute",
+    phase: "propose",
   });
   const result = executeCommitProposal(root, request.id);
   expect(result.status).toBe("completed");
@@ -191,37 +220,43 @@ test("every pending file is assigned once and repository internals cannot enter 
   });
 });
 
-test("fixups fold into an unpublished local commit and refuse published targets", () => {
+test("fixups are rejected and new commits preserve existing history", () => {
   const root = createTestProposalRepo();
-  const published = gitTest(root, ["rev-parse", "HEAD"]);
-  gitTest(root, ["add", "--", "app.ts"]);
-  gitTest(root, ["commit", "--only", "-m", "fix: correct the value", "--", "app.ts"]);
-  const target = gitTest(root, ["rev-parse", "HEAD"]);
-  writeFileSync(join(root, "app.ts"), "export const value = 3;\n");
+  const original = gitTest(root, ["rev-parse", "HEAD"]);
   const pending = requestCommitProposal(root);
   expect(() =>
     publishCommitProposal(root, pending.id, {
       ...PLAN,
       commits: [
-        { kind: "fixup", target: published, message: "fixup! init", files: ["app.ts"] },
+        { kind: "fixup", target: original, message: "fixup! init", files: ["app.ts"] },
         PLAN.commits[1],
       ],
     }),
-  ).toThrow("not reached a remote");
-  publishCommitProposal(root, pending.id, {
-    ...PLAN,
-    commits: [
-      { kind: "fixup", target, message: "fixup! fix: correct the value", files: ["app.ts"] },
-      PLAN.commits[1],
-    ],
-  });
+  ).toThrow("new commits only");
+  writeFileSync(
+    join(root, ".flow", "commit-proposal.json"),
+    JSON.stringify({
+      ...pending,
+      status: "approved",
+      approvedCommits: [0, 1],
+      plan: {
+        ...PLAN,
+        commits: [
+          { kind: "fixup", target: original, message: "fixup! init", files: ["app.ts"] },
+          PLAN.commits[1],
+        ],
+      },
+    }),
+  );
+  expect(executeCommitProposal(root, pending.id)).toMatchObject({ status: "failed", completed: 0 });
+  expect(gitTest(root, ["rev-parse", "HEAD"])).toBe(original);
+  writeFileSync(join(root, ".flow", "commit-proposal.json"), JSON.stringify(pending));
+  publishCommitProposal(root, pending.id, PLAN);
   approveCommitProposal(root, pending.id);
   expect(executeCommitProposal(root, pending.id).status).toBe("completed");
-  expect(gitTest(root, ["rev-list", "--count", `${published}..HEAD`])).toBe("2");
-  expect(gitTest(root, ["log", "--format=%s", `${published}..HEAD`])).not.toContain("fixup!");
-  expect(readFileSync(join(root, "app.ts"), "utf8")).toContain("value = 3");
+  expect(gitTest(root, ["rev-parse", "HEAD~2"])).toBe(original);
+  expect(gitTest(root, ["rev-list", "--count", `${original}..HEAD`])).toBe("2");
 });
-
 test("a failing commit hook reports the error without bypassing it or creating a commit", () => {
   const root = createTestProposalRepo();
   const head = gitTest(root, ["rev-parse", "HEAD"]);

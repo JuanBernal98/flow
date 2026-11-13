@@ -6,6 +6,8 @@ import {
   failCommitProposal,
   publishCommitProposal,
   readCommitProposal,
+  refreshCommitProposal,
+  StaleCommitProposalError,
 } from "./commitProposal";
 import { FlowUserError } from "./errors";
 
@@ -17,7 +19,7 @@ const HELP = `Usage:
   flow commits fail <request-id> <reason>
 
 Proposal JSON: {"agentName":"Codex","commits":[{"kind":"commit","message":"feat: explain why","files":["src/file.ts"]}]}
-For a fixup use kind "fixup", a full target SHA, its exact "fixup! <subject>" message, and files.
+Every group creates a new commit. Fixups and history rewriting are not supported.
 Only flow open can approve a proposal. execute requires that approval and an unchanged checkout.
 `;
 
@@ -47,7 +49,13 @@ export async function runCommitsCommand(tokens: string[]) {
     } catch {
       throw new FlowUserError("Pass the proposal JSON on stdin.");
     }
-    publishCommitProposal(root, id, input);
+    try {
+      publishCommitProposal(root, id, input);
+    } catch (error) {
+      if (!(error instanceof StaleCommitProposalError)) throw error;
+      refreshCommitProposal(root, id);
+      return "The repository changed; an updated proposal was requested automatically.\n";
+    }
     return "Proposal published. Wait for approval in flow open; do not commit yet.\n";
   }
   if (command === "claim") {

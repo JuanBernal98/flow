@@ -36,7 +36,7 @@ const FilePath = Text.refine(
   "Use repository-relative file paths outside .flow and .git.",
 );
 
-export const CommitPlanSchema = z
+const StoredCommitPlanSchema = z
   .object({
     agentName: Text,
     commits: z
@@ -59,6 +59,12 @@ export const CommitPlanSchema = z
   })
   .strict();
 
+/** Legacy plans remain readable so the window can replace them, but cannot rewrite history. */
+export const CommitPlanSchema = StoredCommitPlanSchema.refine(
+  (plan) => plan.commits.every((commit) => commit.kind === "commit"),
+  "Flow creates new commits only. Request a new proposal without fixups.",
+);
+
 const SnapshotSchema = z.object({
   branch: Text,
   head: Sha,
@@ -78,7 +84,7 @@ const StoredSchema = z.object({
     "failed",
   ]),
   snapshot: SnapshotSchema,
-  plan: CommitPlanSchema.optional(),
+  plan: StoredCommitPlanSchema.optional(),
   selection: z.array(FilePath).optional(),
   claimedBy: Text.optional(),
   approvedCommits: z.array(z.number().int().nonnegative()).optional(),
@@ -89,6 +95,13 @@ const StoredSchema = z.object({
 export type CommitProposal = z.infer<typeof StoredSchema>;
 export type CommitPlan = z.infer<typeof CommitPlanSchema>;
 type Snapshot = z.infer<typeof SnapshotSchema>;
+
+/** A changed snapshot needs a fresh proposal and fresh approval, rather than a manual cancel. */
+export class StaleCommitProposalError extends FlowUserError {
+  constructor(readonly proposalId: string) {
+    super("The repository changed. Preparing an updated proposal.");
+  }
+}
 
 /** Git subprocesses never acquire a visible Windows console or interpret filenames as pathspecs. */
 function git(
@@ -163,6 +176,13 @@ export function readCommitProposal(repoRoot: string): CommitProposal | null {
   return StoredSchema.parse(JSON.parse(readFileSync(path, "utf8")));
 }
 
+/** Desktop polling must yield while the filesystem reads the proposal. */
+export async function readCommitProposalAsync(repoRoot: string): Promise<CommitProposal | null> {
+  const file = Bun.file(join(repoRoot, FLOW_DIR, "commit-proposal.json"));
+  if (!(await file.exists())) return null;
+  return StoredSchema.parse(await file.json());
+}
+
 /** Publish a complete state atomically for the window's next poll. */
 function save(repoRoot: string, proposal: CommitProposal) {
   const directory = join(repoRoot, FLOW_DIR);
@@ -202,7 +222,7 @@ function requireProposal(repoRoot: string, id: string, states: CommitProposal["s
 /** Reject a plan as soon as its repository contents or checkout differs from what was reviewed. */
 function requireUnchanged(repoRoot: string, proposal: CommitProposal) {
   if (snapshot(repoRoot, proposal.selection).fingerprint !== proposal.snapshot.fingerprint)
-    throw new FlowUserError("The repository changed. Cancel this proposal and prepare a new one.");
+    throw new StaleCommitProposalError(proposal.id);
 }
 
 /** Start a proposal scoped to the selected files, or all pending work when none are selected. */
@@ -210,9 +230,14 @@ export function requestCommitProposal(
   repoRoot: string,
   selectedFiles: readonly string[] = [],
   replace = false,
+  expectedId?: string,
 ) {
   return locked(repoRoot, () => {
     const existing = readCommitProposal(repoRoot);
+    if (expectedId && existing?.id !== expectedId) {
+      if (existing) return existing;
+      throw new FlowUserError("This commit request is no longer active.");
+    }
     let current = snapshot(repoRoot);
     let selection: string[] | undefined;
     if (selectedFiles.length) {
@@ -248,9 +273,12 @@ export function requestCommitProposal(
           "Wait for the approved commits to finish before requesting another proposal.",
         );
       if (!replace) {
-        if (current.files.join("\0") !== existing.snapshot.files.join("\0"))
-          throw new FlowUserError("Cancel the active proposal before changing its file selection.");
-        return existing;
+        if (
+          existing.status === "approved" ||
+          existing.status === "executing" ||
+          current.fingerprint === existing.snapshot.fingerprint
+        )
+          return existing;
       }
     }
     if (current.branch === readRepoIntegrations(repoRoot).workflow.baseBranch)
@@ -274,6 +302,36 @@ export function requestCommitProposal(
   });
 }
 
+/** Replace a stale, unapproved proposal while preserving its remaining selected files. */
+export function refreshCommitProposal(repoRoot: string, id: string) {
+  const proposal = readCommitProposal(repoRoot);
+  if (
+    !proposal ||
+    proposal.id !== id ||
+    (proposal.status !== "ready" && proposal.status !== "preparing")
+  )
+    return proposal;
+  const pending = snapshot(repoRoot);
+  const selection = proposal.selection?.filter((path) => pending.files.includes(path));
+  if (
+    !pending.files.length ||
+    (selection && !selection.length) ||
+    pending.branch !== proposal.snapshot.branch
+  )
+    return cancelCommitProposal(repoRoot, id);
+  return requestCommitProposal(repoRoot, selection, true, id);
+}
+
+/** Revalidate a ready proposal when the window is opened or regains focus, without idle polling. */
+export function readCurrentCommitProposal(repoRoot: string, proposal: CommitProposal | null) {
+  if (
+    proposal?.status === "ready" &&
+    snapshot(repoRoot, proposal.selection).fingerprint !== proposal.snapshot.fingerprint
+  )
+    return refreshCommitProposal(repoRoot, proposal.id);
+  return proposal;
+}
+
 /** Acknowledge that an agent picked up the request, without approving or changing its scope. */
 export function claimCommitProposal(repoRoot: string, id: string, agentName: string) {
   return locked(repoRoot, () =>
@@ -282,36 +340,6 @@ export function claimCommitProposal(repoRoot: string, id: string, agentName: str
       claimedBy: Text.parse(agentName),
     }),
   );
-}
-
-/** Require fixups to target local linear history, so autosquash cannot rewrite remote commits. */
-function fixupBase(repoRoot: string, plan: CommitPlan): string | undefined {
-  const targets = plan.commits.flatMap((commit) =>
-    commit.kind === "fixup" ? [commit.target] : [],
-  );
-  if (!targets.length) return undefined;
-  const history = git(repoRoot, ["rev-list", "HEAD"]).trim().split("\n");
-  for (const target of targets) {
-    if (
-      !history.includes(target) ||
-      git(repoRoot, [
-        "for-each-ref",
-        `--contains=${target}`,
-        "--format=%(refname)",
-        "refs/remotes",
-      ]).trim()
-    )
-      throw new FlowUserError(
-        "Fixups may only target commits on this branch that have not reached a remote.",
-      );
-  }
-  const oldest = targets.reduce((left, right) =>
-    history.indexOf(left) > history.indexOf(right) ? left : right,
-  );
-  const base = git(repoRoot, ["rev-parse", `${oldest}^`]).trim();
-  if (git(repoRoot, ["rev-list", "--merges", `${base}..HEAD`]).trim())
-    throw new FlowUserError("Fixups across merge commits require a separate manual review.");
-  return base;
 }
 
 /** Validate the agent's plan and ensure every changed path belongs to exactly one commit. */
@@ -331,21 +359,12 @@ export function publishCommitProposal(repoRoot: string, id: string, input: unkno
     for (const commit of plan.commits) {
       if (/^Co-Authored-By:/im.test(commit.message))
         throw new FlowUserError("Commit messages must not include Co-Authored-By trailers.");
-      if (
-        commit.kind === "fixup" &&
-        commit.message !==
-          `fixup! ${git(repoRoot, ["show", "-s", "--format=%s", commit.target]).trim()}`
-      )
-        throw new FlowUserError(
-          "A fixup message must match fixup! followed by its target's exact subject.",
-        );
     }
-    fixupBase(repoRoot, plan);
     return save(repoRoot, { ...proposal, status: "ready", plan });
   });
 }
 
-/** Explicit window approval is the only transition that requests execution from the agent. */
+/** Record explicit window approval before local execution can start. */
 export function approveCommitProposal(
   repoRoot: string,
   id: string,
@@ -356,6 +375,7 @@ export function approveCommitProposal(
     requireUnchanged(repoRoot, proposal);
     const plan = proposal.plan;
     if (!plan) throw new FlowUserError("No proposal to approve.");
+    CommitPlanSchema.parse(plan);
     const indexes = selectedCommits ? [...selectedCommits] : plan.commits.map((_, index) => index);
     if (
       !indexes.length ||
@@ -364,17 +384,7 @@ export function approveCommitProposal(
     )
       throw new FlowUserError("Select at least one valid commit, without duplicate indexes.");
     indexes.sort((left, right) => left - right);
-    const chosen = indexes.map((index) => plan.commits[index]!);
-    if (chosen.some((commit) => commit.kind === "fixup")) {
-      const files = chosen.flatMap((commit) => commit.files).sort();
-      if (files.join("\0") !== snapshot(repoRoot).files.join("\0"))
-        throw new FlowUserError(
-          "Fixups require committing all remaining changes before autosquash. Select them all or propose regular commits instead.",
-        );
-    }
-    const approved = save(repoRoot, { ...proposal, status: "approved", approvedCommits: indexes });
-    writeCommitProposalRequest(repoRoot, id, "execute");
-    return approved;
+    return save(repoRoot, { ...proposal, status: "approved", approvedCommits: indexes });
   });
 }
 
@@ -417,26 +427,22 @@ export function executeCommitProposal(repoRoot: string, id: string) {
   });
   try {
     if (!proposal.plan) throw new FlowUserError("No commit plan was approved.");
+    CommitPlanSchema.parse(proposal.plan);
     const plan = {
       ...proposal.plan,
       commits: (proposal.approvedCommits ?? proposal.plan.commits.map((_, index) => index)).map(
         (index) => proposal.plan!.commits[index]!,
       ),
     };
-    const base = fixupBase(repoRoot, plan);
     for (const commit of plan.commits) {
       git(repoRoot, ["add", "--", ...commit.files]);
       git(repoRoot, ["commit", "--only", "-F", "-", "--", ...commit.files], commit.message);
       proposal = save(repoRoot, { ...proposal, completed: proposal.completed + 1 });
     }
-    if (base)
-      git(repoRoot, ["rebase", "-i", "--autosquash", base], undefined, {
-        GIT_SEQUENCE_EDITOR: ":",
-      });
     const result = git(repoRoot, [
       "log",
       "--format=%h %s",
-      `${base ?? proposal.snapshot.head}..HEAD`,
+      `${proposal.snapshot.head}..HEAD`,
     ]).trim();
     return save(repoRoot, { ...proposal, status: "completed", result });
   } catch (error) {
