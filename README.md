@@ -106,6 +106,10 @@ Reviewing a teammate's MR works the same: pick it under **Reviews**, <kbd>Enter<
 
 ### ChatGPT / Codex integration
 
+The `flow open` diff refreshes automatically when working-tree files, the Git index,
+or the checked-out branch change. Native filesystem events trigger refreshes without
+continuous Git polling. Comment editing defers refresh until the draft closes.
+
 In `flow open`, **Propose** asks your coding agent to group the selected files, or all uncommitted
 files when none are selected. The Commit sidebar shows the messages, files, and file counts
 for approval. Each checked group creates a new commit, without rewriting history. **Commit** executes the checked groups locally with Git, without waiting
@@ -128,6 +132,10 @@ ends. Requests retain their normal skill approval requirements. The most recentl
 started agent session owns the repository's watch, so multiple sessions do not act
 on the same request. Events are delivered during active work or on the next user
 turn; hooks cannot wake an idle conversation automatically.
+
+Claude's integration instead asks its Monitor to follow `flow watch`, so it can
+receive events while waiting. Running the same stream in a background terminal
+does not by itself deliver notifications to ChatGPT/Codex.
 
 - **Nothing leaves without you.** Commits, pushes, MRs, and Slack posts wait for your yes.
 - **No company details in flow.** Each squad's YouTrack, GitLab label, and Slack channel live in a local `.flow/config.toml`.

@@ -3,7 +3,6 @@
  * The flow window: workspace sidebar, ticket overview, and the branch's diff rendered by Pierre's
  * web components. Everything works from the keyboard with the terminal UI's keys; `?` lists them.
  */
-import { type DiffLineAnnotation } from "@pierre/diffs/react";
 import type React from "react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -18,12 +17,8 @@ import type {
   WindowThemes,
   WindowWorkspace,
 } from "./data";
-import { hunkHoldsLine, listWindowHunks, stepFile, type WindowHunk } from "./review";
-import { reviewGutterWidth } from "./reviewLayout";
-import { REVIEW_DIFF_CSS } from "./reviewStyles";
+import { hunkHoldsLine, refreshedHunkIndex, stepFile, type WindowHunk } from "./review";
 import { DESKTOP_KEYS, HELP_SECTIONS } from "./shortcuts";
-import { applyIndentGuides } from "./indentGuides";
-import { observeStickyFileHeaders } from "./stickyFileHeaders";
 import { FilesPane } from "./FilesPane";
 import { toggleFileAccordions } from "./FileAccordion";
 import { DiffToolbar } from "./DiffToolbar";
@@ -32,14 +27,12 @@ import { SettingsPanel, SettingsIcon } from "./SettingsPanel";
 import { CommitProposalPanel } from "./CommitProposalPanel";
 import { activateVisibleCommitAction } from "./CommitActionButton";
 import { useCommitProposal } from "./useCommitProposal";
-import { CommentThread } from "./CommentThread";
-import { CommentEditor } from "./CommentEditor";
-import { DiffFile, type DiffNote } from "./DiffFile";
-import { EMPTY_FILE_COMMENTS, groupFileComments } from "./fileComments";
 import { hasUnreadCommentReply } from "../core/commentThread";
-import { navigateReview, type ReviewNavigation } from "./reviewNavigation";
+import type { ReviewNavigation } from "./reviewNavigation";
 import { normalizeWindowPreferences, type WindowPreferences } from "./preferences";
 import type { WindowBootstrap } from "./windowBootstrap";
+import { DiffPane, type DiffStyle } from "./DiffPane";
+import { useWindowData } from "./useWindowData";
 
 const SECTIONS: { id: WorkspaceSectionId; title: string }[] = [
   { id: "todo", title: "To do" },
@@ -51,7 +44,6 @@ const SECTIONS: { id: WorkspaceSectionId; title: string }[] = [
 // The Claude Code themes highlight by name, so Pierre must know them before any diff renders.
 registerClaudeCodeThemes();
 
-const startedAt = performance.now();
 const initialBootstrap = window.flowBootstrap;
 const secret = location.hash.slice(1);
 // WebView2 injects init scripts before documentElement exists; modules run once the DOM is ready.
@@ -74,22 +66,15 @@ async function api<T>(path: string, init: { method?: string; body?: unknown } = 
 type FocusZone = "review" | "workspace";
 
 function App() {
-  const [workspace, setWorkspace] = useState<WindowWorkspace | null>(
-    initialBootstrap?.workspace ?? null,
-  );
-  const [diff, setDiff] = useState<WindowDiffFile[] | null>(initialBootstrap?.files ?? null);
   const [cursor, setCursor] = useState(0);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(true);
   const [overviewOpen, setOverviewOpen] = useState(true);
-  const ticketsEnabled = workspace?.ticketsEnabled === true;
-  const showWorkspace = ticketsEnabled && workspaceOpen;
-  const showOverview = ticketsEnabled && overviewOpen;
   const [filesOpen, setFilesOpen] = useState(true);
   const [selectedPaths, setSelectedPaths] = useState<ReadonlySet<string>>(new Set());
   const [diffStyle, setDiffStyle] = useState<DiffStyle>("unified");
   const [diffScope, setDiffScope] = useState<WindowDiffScope>("pending");
-  const diffLoad = useRef(0);
+
   const [themes, setThemes] = useState<WindowThemes | null>(initialBootstrap?.themes ?? null);
   const [themeId, setThemeId] = useState<string | null>(null);
   const systemAppearance = useSystemAppearance();
@@ -106,11 +91,13 @@ function App() {
   useEffect(() => {
     void window.flowReady?.();
   }, []);
-  const [timing, setTiming] = useState<string>("");
+
   const [zone, setZone] = useState<FocusZone>("review");
   const [hunkIndex, setHunkIndex] = useState(0);
+  const liveCursor = useRef<WindowHunk | null>(null);
   const [reviewNavigation, setReviewNavigation] = useState<ReviewNavigation | null>(null);
   const [editing, setEditing] = useState(false);
+
   const [replyingTo, setReplyingTo] = useState<number | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -124,8 +111,38 @@ function App() {
       : null,
   );
   const preferenceSave = useRef(Promise.resolve());
-  const [comments, setComments] = useState<PersistedComment[]>(initialBootstrap?.comments ?? []);
+
   const [notice, setNotice] = useState<string | null>(null);
+  const onDiffLoaded = useCallback((files: WindowDiffFile[], nextHunks: WindowHunk[]) => {
+    const previousHunk = liveCursor.current;
+    setHunkIndex((current) => refreshedHunkIndex(previousHunk, nextHunks, current));
+    setSelectedPaths((current) => {
+      const paths = new Set(
+        files.filter((file) => file.pending !== false).map((file) => file.path),
+      );
+      const next = new Set([...current].filter((path) => paths.has(path)));
+      return next.size === current.size ? current : next;
+    });
+  }, []);
+  const onWorkspaceLoaded = useCallback((loaded: WindowWorkspace) => {
+    if (!loaded.ticketsEnabled) setZone("review");
+    setSelectedId((current) => current ?? loaded.checkedOutId);
+  }, []);
+  const { diff, hunks, hunksByFile, workspace, comments, userName, timing, reload, loadComments } =
+    useWindowData({
+      api,
+      secret,
+      bootstrap: initialBootstrap,
+      scope: diffScope,
+      editing,
+      onDiffLoaded,
+      onWorkspaceLoaded,
+      onError: setNotice,
+    });
+  const ticketsEnabled = workspace?.ticketsEnabled === true;
+  const showWorkspace = ticketsEnabled && workspaceOpen;
+  const showOverview = ticketsEnabled && overviewOpen;
+
   useEffect(() => {
     if (initialBootstrap) return;
     void api<WindowPreferences>("/api/preferences")
@@ -154,55 +171,6 @@ function App() {
     return () => window.clearTimeout(timer);
   }, [preferences, preferencesLoaded]);
   const pendingG = useRef(0);
-  const [userName, setUserName] = useState(initialBootstrap?.userName ?? "You");
-  useEffect(() => {
-    if (initialBootstrap) return;
-    void api<{ name: string }>("/api/me").then((me) => setUserName(me.name));
-  }, []);
-
-  const reloadDiff = useCallback(() => {
-    const requestId = ++diffLoad.current;
-    // The diff is local and fast; the workspace waits on YouTrack and GitLab, so neither blocks the other.
-    void api<WindowDiffFile[]>(`/api/diff?scope=${diffScope}`).then((files) => {
-      if (requestId !== diffLoad.current) return;
-      setDiff(files);
-      setSelectedPaths((current) => {
-        const paths = new Set(
-          files.filter((file) => file.pending !== false).map((file) => file.path),
-        );
-        return new Set([...current].filter((path) => paths.has(path)));
-      });
-      requestAnimationFrame(() =>
-        setTiming((current) => current || `diff ${Math.round(performance.now() - startedAt)} ms`),
-      );
-    });
-  }, [diffScope]);
-  const reloadWorkspace = useCallback(() => {
-    void api<WindowWorkspace>("/api/workspace").then((loaded) => {
-      setWorkspace(loaded);
-      if (!loaded.ticketsEnabled) setZone("review");
-      setSelectedId((current) => current ?? loaded.checkedOutId);
-      setTiming((current) =>
-        [current, `workspace ${Math.round(performance.now() - startedAt)} ms`]
-          .filter(Boolean)
-          .join(" · "),
-      );
-    });
-  }, []);
-
-  const reload = useCallback(() => {
-    reloadDiff();
-    reloadWorkspace();
-  }, [reloadDiff, reloadWorkspace]);
-  const initialDiffLoaded = useRef(Boolean(initialBootstrap));
-  useEffect(() => {
-    if (initialDiffLoaded.current) {
-      initialDiffLoaded.current = false;
-      return;
-    }
-    reloadDiff();
-  }, [reloadDiff]);
-  useEffect(reloadWorkspace, [reloadWorkspace]);
   const selectReviewFile = useCallback((path: string, checked: boolean) => {
     setSelectedPaths((current) => {
       const next = new Set(current);
@@ -229,7 +197,7 @@ function App() {
   }, []);
   const replyToComment = useCallback(
     (comment: PersistedComment) => {
-      const index = listWindowHunks(diff ?? []).find((hunk) =>
+      const index = (hunksByFile.get(comment.file) ?? []).find((hunk) =>
         hunkHoldsLine(hunk, comment.file, comment.line),
       )?.index;
       if (index === undefined) return;
@@ -239,29 +207,18 @@ function App() {
       setEditing(true);
       setReviewNavigation(null);
     },
-    [diff],
+    [hunksByFile],
   );
   const commitFlow = useCommitProposal(api, reload);
 
-  // Comments change on disk when the agent replies or resolves them, so they are re-read often.
-  const loadComments = useCallback(() => {
-    void api<PersistedComment[]>("/api/comments").then((next) =>
-      setComments((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next)),
-    );
-  }, []);
-  useEffect(() => {
-    loadComments();
-    const timer = window.setInterval(loadComments, 2000);
-    return () => window.clearInterval(timer);
-  }, [loadComments]);
-
-  const hunks = useMemo(() => listWindowHunks(diff ?? []), [diff]);
   const reviewComments = useMemo(
     () =>
       comments.filter((comment) =>
-        hunks.some((hunk) => hunkHoldsLine(hunk, comment.file, comment.line)),
+        (hunksByFile.get(comment.file) ?? []).some((hunk) =>
+          hunkHoldsLine(hunk, comment.file, comment.line),
+        ),
       ),
-    [comments, hunks],
+    [comments, hunksByFile],
   );
   const readingComments = useRef(new Set<string>());
   const markCommentRead = useCallback(
@@ -305,6 +262,7 @@ function App() {
     [hunks],
   );
   const focusedHunk = hunks[Math.min(hunkIndex, hunks.length - 1)] ?? null;
+  liveCursor.current = focusedHunk;
   const commentsOn = useCallback(
     (hunk: WindowHunk) =>
       reviewComments.filter((comment) => hunkHoldsLine(hunk, comment.file, comment.line)),
@@ -595,6 +553,7 @@ function App() {
           userName={userName}
           onFocusHunk={focusReviewHunk}
           hunks={hunks}
+          hunksByFile={hunksByFile}
         />
         {filesOpen ? (
           <FilesPane
@@ -655,8 +614,6 @@ function App() {
     </div>
   );
 }
-
-type DiffStyle = "split" | "unified";
 
 declare global {
   interface Window {
@@ -1091,160 +1048,6 @@ function Bullets({ title, items, ordered }: { title: string; items: string[]; or
   );
 }
 
-/** Coordinate the review stream while each file owns its diff rendering and inline discussions. */
-const DiffPane = memo(function DiffPane({
-  navigation,
-  files,
-  selectedPaths,
-  onSelectFile,
-  diffStyle,
-  scope,
-  theme,
-  hunks,
-  focusedHunk,
-  comments,
-  editing,
-  replyingTo,
-  onSaveComment,
-  onCancelComment,
-  onStartComment,
-  onReplyComment,
-  onReadComment,
-  onFocusHunk,
-  userName,
-}: {
-  navigation: ReviewNavigation | null;
-  files: WindowDiffFile[] | null;
-  selectedPaths: ReadonlySet<string>;
-  onSelectFile: (path: string, checked: boolean) => void;
-  diffStyle: DiffStyle;
-  scope: WindowDiffScope;
-  theme: WindowTheme | null;
-  hunks: WindowHunk[];
-  focusedHunk: WindowHunk | null;
-  comments: PersistedComment[];
-  editing: boolean;
-  replyingTo: number | null;
-  onSaveComment: (body: string) => void;
-  onCancelComment: () => void;
-  onStartComment: (index: number) => void;
-  onReplyComment: (comment: PersistedComment) => void;
-  onReadComment: (comment: PersistedComment) => void;
-  onFocusHunk: (index: number) => void;
-  userName: string;
-}) {
-  const codeTheme = theme?.codeTheme;
-  const previousComments = useRef(new Map<string, PersistedComment[]>());
-  const fileComments = useMemo(() => {
-    const grouped = groupFileComments(comments, previousComments.current);
-    previousComments.current = grouped;
-    return grouped;
-  }, [comments]);
-  const appearance = theme?.appearance;
-  useEffect(
-    () => observeStickyFileHeaders(document.querySelector<HTMLElement>(".diff")),
-    [files, codeTheme],
-  );
-  const gutter = useMemo(
-    () => ({ "--gutter-width": reviewGutterWidth(files ?? []) }) as React.CSSProperties,
-    [files],
-  );
-  const options = useMemo(
-    () =>
-      ({
-        theme: codeTheme ?? { dark: "pierre-dark", light: "pierre-light" },
-        themeType: appearance ?? "system",
-        diffStyle,
-        overflow: "scroll",
-        disableFileHeader: true,
-        diffIndicators: "none",
-        hunkSeparators: "simple",
-        unsafeCSS: REVIEW_DIFF_CSS,
-        onPostRender: applyIndentGuides,
-      }) as const,
-    [diffStyle, codeTheme, appearance],
-  );
-
-  useLayoutEffect(
-    () => navigateReview(document.querySelector<HTMLElement>(".diff"), navigation, hunks),
-    [navigation, hunks],
-  );
-
-  const renderNote = useCallback(
-    (annotation: DiffLineAnnotation<DiffNote>) => {
-      const note = annotation.metadata;
-      const path = note.comments[0]?.file;
-      return (
-        <CommentThread
-          comments={note.comments}
-          userName={userName}
-          onRead={onReadComment}
-          editor={
-            <CommentEditor
-              active={note.editing}
-              onSave={onSaveComment}
-              onCancel={onCancelComment}
-              onActivate={() => {
-                const comment = note.comments.at(-1);
-                if (comment) {
-                  onReplyComment(comment);
-                  return;
-                }
-                const hunk = hunks.find((candidate) =>
-                  hunkHoldsLine(candidate, path ?? "", annotation.lineNumber),
-                );
-                if (hunk) onStartComment(hunk.index);
-              }}
-            />
-          }
-        />
-      );
-    },
-    [
-      onSaveComment,
-      onCancelComment,
-      onStartComment,
-      onReplyComment,
-      onReadComment,
-      hunks,
-      userName,
-    ],
-  );
-
-  // Wait for the theme so code is not highlighted twice on launch.
-  if (files === null || theme === null) {
-    return <main className="diff" />;
-  }
-  return (
-    <main className="diff" style={gutter}>
-      {files.length === 0 ? (
-        <p className="empty">
-          {scope === "pending" ? "No pending changes." : "No changes on this branch yet."}
-        </p>
-      ) : null}
-      {files.map((file) => {
-        const focused = focusedHunk?.path === file.path ? focusedHunk : null;
-        return (
-          <DiffFile
-            key={file.path}
-            file={file}
-            selected={selectedPaths.has(file.path)}
-            onSelectFile={onSelectFile}
-            options={options}
-            focused={focused}
-            comments={fileComments.get(file.path) ?? EMPTY_FILE_COMMENTS}
-            editing={editing && focused !== null}
-            replyingTo={editing && focused !== null ? replyingTo : null}
-            renderNote={renderNote}
-            hunks={hunks}
-            onFocusHunk={onFocusHunk}
-          />
-        );
-      })}
-    </main>
-  );
-});
-
 /** Follow macOS light and dark mode, for the `claude` theme that tracks it. */
 function useSystemAppearance() {
   const query = useMemo(() => window.matchMedia("(prefers-color-scheme: dark)"), []);
@@ -1327,10 +1130,20 @@ document.addEventListener(
   { capture: true, passive: false },
 );
 
+const pendingScrollPanes = new Set<HTMLElement>();
+let scrollFrame = 0;
+
 document.addEventListener(
   "scroll",
   (event) => {
-    if (event.target instanceof HTMLElement) showScrollThumb(event.target);
+    if (!(event.target instanceof HTMLElement)) return;
+    pendingScrollPanes.add(event.target);
+    if (scrollFrame) return;
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = 0;
+      for (const pane of pendingScrollPanes) if (pane.isConnected) showScrollThumb(pane);
+      pendingScrollPanes.clear();
+    });
   },
   { capture: true, passive: true },
 );

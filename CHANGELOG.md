@@ -10,6 +10,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- The desktop diff updates automatically after working-tree, index, or branch changes, with filesystem events instead of continuous Git polling. Unchanged files retain their rendered state and comment drafts defer refresh until editing finishes.
+
 - Review discussions belong to their Git branch and return when switching back, including replies and read receipts. Existing discussions are assigned to the current branch on first read.
 
 - The desktop file list shows quiet discussion counts and a dot for unread agent messages. Open a badge to jump to the first new reply; read acknowledgements persist when its thread enters view.
@@ -73,6 +75,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The `ticket`, `ticket-context`, and `mr` agent skills now ship in `skills/` next to `flow-review`; `flow skill show <name>` and `flow skill path <name>` print any of them.
 
 ### Changed
+
+- Desktop diff refreshes use nonblocking Git reads and skip redundant pending-file queries. Hunk data is reused across navigation and rendering, comment reads do not overlap, and scrollbar updates run once per animation frame.
 
 - Desktop file line totals use the same font size as filenames, with discussion notifications beside them.
 

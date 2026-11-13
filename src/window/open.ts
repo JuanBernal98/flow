@@ -44,6 +44,8 @@ import {
   StaleCommitProposalError,
 } from "../core/commitProposal";
 import type { WindowBootstrap } from "./windowBootstrap";
+import { createLiveDiffWatch } from "./liveDiffWatch";
+import { createDiffEvents } from "./diffEvents";
 
 const WindowPreferencesSchema = z.object({
   diffFontSize: z.number().min(MIN_DIFF_FONT_SIZE).max(MAX_DIFF_FONT_SIZE).multipleOf(0.5),
@@ -63,6 +65,7 @@ export function startWindowServer(repoRoot: string) {
   const authorized = (request: Request) => request.headers.get("x-flow-secret") === secret;
   const forbidden = () => new Response("forbidden", { status: 403 });
   const themes = loadWindowThemes(repoRoot);
+  const diffWatch = createLiveDiffWatch(repoRoot);
 
   const server = Bun.serve({
     hostname: "127.0.0.1",
@@ -89,8 +92,10 @@ export function startWindowServer(repoRoot: string) {
         authorized(request) ? Response.json(await loadWindowWorkspace(repoRoot)) : forbidden(),
       "/api/themes": async (request) =>
         authorized(request) ? Response.json(await themes) : forbidden(),
-      "/api/me": (request) =>
-        authorized(request) ? Response.json({ name: loadWindowUserName(repoRoot) }) : forbidden(),
+      "/api/me": async (request) =>
+        authorized(request)
+          ? Response.json({ name: await loadWindowUserName(repoRoot) })
+          : forbidden(),
       "/api/commits": {
         GET: async (request) => {
           if (!authorized(request)) return forbidden();
@@ -224,13 +229,18 @@ export function startWindowServer(repoRoot: string) {
           }
         },
       },
-      "/api/diff": (request) => {
+      "/api/diff/events": (request) => {
+        if (!authorized(request)) return forbidden();
+        server.timeout(request, 0);
+        return createDiffEvents(diffWatch, request.signal);
+      },
+      "/api/diff": async (request) => {
         if (!authorized(request)) return forbidden();
         const scope = z
           .enum(["pending", "branch"])
           .safeParse(new URL(request.url).searchParams.get("scope") ?? "pending");
         return scope.success
-          ? Response.json(loadWindowDiff(repoRoot, scope.data))
+          ? Response.json(await loadWindowDiff(repoRoot, scope.data))
           : new Response("Unknown diff scope.", { status: 400 });
       },
       "/api/overview/:id": (request) =>
@@ -239,7 +249,12 @@ export function startWindowServer(repoRoot: string) {
           : forbidden(),
     },
   });
-  return { server, url: `http://127.0.0.1:${server.port}/#${secret}`, themes };
+  return {
+    server,
+    url: `http://127.0.0.1:${server.port}/#${secret}`,
+    themes,
+    closeDiffWatch: () => diffWatch.close(),
+  };
 }
 
 /** Return the terminal immediately after launching an independent desktop host. */
@@ -261,19 +276,25 @@ export async function runFlowWindow(cwd: string) {
       "`flow open` shows the repository you run it from.",
     ]);
   }
-  const { server, url, themes: themesReady } = startWindowServer(repoRoot);
+  const { server, url, themes: themesReady, closeDiffWatch } = startWindowServer(repoRoot);
   try {
     // Compile the HTML bundle and prepare local data before a native surface becomes visible.
-    const [themes, html] = await Promise.all([themesReady, fetch(new URL("/", url))]);
+    const [themes, html, files, workspace, userName] = await Promise.all([
+      themesReady,
+      fetch(new URL("/", url)),
+      loadWindowDiff(repoRoot),
+      loadWindowLocalWorkspace(repoRoot),
+      loadWindowUserName(repoRoot),
+    ]);
     if (!html.ok) throw new Error("The desktop interface could not be prepared.");
     await html.text();
     const bootstrap: WindowBootstrap = {
       themes,
       preferences: readWindowPreferences(),
-      files: loadWindowDiff(repoRoot),
+      files,
       comments: loadWindowComments(repoRoot),
-      workspace: loadWindowLocalWorkspace(repoRoot),
-      userName: loadWindowUserName(repoRoot),
+      workspace,
+      userName,
     };
     // On macOS the window runs inside Flow.app, so the Dock shows Flow and its icon, not Bun.
     const runtime =
@@ -304,6 +325,7 @@ export async function runFlowWindow(cwd: string) {
       window.kill();
     }
   } finally {
+    closeDiffWatch();
     await server.stop(true);
   }
 }

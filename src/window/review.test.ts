@@ -1,11 +1,29 @@
 import { describe, expect, test } from "bun:test";
-import { hunkHoldsLine, listWindowHunks, stepFile } from "./review";
+import { groupWindowHunks, hunkHoldsLine, listWindowHunks, stepFile } from "./review";
 
 const files = [
   { path: "a.ts", patch: "diff --git\n@@ -1,3 +1,4 @@\n x\n@@ -20,2 +21,5 @@ fn\n y\n" },
   { path: "b.ts", patch: "diff --git\n@@ -0,0 +1 @@\n+z\n" },
   { path: "c.ts", patch: "diff --git\n@@ -4,2 +4,0 @@\n-gone\n" },
 ];
+
+test("a live edit preserves other files' hunk inputs and removes deleted files from the index", () => {
+  const before = listWindowHunks(files);
+  const grouped = groupWindowHunks(before);
+  const changed = [{ ...files[0]!, patch: "@@ -1 +10 @@\n-old\n+new\n" }, ...files.slice(1)];
+  const next = groupWindowHunks(listWindowHunks(changed, before), grouped);
+  expect(next.get("a.ts")).not.toBe(grouped.get("a.ts"));
+  // Removing an earlier hunk changes global indexes, so downstream inputs must update too.
+  expect(next.get("b.ts")?.[0]?.index).toBe(1);
+  const sameCount = [
+    { ...files[0]!, patch: "@@ -1 +10 @@\n-old\n+new\n@@ -20 +21 @@\n-x\n+y\n" },
+    ...files.slice(1),
+  ];
+  const stable = groupWindowHunks(listWindowHunks(sameCount, before), grouped);
+  expect(stable.get("b.ts")).toBe(grouped.get("b.ts"));
+  expect(stable.get("c.ts")).toBe(grouped.get("c.ts"));
+  expect(groupWindowHunks(before.slice(0, 2), grouped).has("b.ts")).toBe(false);
+});
 
 describe("listWindowHunks", () => {
   test("lists every hunk in file order with its inclusive new-side range", () => {

@@ -1,7 +1,8 @@
 /** @jsxImportSource react */
 import { createRoot } from "react-dom/client";
-import { PatchDiff } from "@pierre/diffs/react";
-import { REVIEW_DIFF_CSS } from "../../src/window/reviewStyles";
+import { DiffPane } from "../../src/window/DiffPane";
+import { groupWindowHunks, listWindowHunks } from "../../src/window/review";
+import type { WindowTheme } from "../../src/window/data";
 import { CommitProposalPanel } from "../../src/window/CommitProposalPanel";
 import type { CommitProposal } from "../../src/core/commitProposal";
 import { FilesPane } from "../../src/window/FilesPane";
@@ -59,23 +60,63 @@ const cases = [
   { id: "stack-wide", style: "unified", width: 1200, long: false },
 ] as const;
 
+const testTheme: WindowTheme = {
+  id: "test",
+  label: "Test",
+  appearance: "light",
+  codeTheme: "pierre-light",
+  colors: {
+    background: "#fff",
+    panel: "#fff",
+    panelAlt: "#fafafa",
+    border: "#ddd",
+    accent: "#06c",
+    accentMuted: "#def",
+    text: "#111",
+    muted: "#666",
+    faint: "#999",
+    added: "#080",
+    removed: "#c00",
+    modified: "#960",
+    addedRow: "#efe",
+    removedRow: "#fee",
+    addedWord: "#cfc",
+    removedWord: "#fcc",
+  },
+};
+
 /** Exercise the actual desktop renderer and its production CSS at wide and narrow widths. */
 function renderTestWindowDiffs() {
   const diffs = cases.map((scenario) => {
     const suffix = scenario.long ? "x".repeat(300) : "short";
     const patch = `diff --git a/test.ts b/test.ts\n--- a/test.ts\n+++ b/test.ts\n@@ -1,2 +1,2 @@\n-export const value = '${suffix}';\n+export const value = 'new';\n export const kept = true;\n@@ -20,2 +20,2 @@\n-export const later = 1;\n+export const later = 2;\n export const last = true;\n`;
+    const files = [
+      { path: "test.ts", patch, status: "modified" as const, additions: 2, deletions: 2 },
+    ];
+    const hunks = listWindowHunks(files);
     return (
       <section id={scenario.id} key={scenario.id} style={{ width: scenario.width }}>
-        <PatchDiff
-          patch={patch}
-          options={{
-            diffStyle: scenario.style,
-            overflow: "scroll",
-            disableFileHeader: true,
-            diffIndicators: "none",
-            hunkSeparators: "simple",
-            unsafeCSS: REVIEW_DIFF_CSS,
-          }}
+        <DiffPane
+          navigation={null}
+          files={files}
+          selectedPaths={new Set()}
+          onSelectFile={onTestProposalCompleted}
+          diffStyle={scenario.style}
+          scope="pending"
+          theme={testTheme}
+          hunks={hunks}
+          hunksByFile={groupWindowHunks(hunks)}
+          focusedHunk={null}
+          comments={[]}
+          editing={false}
+          replyingTo={null}
+          onSaveComment={onTestProposalCompleted}
+          onCancelComment={onTestProposalCompleted}
+          onStartComment={onTestProposalCompleted}
+          onReplyComment={onTestProposalCompleted}
+          onReadComment={onTestProposalCompleted}
+          onFocusHunk={onTestProposalCompleted}
+          userName="Test"
         />
       </section>
     );

@@ -10,7 +10,7 @@ import {
 } from "../core/gitlab";
 import { resolveConfiguredCliInput } from "../core/config";
 import { parsePatchFiles } from "@pierre/diffs";
-import { lstatSync, readFileSync } from "node:fs";
+import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTwoFilesPatch } from "diff";
 import {
@@ -45,11 +45,11 @@ export interface WindowWorkspace {
 }
 
 /** Resolve local pane visibility and the checked-out branch without waiting for remote services. */
-export function loadWindowLocalWorkspace(repoRoot: string): WindowWorkspace {
+export async function loadWindowLocalWorkspace(repoRoot: string): Promise<WindowWorkspace> {
   return {
     ticketsEnabled: Boolean(readRepoIntegrations(repoRoot).youtrackUrl),
     items: [],
-    branch: git(repoRoot, ["branch", "--show-current"]).trim() || null,
+    branch: (await git(repoRoot, ["branch", "--show-current"])).trim() || null,
     checkedOutId: null,
   };
 }
@@ -100,23 +100,26 @@ export interface WindowDiffFile {
 }
 
 /** Run git in the repository and return stdout, or "" when it fails. */
-function git(repoRoot: string, args: string[], okExitCodes: readonly number[] = [0]) {
-  const result = Bun.spawnSync(["git", ...args], {
+async function git(repoRoot: string, args: string[], okExitCodes: readonly number[] = [0]) {
+  const result = Bun.spawn(["git", ...args], {
     cwd: repoRoot,
     windowsHide: true,
+    env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+    stdin: "ignore",
     stdout: "pipe",
     stderr: "ignore",
   });
-  return okExitCodes.includes(result.exitCode) ? result.stdout.toString() : "";
+  const [output, exitCode] = await Promise.all([new Response(result.stdout).text(), result.exited]);
+  return okExitCodes.includes(exitCode) ? output : "";
 }
 
 /** The workspace sections, with each ticket linked to its merge request. */
 export async function loadWindowWorkspace(repoRoot: string): Promise<WindowWorkspace> {
   const integrations = readRepoIntegrations(repoRoot);
-  const branch = git(repoRoot, ["branch", "--show-current"]).trim() || null;
+  const branchReady = git(repoRoot, ["branch", "--show-current"]);
   const youtrackUrl = integrations.youtrackUrl;
   const glab = integrations.gitlab ? createGlabRun(repoRoot) : undefined;
-  const [tasks, reviews, mergeRequests] = await Promise.all([
+  const [tasks, reviews, mergeRequests, branchOutput] = await Promise.all([
     youtrackUrl
       ? loadYouTrackTasks({ url: youtrackUrl })
       : Promise.resolve({
@@ -130,7 +133,9 @@ export async function loadWindowWorkspace(repoRoot: string): Promise<WindowWorks
           message: "No GitLab in .flow/config.toml",
         }),
     glab ? loadMyMergeRequests(glab) : Promise.resolve([]),
+    branchReady,
   ]);
+  const branch = branchOutput.trim() || null;
   const items = buildWorkspaceItems(
     tasks,
     reviews,
@@ -177,41 +182,42 @@ export async function loadWindowWorkspace(repoRoot: string): Promise<WindowWorks
 export type WindowDiffScope = "pending" | "branch";
 
 /** Pending work by default, or the full branch with committed files marked for review only. */
-export function loadWindowDiff(
+export async function loadWindowDiff(
   repoRoot: string,
   scope: WindowDiffScope = "pending",
-): WindowDiffFile[] {
+): Promise<WindowDiffFile[]> {
   const base = readRepoIntegrations(repoRoot).workflow.baseBranch;
   // The remote base when there is one, else the local branch (a repository without a remote).
   const mergeBase =
     scope === "branch"
-      ? git(repoRoot, ["merge-base", `origin/${base}`, "HEAD"]).trim() ||
-        git(repoRoot, ["merge-base", base, "HEAD"]).trim()
+      ? (await git(repoRoot, ["merge-base", `origin/${base}`, "HEAD"])).trim() ||
+        (await git(repoRoot, ["merge-base", base, "HEAD"])).trim()
       : "HEAD";
-  const tracked = git(repoRoot, ["diff", "--no-color", "--no-ext-diff", mergeBase || "HEAD"]);
-  // Like `flow diff`, new files count before they are added.
-  const untrackedPaths = new Set(
-    git(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean),
-  );
-  const untracked = [...untrackedPaths]
-    .map((path) => untrackedWindowPatch(repoRoot, path))
-    .join("");
-  const pendingPaths = new Set([
-    ...git(repoRoot, ["diff", "--no-renames", "--name-only", "-z", "HEAD"]).split("\0"),
-    ...untrackedPaths,
+  const [tracked, untrackedOutput, pendingOutput] = await Promise.all([
+    git(repoRoot, ["diff", "--no-color", "--no-ext-diff", mergeBase || "HEAD"]),
+    git(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z"]),
+    scope === "branch"
+      ? git(repoRoot, ["diff", "--no-renames", "--name-only", "-z", "HEAD"])
+      : Promise.resolve(""),
   ]);
-  return parseWindowDiff(`${tracked}${untracked}`, untrackedPaths).map((file) => ({
+  // Like `flow diff`, new files count before they are added.
+  const untrackedPaths = new Set(untrackedOutput.split("\0").filter(Boolean));
+  const untracked: string[] = [];
+  // Bound file reads and Git fallbacks even when a repository has many untracked files.
+  for (const path of untrackedPaths) untracked.push(await untrackedWindowPatch(repoRoot, path));
+  const pendingPaths = new Set([...pendingOutput.split("\0"), ...untrackedPaths]);
+  return parseWindowDiff(`${tracked}${untracked.join("")}`, untrackedPaths).map((file) => ({
     ...file,
-    pending: pendingPaths.has(file.path),
+    pending: scope === "pending" || pendingPaths.has(file.path),
   }));
 }
 
 /** Synthesize ordinary text additions in-process; Git handles binary files, symlinks and quoted paths. */
-function untrackedWindowPatch(repoRoot: string, path: string) {
+async function untrackedWindowPatch(repoRoot: string, path: string) {
   const fullPath = join(repoRoot, path);
   try {
-    if (!/[\s"\\]/.test(path) && lstatSync(fullPath).isFile()) {
-      const contents = readFileSync(fullPath);
+    if (!/[\s"\\]/.test(path) && (await lstat(fullPath)).isFile()) {
+      const contents = await readFile(fullPath);
       if (!contents.includes(0))
         return `diff --git a/${path} b/${path}\nnew file mode 100644\n${createTwoFilesPatch("/dev/null", path, "", contents.toString("utf8"))}`;
     }
@@ -354,6 +360,6 @@ export function markWindowCommentRead(repoRoot: string, id: number, replyCount: 
 }
 
 /** The git user's name, for the user's avatar and name in comment threads. */
-export function loadWindowUserName(repoRoot: string) {
-  return git(repoRoot, ["config", "user.name"]).trim() || "You";
+export async function loadWindowUserName(repoRoot: string) {
+  return (await git(repoRoot, ["config", "user.name"])).trim() || "You";
 }
