@@ -104,6 +104,30 @@ Reviewing a teammate's MR works the same: pick it under **Reviews**, <kbd>Enter<
 
 ## Good to know
 
+### ChatGPT / Codex integration
+
+In `flow open`, **Commit** asks your coding agent to propose groups for all uncommitted
+files. The Changes sidebar updates automatically and shows the exact messages, files, and local
+fixups for approval. **Create commits** approves that plan and asks the agent to execute
+it; no push is performed. Changed files or a different checkout invalidate the proposal.
+Keep your agent session available: lifecycle hooks deliver the request during active work
+or on its next turn. Cancel a pending proposal to request a new grouping.
+
+Run `flow setup codex` (or `flow setup chatgpt`) to install the bundled skills in
+`~/.agents/skills` and Flow's lifecycle hooks in `~/.codex/hooks.json`. `CODEX_HOME`
+overrides the hooks directory. `--dry-run` previews the files, and `--uninstall`
+removes only Flow's entries. This setup does not require the Claude-specific integration checks.
+
+Open a new local ChatGPT/Codex session and review the hooks in **Settings > Hooks**
+(or `/hooks` in Codex CLI). Setup never grants hook trust or changes permissions.
+
+The hooks use the same `.flow/comments.json` and `.flow/requests.json` protocol as
+`flow watch`, forwarding events after tools finish, on user turns, and before a turn
+ends. Requests retain their normal skill approval requirements. The most recently
+started agent session owns the repository's watch, so multiple sessions do not act
+on the same request. Events are delivered during active work or on the next user
+turn; hooks cannot wake an idle conversation automatically.
+
 - **Nothing leaves without you.** Commits, pushes, MRs, and Slack posts wait for your yes.
 - **No company details in flow.** Each squad's YouTrack, GitLab label, and Slack channel live in a local `.flow/config.toml`.
 - **Idle costs nothing.** **flow** and Claude talk through files in `.flow/`; no daemon, no tokens while you work.

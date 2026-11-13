@@ -10,6 +10,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- The desktop Commit button requests a grouped proposal from your coding agent, shows exact messages and files in the live Changes sidebar, and creates only the approved commits. Stale proposals are rejected; progress, local fixups, cancellations, and hook failures are shown in the window.
+
+- Agent comments and replies accept `--author <name>` and display that identity in the terminal and desktop window. Unnamed messages display as Agent.
+
+- `flow setup codex` / `flow setup chatgpt` installs the existing Flow skills and lifecycle hooks for local ChatGPT/Codex sessions. Hooks deliver comments and requests during active work and on new turns, preserve other hooks, and support preview and uninstall. Idle conversations are not automatically awakened.
+
+- A settings gear in the bottom-right status bar, or Ctrl+, (Cmd+, on macOS), opens a simple editor preferences panel. Diff font size defaults to 16 px, updates code, line numbers, and accordion filenames live independently of the interface, and is saved across sessions.
+
+- A full-width Commit action stays visible at the bottom of the window's Changes sidebar, using each theme's added color with contrasting text. This is a visual placeholder; commit and push actions are not connected yet.
+
 - `F11` toggles fullscreen in the desktop window and restores its previous placement when leaving fullscreen.
 
 - `flow open` uses a custom Windows title bar without a visible native frame, with edge resizing, dragging, minimize, maximize, and close controls, and more consistent spacing around pane headings and files. Maximizing respects the monitor's work area and keeps the taskbar visible.
@@ -58,13 +68,28 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- The Changes/Commit sidebar keeps one full-width footer action: Propose requests groups for selected files, Commit executes only checked proposals. Repeated response polling no longer redraws the diff and stops once a response arrives.
+- Added and deleted desktop diff rows have a thin green or red accent at the code's left edge.
+
+- `flow open` launches as an independent desktop app and returns control to the terminal. Closing the window stops its private server; closing the launching terminal leaves the app running.
+
+- Desktop file status icons use the terminal's shared circles, plus/minus signs, and rename arrow instead of boxed symbols.
+
+- The Zed theme matches the supplied desktop references more closely, with lime additions, coral deletions, warmer modified-file markers, and updated slate backgrounds and text colors.
+
+- Ctrl + mouse wheel no longer zooms the desktop review window.
+
+- The desktop window opens maximized instead of using a fixed initial size and position.
+
+- The window file sidebar uses regular-weight text and a tab-style heading with Changes selected, a total file count, and a disabled History tab reserved for the future history view.
+
 - Diff layout controls, line totals, and the action to fold or expand all file diffs live in the custom window title bar, keeping the review area clear of an extra toolbar.
 
 - Diff file headers in the desktop window are compact, full-width accordion rows with no gaps between files: click or press Enter/Space to fold a file; file and hunk navigation reveals it again. Header checkboxes share file selection with the Changes sidebar without folding the file.
 
 - Empty files and changes without text hunks appear as selectable rows without an empty accordion body, retain their actual filenames, and share single-line separators with other file rows.
 
-- The window Changes sidebar groups tracked and untracked files in compact rows with colored Git status icons, inline paths, and checkboxes for selecting individual files or a whole group independently of navigation. Filenames in the sidebar and diff headers share the status icon colors. File and hunk navigation scrolls instantly.
+- The window Changes sidebar groups tracked and untracked files in compact rows with colored Git status icons, neutral filenames, inline paths, and checkboxes for selecting individual files or a whole group independently of navigation. Clicking anywhere on a group heading toggles selection for that group. Diff header filenames share the status icon colors. File and hunk navigation scrolls instantly.
 
 - `flow open` hides the ticket sidebar, Overview, and their controls unless the current repository configures YouTrack in `.flow/config.toml`.
 
@@ -154,6 +179,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The workspace lists real YouTrack tickets: unresolved tickets assigned to you under **To do**, and those in the `Review` state under **Needs approval**. With the workspace focused, press `h` to open the selected ticket in the browser or `r` to reload. `Enter` switches to the ticket's branch (creating it from `origin/main` if needed). Uncommitted changes are stashed per branch on the way out and restored automatically when you return to that ticket. Set the instance under `[youtrack] url` and the token in the Keychain item `flow-youtrack`; see the README.
 
 ### Fixed
+
+- A terminal watcher no longer consumes requests intended for Codex lifecycle hooks. Proposal loading distinguishes waiting for an agent from preparing groups.
+
+- Desktop split diffs keep the old and new code in equal-width columns, including long lines and narrow review panes.
+
+- Desktop repository queries hide their child-process consoles on Windows, preventing terminal flashes when loading diffs and workspace data.
+- Desktop file status icons use square SVG geometry so circles stay round and all statuses share the same size and stroke.
+
+- Windows uses Flow's own icon and taskbar identity instead of the Bun runtime icon.
+
+- Diff rows paint across fractional pixel boundaries to reduce hairline seams that can appear while scrolling.
 
 - Dependencies upgraded within their ranges, plus `shell-quote` and `@hono/node-server` pinned to fixed versions: `bun audit` goes from 44 advisories (1 critical) to 5, none of them on a path flow runs.
 
