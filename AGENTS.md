@@ -42,7 +42,7 @@ CLI input
 - All input sources normalize into one internal changeset model.
 - Pager mode resolves to one of four `StartupPlan` outcomes (the single enumeration of pager behavior): full diff UI for patch-like stdin on a usable TTY, plain-text fallback for non-diff pager content, a static ANSI diff for captured pager hosts (LazyGit etc.: `TERM=dumb` + a non-TTY pipe), and raw passthrough for any other non-TTY/dumb pipe.
 - View defaults are layered through built-ins, user config, repo `.flow/config.toml`, command sections, pager sections, and CLI flags.
-- Review comments live in one gitignored `.flow/comments.json` per repo, deleted once the last comment is resolved. Watch mode picks up changes so a coding agent and a human reviewer can ping-pong on the same review.
+- Review comments live in one gitignored `.flow/comments.json` per repo, scoped by Git branch. Reads and mutations use the current branch and preserve the others; delete the file only when all branches are empty. Watch mode lets the agent and reviewer ping-pong on the same review.
 - Ticket overviews (what the agent understood about a ticket) live in `.flow/overviews/<ID>.json`, written only through `flow overview write` so they always match one schema. Live facts (state, MR, line totals) are never stored there; the Overview pane adds them.
 - Prefer one source of truth for each user-visible behavior. When rendering, navigation, scrolling, or note placement share the same model, derive them from the same planning layer rather than maintaining parallel implementations.
 - When UI behavior depends on derived structure or metrics, make that structure explicit in helper modules and reuse it across rendering and interaction code instead of re-deriving it ad hoc in multiple places.
@@ -98,7 +98,7 @@ CLI input
 - `[` and `]` navigate hunks across the full review stream. `J`/`K` step within a hunk.
 - Comments belong beside the code, not hidden in a separate mode or workflow.
 - Comments are hunk-specific: render them in the diff flow near the annotated row, and keep a clear spatial relationship to the code they explain.
-- Drifted comments (file removed, line out of range, or anchor mismatch) pin to the top of the diff so they stay visible until resolved or dismissed.
+- In the terminal, drifted comments pin to the top of the diff until resolved or dismissed. The desktop keeps them stored but hides them from its review and comment badges.
 - `flow diff` reviews staged + unstaged changes together (working tree vs `HEAD`) and includes untracked files by default. `--staged`/`--cached` scopes to index-vs-`HEAD`, `--unstaged` to working-tree-vs-index. Use `--exclude-untracked` if you explicitly want tracked changes only. Working-tree scope is encoded purely as the comparison base (`range`); there is no separate scope field.
 - The agent skill at `skills/flow-comments-fix/SKILL.md` describes how a coding agent should read, fix, and prune `.flow/comments.json`. Don't run interactive TUI commands from agents — they should drive through the file.
 

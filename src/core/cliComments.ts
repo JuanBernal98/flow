@@ -16,6 +16,7 @@ import {
   resolveComments,
   withAddedComment,
   withCommentReply,
+  withCommentClaim,
   withRemovedComments,
 } from "./comments";
 import { FLOW_COMMENTS_RELATIVE_PATH } from "./flowPaths";
@@ -89,10 +90,12 @@ function indentBody(body: string): string {
     .join("\n");
 }
 
-/** Body plus any agent replies, indented under the comment header. */
+/** The original message and follow-ups from both sides, in conversation order. */
 function renderCommentBody(comment: ResolvedComment): string {
   const replies = (comment.replies ?? []).map((reply) =>
-    indentBody(`↳ ${reply.agentName ? `${reply.agentName}: ` : ""}${reply.body}`),
+    indentBody(
+      `↳ ${reply.author === "user" ? "User: " : reply.agentName ? `${reply.agentName}: ` : ""}${reply.body}`,
+    ),
   );
   return [indentBody(comment.body), ...replies].join("\n");
 }
@@ -364,6 +367,14 @@ export function runCommentsReply(
   return `Replied to comment ${id}.\n`;
 }
 
+/** Mark the latest user message as being handled by the named agent. */
+export function runCommentsClaim(id: number, options: CommentsListOptions = {}): string {
+  if (!options.agentName?.trim()) throw new FlowUserError("Use --author <name> to claim a thread.");
+  const repoRoot = requireRepoRoot(options.cwd);
+  mutateCommentsFile(repoRoot, (file) => withCommentClaim(file, id, options.agentName!));
+  return `Claimed comment ${id}.\n`;
+}
+
 /** Build the `flow comments` help text shown by bare invocation and `--help`. */
 export function renderCommentsHelp(): string {
   return [
@@ -377,6 +388,7 @@ export function renderCommentsHelp(): string {
     "  show <id> [--json] [--context <N>]  print one comment plus the hunk and surrounding code",
     "  resolve <id> [<id>...]              remove one or more comments by id (atomic)",
     "  reply <id> <text>                   answer a comment as the agent; the user closes it",
+    "  claim <id> --author <name>          mark a thread as in progress",
     "  add <file> <start-end> <text>       leave a comment as the agent, anchored automatically",
     "",
     "Bare `flow comments` is equivalent to `flow comments list`.",

@@ -1,10 +1,12 @@
 /** `.flow/comments.json` reader/writer and drift detection. */
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, relative, resolve as resolvePath } from "node:path";
 import { z } from "zod";
 import { FLOW_COMMENTS_FILENAME, FLOW_COMMENTS_RELATIVE_PATH, FLOW_DIR } from "./flowPaths";
 import { FlowUserError } from "./errors";
+import { commentThreadState } from "./commentThread";
+import { readCommentBranch } from "./commentBranch";
 import { hunkLineRange } from "./hunkRange";
 import { LARGE_FILE_MAX_BYTES } from "./limits";
 import type { Annotation, Changeset, DiffFile, DriftReason, LineRange } from "./types";
@@ -39,6 +41,7 @@ const ANCHOR_HEX_LEN = 16;
 const PersistedCommentSchema = z
   .object({
     id: z.number().int().positive(),
+    branch: z.string().min(1).optional(),
     file: z.string().min(1),
     line: z.number().int().positive(),
     range: z
@@ -50,13 +53,19 @@ const PersistedCommentSchema = z
     body: z.string(),
     author: z.enum(["user", "agent"]).optional(),
     agentName: z.string().trim().min(1).optional(),
+    createdAt: z.string().datetime().optional(),
+    threadId: z.string().uuid().optional(),
+    claimedBy: z.string().trim().min(1).optional(),
+    readAt: z.string().datetime().optional(),
     replies: z
       .array(
         z
           .object({
-            author: z.literal("agent"),
+            author: z.enum(["user", "agent"]),
             body: z.string().min(1),
             agentName: z.string().trim().min(1).optional(),
+            createdAt: z.string().datetime().optional(),
+            readAt: z.string().datetime().optional(),
           })
           .strict(),
       )
@@ -89,25 +98,37 @@ export function isAgentComment(comment: Pick<PersistedComment, "author">) {
   return comment.author === "agent";
 }
 
-/** An agent's answer under a user comment; the user still closes the comment. */
+/** A follow-up message in an anchored discussion; the user still closes the thread. */
 export interface CommentReply {
-  author: "agent";
+  author: CommentAuthor;
   agentName?: string;
   body: string;
+  createdAt?: string;
+  readAt?: string;
 }
 
 export interface PersistedComment {
   id: number;
+  /** Branch that owns this discussion; older unscoped comments bind on their first read. */
+  branch?: string;
+  /** Stable identity even when resolved numeric ids are reused. */
+  threadId?: string;
+  /** Agent currently handling the latest user message; cleared by either side's reply. */
+  claimedBy?: string;
+  /** The reviewer's acknowledgement of an agent-authored initial message. */
+  readAt?: string;
   file: string;
   line: number;
   range: LineRange;
   anchor: string;
   body: string;
+  /** Creation time in UTC; absent on comments written before timestamps were supported. */
+  createdAt?: string;
   /** Who wrote the comment. Absent on older files, which only held the user's comments. */
   author?: CommentAuthor;
   /** Agent identity supplied by the writer, independent of its role. */
   agentName?: string;
-  /** Agent answers, oldest first. Absent until the agent replies. */
+  /** Conversation messages from either side, oldest first. */
   replies?: CommentReply[];
 }
 
@@ -300,26 +321,52 @@ function readCommentsRawOrNull(path: string): string | null {
   }
 }
 
-/** Read `.flow/comments.json` from the repo root, returning [] if missing. */
+/** Select the current branch while retaining legacy comments until they are first scoped. */
+function commentsForBranch(file: CommentsFile, branch: string | undefined): CommentsFile {
+  return {
+    ...file,
+    comments: file.comments.filter((comment) => !comment.branch || comment.branch === branch),
+  };
+}
+
+/** Read the current branch's discussions and adopt legacy comments on their first read. */
 export function readCommentsFile(repoRoot: string): CommentsFile {
   const path = commentsFilePath(repoRoot);
   const raw = readCommentsRawOrNull(path);
   if (raw === null) {
     return { schema: SCHEMA_VERSION, comments: [] };
   }
-  return parseCommentsFile(raw, path);
+  const file = parseCommentsFile(raw, path);
+  const branch = readCommentBranch(repoRoot);
+  if (branch && file.comments.some((comment) => !comment.branch))
+    return mutateCommentsFile(repoRoot, (current) => ({
+      ...current,
+      comments: current.comments.map((comment) => ({
+        ...comment,
+        branch: comment.branch ?? branch,
+      })),
+    }));
+  return commentsForBranch(file, branch);
 }
 
 /** Atomically write the comments file using a unique temp + rename. */
 export function writeCommentsFile(repoRoot: string, file: CommentsFile): void {
   const dir = join(repoRoot, FLOW_DIR);
   const finalPath = join(dir, FLOW_COMMENTS_FILENAME);
+  const branch = readCommentBranch(repoRoot);
+  const raw = readCommentsRawOrNull(finalPath);
+  const saved = raw === null ? [] : parseCommentsFile(raw, finalPath).comments;
+  const otherBranches = saved.filter((comment) => comment.branch && comment.branch !== branch);
+  const comments = [
+    ...otherBranches,
+    ...file.comments.map((comment) => (branch ? { ...comment, branch } : comment)),
+  ];
 
   // An empty review has no file. A `{ "schema": 1, "comments": [] }` artifact
   // is just noise an agent or human reviewer would have to reason about, and
   // reads already treat a missing file as "no comments", so deleting on empty
   // round-trips cleanly. `force` makes this a no-op when the file is absent.
-  if (file.comments.length === 0) {
+  if (comments.length === 0) {
     rmSync(finalPath, { force: true });
     return;
   }
@@ -334,7 +381,9 @@ export function writeCommentsFile(repoRoot: string, file: CommentsFile): void {
   );
   const sorted: CommentsFile = {
     schema: SCHEMA_VERSION,
-    comments: [...file.comments].sort((a, b) => a.id - b.id),
+    comments: comments.sort(
+      (a, b) => (a.branch ?? "").localeCompare(b.branch ?? "") || a.id - b.id,
+    ),
   };
   writeFileSync(tempPath, `${JSON.stringify(sorted, null, 2)}\n`, "utf8");
   renameSync(tempPath, finalPath);
@@ -350,19 +399,63 @@ export function withAddedComment(
   file: CommentsFile,
   draft: Omit<PersistedComment, "id">,
 ): { file: CommentsFile; comment: PersistedComment } {
-  const comment: PersistedComment = { id: nextCommentId(file), ...draft };
+  const comment: PersistedComment = {
+    id: nextCommentId(file),
+    createdAt: new Date().toISOString(),
+    ...draft,
+    threadId: randomUUID(),
+  };
   return {
     file: { ...file, comments: [...file.comments, comment] },
     comment,
   };
 }
 
-/** Append an agent reply to one comment; throws when the id is missing. */
+/** Claim the latest user message without changing its conversation history. */
+export function withCommentClaim(file: CommentsFile, id: number, agentName: string): CommentsFile {
+  const comment = file.comments.find((candidate) => candidate.id === id);
+  if (!comment) throw new Error(`No flow comment with id ${id}.`);
+  if (commentThreadState(comment) === "answered")
+    throw new Error(`Comment ${id} is already answered.`);
+  if (!agentName.trim()) throw new Error("An agent name is required.");
+  return {
+    ...file,
+    comments: file.comments.map((candidate) =>
+      candidate.id === id ? { ...candidate, claimedBy: agentName.trim() } : candidate,
+    ),
+  };
+}
+
+/** Acknowledge only messages already shown, keeping a concurrently appended reply unread. */
+export function withCommentRead(file: CommentsFile, id: number, replyCount: number): CommentsFile {
+  if (!file.comments.some((comment) => comment.id === id))
+    throw new Error(`No flow comment with id ${id}.`);
+  const readAt = new Date().toISOString();
+  return {
+    ...file,
+    comments: file.comments.map((comment) =>
+      comment.id === id
+        ? {
+            ...comment,
+            ...(comment.author === "agent" && !comment.readAt ? { readAt } : {}),
+            replies: comment.replies?.map((reply, index) =>
+              index < replyCount && reply.author === "agent" && !reply.readAt
+                ? { ...reply, readAt }
+                : reply,
+            ),
+          }
+        : comment,
+    ),
+  };
+}
+
+/** Append a message to an existing thread; replies never move its code anchor. */
 export function withCommentReply(
   file: CommentsFile,
   id: number,
   body: string,
   agentName?: string,
+  author: CommentAuthor = "agent",
 ): CommentsFile {
   if (!file.comments.some((comment) => comment.id === id)) {
     throw new Error(`No flow comment with id ${id}.`);
@@ -373,9 +466,15 @@ export function withCommentReply(
       comment.id === id
         ? {
             ...comment,
+            claimedBy: undefined,
             replies: [
               ...(comment.replies ?? []),
-              { author: "agent", body, ...(agentName ? { agentName } : {}) },
+              {
+                author,
+                body,
+                createdAt: new Date().toISOString(),
+                ...(agentName ? { agentName } : {}),
+              },
             ],
           }
         : comment,
@@ -596,16 +695,19 @@ const MUTATE_MAX_ATTEMPTS = 5;
 function readCommentsFileWithFingerprint(repoRoot: string): {
   file: CommentsFile;
   fingerprint: string | null;
+  branch: string | undefined;
 } {
+  const branch = readCommentBranch(repoRoot);
   const path = commentsFilePath(repoRoot);
   const raw = readCommentsRawOrNull(path);
   if (raw === null) {
-    return { file: { schema: SCHEMA_VERSION, comments: [] }, fingerprint: null };
+    return { file: { schema: SCHEMA_VERSION, comments: [] }, fingerprint: null, branch };
   }
 
   return {
-    file: parseCommentsFile(raw, path),
+    file: commentsForBranch(parseCommentsFile(raw, path), branch),
     fingerprint: createHash("sha256").update(raw).digest("hex"),
+    branch,
   };
 }
 
@@ -628,7 +730,7 @@ export function mutateCommentsFile(
   mutate: (current: CommentsFile) => CommentsFile,
 ): CommentsFile {
   for (let attempt = 0; attempt < MUTATE_MAX_ATTEMPTS; attempt += 1) {
-    const { file: current, fingerprint } = readCommentsFileWithFingerprint(repoRoot);
+    const { file: current, fingerprint, branch } = readCommentsFileWithFingerprint(repoRoot);
     const next = mutate(current);
     // Avoid creating an empty comments file for no-op mutations.
     if (next === current) {
@@ -636,7 +738,7 @@ export function mutateCommentsFile(
     }
 
     // Re-check before renaming so concurrent writers are not clobbered.
-    if (currentFingerprint(repoRoot) !== fingerprint) {
+    if (currentFingerprint(repoRoot) !== fingerprint || readCommentBranch(repoRoot) !== branch) {
       continue;
     }
 

@@ -12,6 +12,7 @@ import type {
 import {
   renderCommentsHelp,
   runCommentsAdd,
+  runCommentsClaim,
   runCommentsList,
   runCommentsReply,
   runCommentsResolve,
@@ -655,6 +656,15 @@ async function parseCommentsCommand(tokens: string[]): Promise<HelpCommandInput>
   if (subcommand === "resolve") {
     const ids = parseResolveIds(rest);
     return { kind: "help", text: runCommentsResolve(ids) };
+  }
+
+  if (subcommand === "claim") {
+    const { args, agentName } = parseCommentAuthor(rest);
+    const [rawId] = args;
+    const id = Number(rawId);
+    if (args.length !== 1 || !Number.isInteger(id) || id <= 0 || String(id) !== rawId)
+      throw new FlowUserError("Usage: flow comments claim <id> --author <name>");
+    return { kind: "help", text: runCommentsClaim(id, { agentName }) };
   }
 
   if (subcommand === "add") {

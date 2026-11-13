@@ -69,9 +69,11 @@ function buildBodyLines(annotation: Annotation, width: number) {
         )
       : []),
     ...(annotation.replies ?? []).flatMap((reply) =>
-      wrapChatMessage(agentLabel(reply.agentName), reply.body, bodyWidth).map(
-        (text) => ({ kind: "reply", text }) as const,
-      ),
+      wrapChatMessage(
+        reply.author === "user" ? "You" : agentLabel(reply.agentName),
+        reply.body,
+        bodyWidth,
+      ).map((text) => ({ kind: "reply", text }) as const),
     ),
   ];
   return { bodyWidth, lines };

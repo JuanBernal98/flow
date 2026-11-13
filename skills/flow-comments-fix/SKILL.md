@@ -11,15 +11,16 @@ flow is a terminal diff viewer where the user leaves inline review comments. The
 
 Always identify yourself on every add/reply with `--author` and your actual agent name: Codex uses `--author Codex`, Claude uses `--author Claude`, and other agents use their own names. Flow stores this identity per message in the optional `agentName` field, separate from the `author: "agent"` role. Unnamed legacy messages display as Agent. Never copy another writer's identity.
 
-1. `flow comments list`. If it says "No pending comments.", tell the user and stop. Skip comments marked `(agent)` (you wrote them) and comments that already carry your `↳` reply: they are waiting for the user to read them and close them.
+1. `flow comments list`. If it says "No pending comments.", tell the user and stop. Read each thread through its latest reply. Handle threads whose latest message is from the user, including follow-ups after your answer; skip threads awaiting the user.
 2. For each remaining comment, in id order:
    - `flow comments show <id>` for the comment plus surrounding code. The comment covers the whole hunk `range`, not one line. Comments are often in Spanish and terse; read the intent.
+   - `flow comments claim <id> --author <your name>` marks the thread in progress. Reply to the latest user message in that same thread; its stable `threadId` and code anchor stay unchanged.
    - Fix the underlying issue (Read/Edit). If the comment is a question rather than a request, answer it instead.
    - Right after that comment is handled, reply to it with `flow comments reply <id> "<text>" --author "<your agent name>"`, in the comment's language. Do not resolve it; the user closes comments in the TUI once they agree. Resolve only when the user asks you to.
      - Short answers go in the reply itself: one line saying what changed, or a direct answer with its reason.
      - Long answers go in chat: explanations, options to choose from, multi-step reasoning, anything past a line or two. Reply only with a pointer, e.g. `respondido en la terminal`, so the user knows where to look.
    - When an answer is about specific code, show it in the user's open review with `flow focus <file>:<line>`; the review jumps there. Use it once per point, not on every comment.
-3. Leave the fixes uncommitted. Never commit, fixup or rebase unless the user asks; instead say which branch commit each fix would belong to. Only when a comment explicitly asks to commit (e.g. "comitea donde toque"), fold the fixes into their commits as described below.
+3. Leave fixes uncommitted unless the user explicitly asks to commit. When asked, follow flow-commit-create and create new commits grouped by functionality. Never fold fixes into earlier commits or rewrite history.
 4. Run the checks the repo requires for the changed files (see the project's CLAUDE.md).
 5. Report one short paragraph in chat: what changed per comment, cited as `file:line`, no code snippets. Mention when history was rewritten, since that requires a force push.
 
@@ -34,16 +35,6 @@ Always identify yourself on every add/reply with `--author` and your actual agen
 - `flow request: commit [<ID>]` — the user pressed `C`: propose and make the commits with the `flow-commit-create` skill, if available; it waits for approval.
 - `flow request: mr-open [<ID>]` — the user pressed `P`: open the MR with the `flow-mr-open` skill, if available; it asks before every outside action.
 - `flow request: review <ID> [!<iid>]` — the user pressed `R`: review that ticket's code (the MR, else its branch) against the ticket with the `flow-review` skill, if available. Read-only: do not switch branches, stash, or post anything to GitLab or YouTrack.
-
-## Folding fixes into existing commits (only when asked to commit)
-
-When the user asks to commit, they prefer fixes in the commit where the code belongs, not new "address review" commits.
-
-- Find the owning commit: `git log --oneline main..HEAD -- <file>`, and `git log -L` or `git show` to confirm which commit added the lines.
-- One commit per owning commit: `git add <files>` then `git commit --fixup=<sha>`.
-- Squash non-interactively: `GIT_SEQUENCE_EDITOR=: git rebase -i --autosquash main`.
-- If the fix spans lines from several commits, split it by commit. If no branch commit owns the lines (code from main), make a normal commit following the user's commit style.
-- Never add a Co-Authored-By trailer.
 
 ## Rules
 

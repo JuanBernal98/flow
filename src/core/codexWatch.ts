@@ -101,7 +101,9 @@ export function runCodexHook(input: unknown, flowBin: string): string {
     })();
     const state: AgentWatchState = {
       seenCommentKeys: new Set(
-        saved?.success && saved.data.owner === owner ? saved.data.seenCommentKeys : [],
+        saved?.success && saved.data.owner === owner && (!starting || event.source === "compact")
+          ? saved.data.seenCommentKeys
+          : [],
       ),
       handledRequestId: readWatchText(handledRequestFile) || null,
     };

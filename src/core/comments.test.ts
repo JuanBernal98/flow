@@ -9,11 +9,16 @@ import {
   readCommentsFile,
   resolveComments,
   withAddedComment,
+  withCommentClaim,
+  withCommentReply,
+  withCommentRead,
   withRemovedComment,
   withRemovedComments,
   writeCommentsFile,
 } from "./comments";
 import { FlowUserError } from "./errors";
+import { commentThreadState } from "./commentThread";
+import { hasUnreadCommentReply } from "./commentThread";
 
 function withTempRepo<T>(run: (repoRoot: string) => T): T {
   const repoRoot = mkdtempSync(join(tmpdir(), "flow-comments-"));
@@ -26,6 +31,128 @@ function withTempRepo<T>(run: (repoRoot: string) => T): T {
 }
 
 describe("flow comments", () => {
+  test("branch discussions, replies and read receipts survive switching and resolving another branch", () => {
+    withTempRepo((repoRoot) => {
+      const head = join(repoRoot, ".git", "HEAD");
+      writeFileSync(head, "ref: refs/heads/feature-a\n");
+      mutateCommentsFile(
+        repoRoot,
+        (file) =>
+          withAddedComment(file, {
+            file: "a.ts",
+            line: 1,
+            range: [1, 1],
+            anchor: "0123456789abcdef",
+            body: "Branch A",
+          }).file,
+      );
+      mutateCommentsFile(repoRoot, (file) =>
+        withCommentRead(withCommentReply(file, 1, "A reply", "Codex"), 1, 1),
+      );
+      const original = readCommentsFile(repoRoot).comments[0]!;
+      writeFileSync(head, "ref: refs/heads/feature-b\n");
+      expect(readCommentsFile(repoRoot).comments).toEqual([]);
+      mutateCommentsFile(
+        repoRoot,
+        (file) =>
+          withAddedComment(file, {
+            file: "a.ts",
+            line: 1,
+            range: [1, 1],
+            anchor: "0123456789abcdef",
+            body: "Branch B",
+          }).file,
+      );
+      expect(readCommentsFile(repoRoot).comments[0]).toMatchObject({
+        id: 1,
+        branch: "feature-b",
+        body: "Branch B",
+      });
+      mutateCommentsFile(repoRoot, (file) => withRemovedComment(file, 1));
+      expect(readCommentsFile(repoRoot).comments).toEqual([]);
+      expect(existsSync(join(repoRoot, ".flow", "comments.json"))).toBe(true);
+      writeFileSync(head, "ref: refs/heads/feature-a\n");
+      expect(readCommentsFile(repoRoot).comments).toEqual([original]);
+      mutateCommentsFile(repoRoot, (file) => withRemovedComment(file, 1));
+      expect(existsSync(join(repoRoot, ".flow", "comments.json"))).toBe(false);
+    });
+  });
+
+  test("legacy discussions bind to their first branch without being adopted by a later checkout", () => {
+    withTempRepo((repoRoot) => {
+      const draft = withAddedComment(
+        { schema: 1, comments: [] },
+        { file: "a.ts", line: 1, range: [1, 1], anchor: "0123456789abcdef", body: "Legacy" },
+      );
+      writeCommentsFile(repoRoot, draft.file);
+      const head = join(repoRoot, ".git", "HEAD");
+      writeFileSync(head, "ref: refs/heads/original\n");
+      expect(readCommentsFile(repoRoot).comments[0]?.branch).toBe("original");
+      writeFileSync(head, "ref: refs/heads/another\n");
+      expect(readCommentsFile(repoRoot).comments).toEqual([]);
+      writeFileSync(head, "ref: refs/heads/original\n");
+      expect(readCommentsFile(repoRoot).comments[0]?.threadId).toBe(draft.comment.threadId);
+    });
+  });
+  test("read receipts persist without acknowledging replies that arrived after opening the thread", () => {
+    withTempRepo((repoRoot) => {
+      const added = withAddedComment(
+        { schema: 1, comments: [] },
+        { file: "a.ts", line: 1, range: [1, 1], anchor: "0123456789abcdef", body: "Review this" },
+      );
+      const first = withCommentReply(added.file, added.comment.id, "First answer", "Codex");
+      const newest = withCommentReply(first, added.comment.id, "One more detail", "Codex");
+      const partlyRead = withCommentRead(newest, added.comment.id, 1);
+      expect(partlyRead.comments[0]!.replies?.[0]?.readAt).toBeDefined();
+      expect(partlyRead.comments[0]!.replies?.[1]?.readAt).toBeUndefined();
+      expect(hasUnreadCommentReply(partlyRead.comments[0]!)).toBe(true);
+      writeCommentsFile(repoRoot, withCommentRead(partlyRead, added.comment.id, 2));
+      expect(hasUnreadCommentReply(readCommentsFile(repoRoot).comments[0]!)).toBe(false);
+    });
+  });
+  test("a user follow-up reopens the same anchored thread after the agent answers", () => {
+    withTempRepo((repoRoot) => {
+      const added = withAddedComment(
+        { schema: 1, comments: [] },
+        {
+          file: "a.ts",
+          line: 1,
+          range: [1, 1],
+          anchor: "0123456789abcdef",
+          body: "Please simplify",
+        },
+      );
+      const original = added.comment;
+      expect(commentThreadState(original)).toBe("pending");
+      const claimed = withCommentClaim(added.file, original.id, "Codex");
+      expect(commentThreadState(claimed.comments[0]!)).toBe("in-progress");
+      const answered = withCommentReply(claimed, original.id, "Simplified", "Codex");
+      expect(commentThreadState(answered.comments[0]!)).toBe("answered");
+      const reopened = withCommentReply(
+        answered,
+        original.id,
+        "Can we also remove this branch?",
+        undefined,
+        "user",
+      );
+      writeCommentsFile(repoRoot, reopened);
+      const [saved] = readCommentsFile(repoRoot).comments;
+      expect(saved).toMatchObject({
+        id: original.id,
+        threadId: original.threadId,
+        anchor: original.anchor,
+        range: original.range,
+      });
+      expect(commentThreadState(saved!)).toBe("pending");
+      expect(saved!.claimedBy).toBeUndefined();
+      expect(saved!.replies?.map((message) => message.author)).toEqual(["agent", "user"]);
+      const replacement = withAddedComment(
+        withRemovedComment(reopened, original.id),
+        original,
+      ).comment;
+      expect(replacement.threadId).not.toBe(original.threadId);
+    });
+  });
   test("computes a deterministic 16-hex anchor for a line plus its neighbours", () => {
     const lines = ["alpha", "beta", "gamma"];
     const anchor = computeAnchor(lines, 2);

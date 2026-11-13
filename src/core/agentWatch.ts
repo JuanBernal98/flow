@@ -95,10 +95,20 @@ export function readAgentWatchSnapshot(repoRoot: string): AgentWatchSnapshot {
   try {
     // The agent's own comments are not news to it.
     comments = readCommentsFile(repoRoot)
-      .comments.filter((comment) => !isAgentComment(comment))
+      .comments.filter(
+        (comment) =>
+          !isAgentComment(comment) || comment.replies?.some((reply) => reply.author === "user"),
+      )
       .map((comment) => ({
         id: comment.id,
-        key: JSON.stringify([comment.file, comment.anchor, comment.body]),
+        key: JSON.stringify([
+          comment.threadId,
+          comment.branch,
+          comment.file,
+          comment.anchor,
+          comment.body,
+          comment.replies?.filter((reply) => reply.author === "user") ?? [],
+        ]),
       }));
   } catch {
     // A half-written or invalid file is retried on the next poll.

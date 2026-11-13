@@ -419,10 +419,13 @@ describe("flow comments reply", () => {
     runCommentsReply(1, "y lo he renombrado", { cwd: repoRoot });
 
     const [comment] = readCommentsFile(repoRoot).comments;
-    expect(comment?.replies).toEqual([
+    expect(comment?.replies).toMatchObject([
       { author: "agent", body: "porque gamma depende de él" },
       { author: "agent", body: "y lo he renombrado" },
     ]);
+    expect(
+      comment?.replies?.every((reply) => Number.isFinite(Date.parse(reply.createdAt ?? ""))),
+    ).toBe(true);
     const listed = runCommentsList("text", { cwd: repoRoot });
     expect(listed).toContain("    ¿por qué beta?\n    ↳ porque gamma depende de él");
     expect(listed).toContain("    ↳ y lo he renombrado");
@@ -470,7 +473,7 @@ describe("flow comments add", () => {
       ]);
       const [comment] = readCommentsFile(repoRoot).comments;
       expect(comment?.agentName).toBe("Codex");
-      expect(comment?.replies).toEqual([
+      expect(comment?.replies).toMatchObject([
         { author: "agent", agentName: "Claude", body: "first reply" },
         { author: "agent", agentName: "Other agent", body: "literal --author" },
       ]);
@@ -499,6 +502,8 @@ describe("flow comments add", () => {
 
     const [comment] = readCommentsFile(repoRoot).comments;
     expect(comment).toEqual({
+      createdAt: expect.any(String),
+      threadId: expect.any(String),
       id: 1,
       file: "src/a.ts",
       line: 2,

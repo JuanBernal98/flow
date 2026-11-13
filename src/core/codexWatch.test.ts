@@ -5,6 +5,12 @@ import { join } from "node:path";
 import { writeCommitRequest, writeReviewRequest } from "./agentRequests";
 import { resolveWatchFiles, runAgentWatch } from "./agentWatch";
 import { runCodexHook } from "./codexWatch";
+import {
+  mutateCommentsFile,
+  withAddedComment,
+  withCommentReply,
+  withCommentClaim,
+} from "./comments";
 
 const roots: string[] = [];
 afterEach(() => {
@@ -157,6 +163,61 @@ test("the newest session owns delivery; compacting or subagent hooks do not stea
 test("hooks stay quiet outside repositories and with invalid inputs", () => {
   expect(runCodexHook({}, "flow")).toBe("");
   expect(runCodexHook(createTestHookInput(tmpdir(), "SessionStart"), "flow")).toBe("");
+});
+
+test("user follow-ups wake the same thread while claims and agent replies stay quiet", () => {
+  const root = createTestCodexWatchRepo();
+  runCodexHook(createTestHookInput(root, "SessionStart"), "flow");
+  mutateCommentsFile(
+    root,
+    (file) =>
+      withAddedComment(file, {
+        file: "a.ts",
+        line: 1,
+        range: [1, 1],
+        anchor: "0123456789abcdef",
+        body: "Review this",
+      }).file,
+  );
+  expect(runCodexHook(createTestHookInput(root, "PostToolUse"), "flow")).toContain(
+    "new flow comments: 1",
+  );
+  mutateCommentsFile(root, (file) => withCommentClaim(file, 1, "Codex"));
+  expect(runCodexHook(createTestHookInput(root, "PostToolUse"), "flow")).toBe("");
+  mutateCommentsFile(root, (file) => withCommentReply(file, 1, "Fixed", "Codex"));
+  expect(runCodexHook(createTestHookInput(root, "PostToolUse"), "flow")).toBe("");
+  mutateCommentsFile(root, (file) =>
+    withCommentReply(file, 1, "What about the other branch?", undefined, "user"),
+  );
+  expect(runCodexHook(createTestHookInput(root, "PostToolUse"), "flow")).toContain(
+    "new flow comments: 1",
+  );
+  expect(runCodexHook(createTestHookInput(root, "Stop"), "flow")).toBe("");
+});
+
+test("clearing a session reannounces existing comments while compacting keeps delivery state", () => {
+  const root = createTestCodexWatchRepo();
+  runCodexHook(createTestHookInput(root, "SessionStart"), "flow");
+  mutateCommentsFile(
+    root,
+    (file) =>
+      withAddedComment(file, {
+        file: "a.ts",
+        line: 1,
+        range: [1, 1],
+        anchor: "0123456789abcdef",
+        body: "Still needs attention",
+      }).file,
+  );
+  expect(runCodexHook(createTestHookInput(root, "PostToolUse"), "flow")).toContain(
+    "new flow comments: 1",
+  );
+  expect(
+    runCodexHook({ ...createTestHookInput(root, "SessionStart"), source: "compact" }, "flow"),
+  ).not.toContain("new flow comments: 1");
+  expect(
+    runCodexHook({ ...createTestHookInput(root, "SessionStart"), source: "clear" }, "flow"),
+  ).toContain("new flow comments: 1");
 });
 
 test("busy checkpoints defer events without consuming them", () => {

@@ -13,7 +13,7 @@ export interface Annotation {
   summary?: string;
   rationale?: string;
   /** Agent answers to a user comment, oldest first, shown under it. */
-  replies?: { body: string; agentName?: string }[];
+  replies?: { body: string; agentName?: string; author?: "user" | "agent" }[];
   /** Display name supplied by the agent that wrote the comment. */
   agentName?: string;
   /** Who wrote a review comment; the card labels it `You:` or the agent name. */
