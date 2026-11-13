@@ -49,8 +49,17 @@ const PersistedCommentSchema = z
     anchor: z.string().regex(/^[0-9a-f]{16}$/, "anchor must be a 16-hex SHA-256 prefix"),
     body: z.string(),
     author: z.enum(["user", "agent"]).optional(),
+    agentName: z.string().trim().min(1).optional(),
     replies: z
-      .array(z.object({ author: z.literal("agent"), body: z.string().min(1) }).strict())
+      .array(
+        z
+          .object({
+            author: z.literal("agent"),
+            body: z.string().min(1),
+            agentName: z.string().trim().min(1).optional(),
+          })
+          .strict(),
+      )
       .optional(),
   })
   // Unknown fields usually mean a typo or schema mismatch.
@@ -83,6 +92,7 @@ export function isAgentComment(comment: Pick<PersistedComment, "author">) {
 /** An agent's answer under a user comment; the user still closes the comment. */
 export interface CommentReply {
   author: "agent";
+  agentName?: string;
   body: string;
 }
 
@@ -95,6 +105,8 @@ export interface PersistedComment {
   body: string;
   /** Who wrote the comment. Absent on older files, which only held the user's comments. */
   author?: CommentAuthor;
+  /** Agent identity supplied by the writer, independent of its role. */
+  agentName?: string;
   /** Agent answers, oldest first. Absent until the agent replies. */
   replies?: CommentReply[];
 }
@@ -346,7 +358,12 @@ export function withAddedComment(
 }
 
 /** Append an agent reply to one comment; throws when the id is missing. */
-export function withCommentReply(file: CommentsFile, id: number, body: string): CommentsFile {
+export function withCommentReply(
+  file: CommentsFile,
+  id: number,
+  body: string,
+  agentName?: string,
+): CommentsFile {
   if (!file.comments.some((comment) => comment.id === id)) {
     throw new Error(`No flow comment with id ${id}.`);
   }
@@ -354,7 +371,13 @@ export function withCommentReply(file: CommentsFile, id: number, body: string): 
     ...file,
     comments: file.comments.map((comment) =>
       comment.id === id
-        ? { ...comment, replies: [...(comment.replies ?? []), { author: "agent", body }] }
+        ? {
+            ...comment,
+            replies: [
+              ...(comment.replies ?? []),
+              { author: "agent", body, ...(agentName ? { agentName } : {}) },
+            ],
+          }
         : comment,
     ),
   };
@@ -462,7 +485,8 @@ function commentToAnnotation(comment: AnchoredComment): Annotation {
     id: `flow-comment:${comment.id}`,
     summary: comment.body,
     author: comment.author ?? "user",
-    replies: comment.replies?.map((reply) => reply.body),
+    agentName: comment.agentName,
+    replies: comment.replies,
     newRange: [comment.line, comment.line],
   };
 }

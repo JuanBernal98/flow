@@ -1397,7 +1397,7 @@ describe("UI components", () => {
     const annotation = {
       id: "flow-comment:4",
       summary: "rename this helper",
-      replies: ["done, it is now formatGutterText"],
+      replies: [{ body: "done, it is now formatGutterText", agentName: "Codex" }],
     };
     const frame = await captureFrame(
       <CommentCard annotation={annotation} theme={theme} width={60} />,
@@ -1407,7 +1407,7 @@ describe("UI components", () => {
 
     // Chat style: the user's comment, then the agent's reply, each under its speaker label.
     expect(frame).toContain("You: rename this helper");
-    expect(frame).toContain("Claude: done, it is now formatGutterText");
+    expect(frame).toContain("Codex: done, it is now formatGutterText");
     // Title + summary + reply + spacer.
     expect(measureCommentCardHeight({ annotation, width: 60 })).toBe(4);
 
@@ -1421,7 +1421,7 @@ describe("UI components", () => {
       64,
       6,
     );
-    expect(agentFrame).toContain("Claude: mira este bucle");
+    expect(agentFrame).toContain("Agent: mira este bucle");
     expect(agentFrame).not.toContain("You:");
   });
 

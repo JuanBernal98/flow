@@ -12,6 +12,7 @@ import {
   runCommentsShow,
 } from "./cliComments";
 import { FlowUserError } from "./errors";
+import { parseCli } from "./cli";
 
 const tempDirs: string[] = [];
 
@@ -438,6 +439,55 @@ describe("flow comments reply", () => {
 });
 
 describe("flow comments add", () => {
+  test("CLI stores each agent's name independently on comments and replies", async () => {
+    const repoRoot = createTempRepo();
+    writeRepoFile(repoRoot, "src/a.ts", "alpha\nbeta\n");
+    const previousCwd = process.cwd();
+    process.chdir(repoRoot);
+    try {
+      await parseCli([
+        "bun",
+        "flow",
+        "comments",
+        "add",
+        "src/a.ts",
+        "1",
+        "review",
+        "--author",
+        "Codex",
+      ]);
+      await parseCli(["bun", "flow", "comments", "reply", "1", "first reply", "--author=Claude"]);
+      await parseCli([
+        "bun",
+        "flow",
+        "comments",
+        "reply",
+        "1",
+        "--author",
+        "Other agent",
+        "--",
+        "literal --author",
+      ]);
+      const [comment] = readCommentsFile(repoRoot).comments;
+      expect(comment?.agentName).toBe("Codex");
+      expect(comment?.replies).toEqual([
+        { author: "agent", agentName: "Claude", body: "first reply" },
+        { author: "agent", agentName: "Other agent", body: "literal --author" },
+      ]);
+      expect(runCommentsList("text", { cwd: repoRoot })).toContain("(agent: Codex)");
+      expect(runCommentsShow(1, "text", { cwd: repoRoot })).toContain("Claude: first reply");
+      await expect(
+        parseCli(["bun", "flow", "comments", "reply", "1", "bad", "--author"]),
+      ).rejects.toThrow(FlowUserError);
+      await expect(
+        parseCli(["bun", "flow", "comments", "reply", "1", "bad", "--author= "]),
+      ).rejects.toThrow(FlowUserError);
+      expect(readCommentsFile(repoRoot).comments[0]?.replies).toHaveLength(2);
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+
   test("anchors an agent comment to the file and marks it as the agent's", () => {
     const repoRoot = createTempRepo();
     const content = "alpha\nbeta\ngamma\n";

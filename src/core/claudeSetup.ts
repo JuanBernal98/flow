@@ -28,7 +28,7 @@ export interface SetupChange {
 
 // A stub is flow's when its body sends Claude to `flow skill show` (quoted path or not), so stubs
 // for skills flow no longer ships are found and removed on the next setup.
-const FLOW_STUB_PATTERN = /flow'? skill show /;
+const FLOW_STUB_PATTERN = /flow(?:\.(?:cmd|exe))?['"]? skill show /i;
 // The hook command flow installs, whatever path flow lives at.
 const FLOW_HOOK_MARKER = "hook session-start";
 const HOOK_TIMEOUT_SECONDS = 10;
@@ -45,12 +45,16 @@ function shellQuote(value: string) {
 
 /** The frontmatter block of a skill, `---` lines included, or undefined when it has none. */
 function frontmatterOf(markdown: string) {
-  const match = /^---\n[\s\S]*?\n---\n/.exec(markdown);
+  const match = /^---\n[\s\S]*?\n---\n/.exec(markdown.replaceAll("\r\n", "\n"));
   return match?.[0];
 }
 
 /** Build the stub Claude loads for one bundled skill. */
-export function renderSkillStub(skill: BundledSkillSource, flowBin: string) {
+export function renderSkillStub(
+  skill: BundledSkillSource,
+  flowBin: string,
+  agent: "claude" | "codex" = "claude",
+) {
   const frontmatter = frontmatterOf(skill.markdown);
   if (!frontmatter) {
     throw new Error(`The bundled skill \`${skill.name}\` has no frontmatter.`);
@@ -61,12 +65,20 @@ export function renderSkillStub(skill: BundledSkillSource, flowBin: string) {
     "The instructions live in flow, versioned with its code, so they always match its commands and",
     "formats. Run this and follow its output exactly:",
     "",
-    "```sh",
-    `${shellQuote(flowBin)} skill show ${skill.name}`,
+    agent === "codex" && process.platform === "win32" ? "```powershell" : "```sh",
+    `${agent === "codex" && process.platform === "win32" ? `& '${flowBin.replaceAll("'", "''")}'` : shellQuote(flowBin)} skill show ${skill.name}`,
     "```",
     "",
-    "Arguments for this invocation: `$ARGUMENTS`. Wherever the instructions say `<argumentos>`, they",
-    "mean these.",
+    ...(agent === "claude"
+      ? [
+          "Arguments for this invocation: `$ARGUMENTS`. Wherever the instructions say `<argumentos>`, they",
+          "mean these.",
+        ]
+      : [
+          "Use the arguments from the user's prompt or the Flow event wherever the workflow says `<argumentos>`.",
+          "Use the equivalent tools available in this session for provider-specific tool names. If a required",
+          "integration is unavailable, report it and stop. Preserve the workflow's approval steps.",
+        ]),
     "",
     "If the command is missing or fails, say so and stop instead of guessing the workflow.",
     "",
@@ -97,6 +109,8 @@ export function renderSessionStartContext(repoRoot: string, flowBin: string) {
     "current step first, then run the flow-review skill with those arguments and show its summary.",
     "On each 'flow request: commit [<ID>]' event, the user pressed C: once you are not mid-task, run",
     "the flow-commit-create skill with those arguments; it proposes the commits and waits for approval.",
+    "Commit events with --proposal <id> --phase propose|execute use that skill's desktop mode:",
+    "publish the proposal for flow open, or execute only the plan already approved in its window.",
     "On each 'flow request: mr-open [<ID>]' event, the user pressed P: once you are not mid-task, run",
     "the flow-mr-open skill; it asks for approval before every outside action.",
     "Do not switch branches, stash, or run /flow-ticket-switch for these events.",
@@ -121,12 +135,8 @@ function isJsonObject(value: unknown): value is JsonObject {
 }
 
 /** Whether one hook entry is a command flow installed. */
-function isFlowHook(hook: unknown) {
-  return (
-    isJsonObject(hook) &&
-    typeof hook.command === "string" &&
-    hook.command.includes(FLOW_HOOK_MARKER)
-  );
+function isFlowHook(hook: unknown, marker: string) {
+  return isJsonObject(hook) && typeof hook.command === "string" && hook.command.includes(marker);
 }
 
 /**
@@ -134,25 +144,36 @@ function isFlowHook(hook: unknown) {
  * is undefined. Every other hook and setting is kept as it was.
  */
 export function withFlowSessionStartHook(settings: JsonObject, command: string | undefined) {
+  return withFlowHook(settings, "SessionStart", command, FLOW_HOOK_MARKER);
+}
+
+/** Replace only Flow's entries for one lifecycle event, preserving other hook providers. */
+export function withFlowHook(
+  settings: JsonObject,
+  event: string,
+  command: string | undefined,
+  marker: string,
+  extra: JsonObject = {},
+) {
   const hooks = isJsonObject(settings.hooks) ? settings.hooks : {};
-  const groups = Array.isArray(hooks.SessionStart) ? hooks.SessionStart : [];
+  const groups = Array.isArray(hooks[event]) ? hooks[event] : [];
   // Drop flow's hooks from every group, and any group that held nothing else.
   const kept = groups.flatMap((group) => {
     if (!isJsonObject(group) || !Array.isArray(group.hooks)) {
       return [group];
     }
-    const others = group.hooks.filter((hook) => !isFlowHook(hook));
+    const others = group.hooks.filter((hook) => !isFlowHook(hook, marker));
     return others.length > 0 ? [{ ...group, hooks: others }] : [];
   });
   const sessionStart = command
-    ? [...kept, { hooks: [{ type: "command", command, timeout: HOOK_TIMEOUT_SECONDS }] }]
+    ? [...kept, { hooks: [{ type: "command", command, timeout: HOOK_TIMEOUT_SECONDS, ...extra }] }]
     : kept;
 
   const nextHooks: JsonObject = { ...hooks };
   if (sessionStart.length > 0) {
-    nextHooks.SessionStart = sessionStart;
+    nextHooks[event] = sessionStart;
   } else {
-    delete nextHooks.SessionStart;
+    delete nextHooks[event];
   }
   const next: JsonObject = { ...settings };
   if (Object.keys(nextHooks).length > 0) {
@@ -164,7 +185,7 @@ export function withFlowSessionStartHook(settings: JsonObject, command: string |
 }
 
 /** Read `settings.json`; a missing file is empty settings, a broken one stops setup. */
-function readClaudeSettings(path: string): JsonObject {
+export function readSetupSettings(path: string): JsonObject {
   if (!existsSync(path)) {
     return {};
   }
@@ -181,7 +202,11 @@ function readClaudeSettings(path: string): JsonObject {
 }
 
 /** Write `content` unless the file already holds it, and say which it was. */
-function writeIfChanged(path: string, content: string, dryRun: boolean): SetupChange["action"] {
+export function writeIfChanged(
+  path: string,
+  content: string,
+  dryRun: boolean,
+): SetupChange["action"] {
   const existing = existsSync(path) ? readFileSync(path, "utf8") : undefined;
   if (existing === content) {
     return "unchanged";
@@ -194,7 +219,7 @@ function writeIfChanged(path: string, content: string, dryRun: boolean): SetupCh
 }
 
 /** Skill directories under `<claude>/skills` whose stub points at flow. */
-function findFlowStubs(skillsDir: string) {
+export function findFlowStubs(skillsDir: string) {
   if (!existsSync(skillsDir)) {
     return [];
   }
@@ -240,7 +265,7 @@ export function applyClaudeSetup({
   const changes: SetupChange[] = [];
   // Read settings first: when the file is broken, setup stops before writing anything.
   const settingsPath = join(claudeDir, "settings.json");
-  const settings = readClaudeSettings(settingsPath);
+  const settings = readSetupSettings(settingsPath);
   const skillsDir = join(claudeDir, "skills");
   const currentNames = new Set(skills.map((skill) => skill.name));
 

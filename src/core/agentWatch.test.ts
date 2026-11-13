@@ -15,7 +15,7 @@ const roots: string[] = [];
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
-    const { ownerFile, handledRequestFile } = resolveWatchFiles(root);
+    const { ownerFile, handledRequestFile } = resolveWatchFiles(root, "stream");
     rmSync(root, { recursive: true, force: true });
     rmSync(ownerFile, { force: true });
     rmSync(handledRequestFile, { force: true });
@@ -171,8 +171,8 @@ describe("runAgentWatch", () => {
     expect(secondLines).toEqual(["new flow comments: 1", "flow request: ticket-context PROJ-2"]);
 
     // Stop the second watcher by handing ownership away.
-    writeFileSync(resolveWatchFiles(root).ownerFile, "someone-else");
+    writeFileSync(resolveWatchFiles(root, "stream").ownerFile, "someone-else");
     await second;
-    expect(existsSync(resolveWatchFiles(root).handledRequestFile)).toBe(true);
+    expect(existsSync(resolveWatchFiles(root, "stream").handledRequestFile)).toBe(true);
   }, 10_000);
 });

@@ -9,11 +9,13 @@ flow is a terminal diff viewer where the user leaves inline review comments. The
 
 ## Workflow
 
+Always identify yourself on every add/reply with `--author` and your actual agent name: Codex uses `--author Codex`, Claude uses `--author Claude`, and other agents use their own names. Flow stores this identity per message in the optional `agentName` field, separate from the `author: "agent"` role. Unnamed legacy messages display as Agent. Never copy another writer's identity.
+
 1. `flow comments list`. If it says "No pending comments.", tell the user and stop. Skip comments marked `(agent)` (you wrote them) and comments that already carry your `↳` reply: they are waiting for the user to read them and close them.
 2. For each remaining comment, in id order:
    - `flow comments show <id>` for the comment plus surrounding code. The comment covers the whole hunk `range`, not one line. Comments are often in Spanish and terse; read the intent.
    - Fix the underlying issue (Read/Edit). If the comment is a question rather than a request, answer it instead.
-   - Right after that comment is handled, reply to it with `flow comments reply <id> "<text>"`, in the comment's language. Do not resolve it; the user closes comments in the TUI once they agree. Resolve only when the user asks you to.
+   - Right after that comment is handled, reply to it with `flow comments reply <id> "<text>" --author "<your agent name>"`, in the comment's language. Do not resolve it; the user closes comments in the TUI once they agree. Resolve only when the user asks you to.
      - Short answers go in the reply itself: one line saying what changed, or a direct answer with its reason.
      - Long answers go in chat: explanations, options to choose from, multi-step reasoning, anything past a line or two. Reply only with a pointer, e.g. `respondido en la terminal`, so the user knows where to look.
    - When an answer is about specific code, show it in the user's open review with `flow focus <file>:<line>`; the review jumps there. Use it once per point, not on every comment.
@@ -45,7 +47,7 @@ When the user asks to commit, they prefer fixes in the commit where the code bel
 
 ## Rules
 
-- Don't renumber or edit comments, and never touch the user's text. Besides fixes, your writes are replies and, to flag something in the review, your own comments: `flow comments add <file> <start-end> "<text>"` (anchored for you; shows as `Claude:`). Keep those for points worth reading beside the code; everything else goes in chat.
+- Don't renumber or edit comments, and never touch the user's text. Besides fixes, your writes are replies and, to flag something in the review, your own comments: `flow comments add <file> <start-end> "<text>" --author "<your agent name>"` (anchored for you; shows your agent name). Keep those for points worth reading beside the code; everything else goes in chat.
 - A `drifted: ...` comment is still real (the anchor no longer matches: file removed, line out of range, or content moved). Re-read the surrounding code, address the intent, then resolve. Don't resolve just to make it disappear.
 - `resolve` (only when asked) is all-or-nothing across the ids passed.
 - No raw snippets in messages back to the user; cite `file:line`.
@@ -55,8 +57,8 @@ When the user asks to commit, they prefer fixes in the commit where the code bel
 ```text
 flow comments [list] [--json]            # pending comments + drift status
 flow comments show <id> [--context N] [--json]   # one comment plus the hunk lines
-flow comments reply <id> <text>          # answer a comment; it stays open for the user
-flow comments add <file> <start-end> <text>   # leave your own comment, anchored automatically
+flow comments reply <id> <text> --author <name>  # answer a comment; it stays open for the user
+flow comments add <file> <start-end> <text> --author <name>  # leave your own comment, anchored automatically
 flow comments resolve <id> [<id>...]     # atomically remove entries (only when asked)
 flow focus <file>[:line]                 # make the open review jump to a file and line
 flow watch                               # stream events for the agent's terminal
@@ -64,9 +66,9 @@ flow skill show                          # print these instructions for the inst
 ```
 
 - `list` prints `#<id>  <file>:<start-end>` and the indented body; drifted entries show `drifted: missing-file | out-of-range | anchor-mismatch`.
-- `--json` on `list` returns `{ schema, comments: [{ id, file, line, range, anchor, body, author?, replies?, state, reason? }] }` (`author` is `"user"` or `"agent"`; absent means the user), where `replies` is `[{ author: "agent", body }]`; on `show` it adds `context: { window, total, lines: [{ number, text, inRange }] }`.
+- `--json` on `list` returns `{ schema, comments: [{ id, file, line, range, anchor, body, author?, agentName?, replies?, state, reason? }] }` (`author` is `"user"` or `"agent"`; absent means the user), where `replies` is `[{ author: "agent", agentName?, body }]`; on `show` it adds `context: { window, total, lines: [{ number, text, inRange }] }`.
 - Missing ids in `show`/`resolve` exit non-zero and write nothing.
 
 ## Fallback: editing `.flow/comments.json` directly
 
-Only when the binary is unavailable: to reply, append `{ "author": "agent", "body": "…" }` to the comment's `replies` array (create it if missing); to resolve, drop the matching entry from `comments`, keep the other ids as they are, and write the file back as one JSON document with a trailing newline. `line` and `anchor` are internal drift-detection data; don't navigate by them.
+Only when the binary is unavailable: to reply, append `{ "author": "agent", "agentName": "<your agent name>", "body": "…" }` to the comment's `replies` array (create it if missing); to resolve, drop the matching entry from `comments`, keep the other ids as they are, and write the file back as one JSON document with a trailing newline. `line` and `anchor` are internal drift-detection data; don't navigate by them.

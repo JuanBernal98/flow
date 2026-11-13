@@ -39,6 +39,8 @@ Nunca añadas `Co-Authored-By` ni otra firma.
 
 ## 3. Propuesta
 
+Si el evento incluye `--proposal <id>` y `--phase propose|execute`, usa el modo de ventana al final de esta skill. Mantén las reglas de agrupación de esta sección; la propuesta y aprobación se hacen en `flow open`, no en el chat.
+
 Agrupa los cambios por funcionalidad: cada commit cuenta un cambio que se entiende solo, aunque toque
 varios archivos. No mezcles en un commit cosas que no tienen que ver, ni partas una misma funcionalidad
 en varios.
@@ -71,3 +73,36 @@ subidos). Si un hook de pre-commit falla, para, enseña el error y no lo saltes.
 
 Corto: `git log --oneline <base>..HEAD` tras commitear, y lo que haya quedado sin commitear. Si todo
 quedó commiteado y la rama tiene ticket, recuerda que `P` en flow abre el MR.
+
+## Modo de ventana: commits desde flow open
+
+Los eventos siguen usando `flow request: commit`, con `--proposal <id>` y `--phase propose|execute` como datos de correlación. La petición inicial solo autoriza preparar una propuesta; nunca autoriza commitear ni hacer push.
+
+### Preparar (`--phase propose`)
+
+1. Lee `flow commits show <id>`: contiene el estado, la rama, HEAD y la lista exacta de archivos solicitados. Solo trabaja si está en `preparing`. Confirma que recoges la petición con `flow commits claim <id> "<tu nombre de agente>"`; así la interfaz distingue entre esperar al agente y estar preparando la propuesta. No cambies de rama, el índice ni los archivos mientras preparas la propuesta.
+2. Sigue los pasos 1–3 de la skill para entender y agrupar exclusivamente los archivos de `snapshot.files`. Si hay selección en el sidebar, los demás cambios están fuera del alcance: no los añadas a la propuesta ni los commitees. Conserva el formato de commits del repositorio. Cada archivo solicitado debe aparecer una vez, sin staging parcial. Incluye las rutas antiguas y nuevas de los renombrados si ambas figuran en la petición.
+3. Publica el JSON por stdin con `flow commits propose <id>`. Consulta `flow commits --help` para el contrato. Ejemplo:
+
+```json
+{
+  "agentName": "Codex",
+  "commits": [
+    {"kind": "commit", "message": "fix: keep review position when resizing", "files": ["src/review.ts"]}
+  ]
+}
+```
+
+Usa tu propio nombre en `agentName`. El mensaje puede contener título y cuerpo separados por una línea vacía. Para un fixup usa `kind: "fixup"`, `target` con el SHA completo del commit local y `message` igual a `fixup! <título exacto del destino>`. Flow valida los destinos y ejecuta el autosquash al terminar.
+
+4. Termina el turno indicando que la propuesta espera en la ventana. No pidas aprobación en el chat ni ejecutes Git. Flow emite otro evento cuando el usuario acepta. No inicies un bucle de espera.
+
+Si no puedes preparar la propuesta, comunícalo con `flow commits fail <id> "<motivo>"`; la ventana muestra el error. Si la petición fue cancelada o reemplazada, no la reanudes ni publiques para otra petición.
+
+### Ejecutar (`--phase execute`)
+
+Lee `flow commits show <id>`. Solo si el estado es `approved`, ejecuta `flow commits execute <id>` una vez. Esta aprobación procede del botón de la ventana y cubre exclusivamente el plan almacenado: no vuelvas a pedirla en el chat. El comando comprueba que la rama, HEAD, índice y archivos no hayan cambiado, crea los commits exactos, ejecuta los hooks y publica el progreso y resultado para la ventana. No ejecutes los pasos manuales de Git del modo chat.
+
+`approvedCommits` contiene los índices de las propuestas que el usuario dejó marcadas. El comando ejecuta solo esos grupos y deja los demás sin commitear. No añadas los desmarcados ni cambies el alcance de archivos solicitado.
+
+Si falla, para y explica el error; no saltes hooks, no hagas rollback, push ni reintentes la ejecución automáticamente. Los commits ya creados quedan visibles. Un conflicto de autosquash requiere resolverlo con el usuario antes de continuar. Para cambiar la agrupación se cancela y prepara una nueva propuesta, que necesita otra aprobación.

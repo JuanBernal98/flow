@@ -23,6 +23,9 @@ export interface AgentRequest {
   ticket?: string;
   /** Merge request a review reads; absent for context, or for a branch that has no MR yet. */
   mergeRequest?: number;
+  /** Desktop commit flow: correlate the proposal and its explicit approval. */
+  proposalId?: string;
+  phase?: "propose" | "execute";
   createdAt: string;
 }
 
@@ -54,6 +57,16 @@ export function writeCommitRequest(
   return writeAgentRequest(repoRoot, { type: "commit", ticket: ticketId }, now);
 }
 
+/** Ask the same commit skill to prepare or execute a desktop proposal. */
+export function writeCommitProposalRequest(
+  repoRoot: string,
+  proposalId: string,
+  phase: "propose" | "execute",
+  ticket?: string,
+) {
+  return writeAgentRequest(repoRoot, { type: "commit", proposalId, phase, ticket }, new Date());
+}
+
 /** Ask the agent to open the checked-out branch's merge request. */
 export function writeMergeRequestOpenRequest(
   repoRoot: string,
@@ -66,7 +79,7 @@ export function writeMergeRequestOpenRequest(
 /** Replace `.flow/requests.json` with one fresh request. */
 function writeAgentRequest(
   repoRoot: string,
-  body: Pick<AgentRequest, "type" | "ticket" | "mergeRequest">,
+  body: Pick<AgentRequest, "type" | "ticket" | "mergeRequest" | "proposalId" | "phase">,
   now: Date,
 ) {
   const dir = join(repoRoot, FLOW_DIR);

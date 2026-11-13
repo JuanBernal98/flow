@@ -26,6 +26,8 @@ export type CommentsOutputFormat = "text" | "json";
 
 interface CommentsListOptions {
   cwd?: string;
+  /** Display name supplied by the agent for add/reply. */
+  agentName?: string;
 }
 
 interface CommentsShowOptions extends CommentsListOptions {
@@ -74,7 +76,9 @@ function driftSuffix(comment: ResolvedComment): string {
 
 /** Mark the agent's own comments on their header line; the user's stay unmarked. */
 function authorSuffix(comment: ResolvedComment): string {
-  return isAgentComment(comment) ? "  (agent)" : "";
+  return isAgentComment(comment)
+    ? `  (agent${comment.agentName ? `: ${comment.agentName}` : ""})`
+    : "";
 }
 
 /** Indent every body line so multi-line comments line up under the header. */
@@ -87,7 +91,9 @@ function indentBody(body: string): string {
 
 /** Body plus any agent replies, indented under the comment header. */
 function renderCommentBody(comment: ResolvedComment): string {
-  const replies = (comment.replies ?? []).map((reply) => indentBody(`↳ ${reply.body}`));
+  const replies = (comment.replies ?? []).map((reply) =>
+    indentBody(`↳ ${reply.agentName ? `${reply.agentName}: ` : ""}${reply.body}`),
+  );
   return [indentBody(comment.body), ...replies].join("\n");
 }
 
@@ -293,7 +299,7 @@ export function runCommentsResolve(ids: number[], options: CommentsListOptions =
 /**
  * `flow comments add <file> <start-end> <text>` — leave a comment as the agent, anchored to the
  * file's current content like a comment added in the TUI. Use it to flag something for the user
- * in the review; it shows as `Claude:` and the watcher does not echo it back to the agent.
+ * in the review; it shows the supplied agent name and the watcher does not echo it back.
  */
 export function runCommentsAdd(
   filePath: string,
@@ -325,6 +331,7 @@ export function runCommentsAdd(
       anchor,
       body: text,
       author: "agent",
+      ...(options.agentName ? { agentName: options.agentName } : {}),
     });
     id = result.comment.id;
     return result.file;
@@ -352,7 +359,7 @@ export function runCommentsReply(
         "Run `flow comments list` to see pending ids. No changes were written.",
       ]);
     }
-    return withCommentReply(file, id, text);
+    return withCommentReply(file, id, text, options.agentName);
   });
   return `Replied to comment ${id}.\n`;
 }
@@ -374,6 +381,7 @@ export function renderCommentsHelp(): string {
     "",
     "Bare `flow comments` is equivalent to `flow comments list`.",
     "Use `--json` on list/show for a stable machine-readable shape.",
+    "Use --author <name> on add/reply to identify yourself, for example --author Codex.",
     "`show` defaults to 10 lines of surrounding context; `--context <N>` overrides it.",
     "",
   ].join("\n");

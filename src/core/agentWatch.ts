@@ -26,6 +26,8 @@ const RequestsFileSchema = z.object({
     type: z.enum(["ticket-context", "review", "commit", "mr-open"]),
     ticket: z.string().optional(),
     mergeRequest: z.number().int().positive().optional(),
+    proposalId: z.string().uuid().optional(),
+    phase: z.enum(["propose", "execute"]).optional(),
   }),
 });
 
@@ -51,6 +53,8 @@ function describeRequest(request: WatchedRequest) {
     `flow request: ${request.type}`,
     request.ticket,
     request.mergeRequest && `!${request.mergeRequest}`,
+    request.proposalId && `--proposal ${request.proposalId}`,
+    request.phase && `--phase ${request.phase}`,
   ]
     .filter(Boolean)
     .join(" ");
@@ -115,9 +119,9 @@ export function readAgentWatchSnapshot(repoRoot: string): AgentWatchSnapshot {
 }
 
 /** Per-repo files in the temp dir: who owns the watch, and the last request it announced. */
-export function resolveWatchFiles(repoRoot: string) {
+export function resolveWatchFiles(repoRoot: string, channel: "agent" | "stream" = "agent") {
   const key = createHash("sha1").update(repoRoot).digest("hex").slice(0, 12);
-  const base = join(tmpdir(), `flow-watch-${key}`);
+  const base = join(tmpdir(), `flow-watch-${key}${channel === "stream" ? "-stream" : ""}`);
   return { ownerFile: `${base}.pid`, handledRequestFile: `${base}.request` };
 }
 
@@ -129,7 +133,7 @@ export async function runAgentWatch(
   repoRoot: string,
   write: (line: string) => void = (line) => process.stdout.write(`${line}\n`),
 ) {
-  const { ownerFile, handledRequestFile } = resolveWatchFiles(repoRoot);
+  const { ownerFile, handledRequestFile } = resolveWatchFiles(repoRoot, "stream");
   const ownerId = `${process.pid}-${Date.now()}`;
   writeFileSync(ownerFile, ownerId);
   const ownsWatch = () => {

@@ -174,11 +174,12 @@ function renderCliHelp() {
     "  flow pager                              general Git pager wrapper with diff detection",
     "  flow difftool <left> <right> [path]     review Git difftool file pairs",
     "  flow comments [list|show|resolve]       inspect or resolve review comments without the TUI",
+    "  flow commits                            exchange and execute desktop commit proposals",
     "  flow skill <path|show>                  print the bundled agent review skill (path or text)",
     "  flow watch                              stream review events for a coding agent's terminal",
     "  flow focus <file>[:line]                ask the open review to show a file and line",
     "  flow overview write <ticket>            store a ticket overview (JSON on stdin) for the Overview pane",
-    "  flow setup                              set up or refresh flow's dependencies and Claude Code",
+    "  flow setup [claude|codex]                set up flow's skills and agent hooks",
     "  flow init                               connect this repository: write its .flow/config.toml",
     "",
     "Global options:",
@@ -524,6 +525,31 @@ async function parseDifftoolCommand(tokens: string[], argv: string[]): Promise<P
   };
 }
 
+/** Extract the agent identity while preserving message arguments and the -- delimiter. */
+function parseCommentAuthor(tokens: string[]): { args: string[]; agentName?: string } {
+  const args: string[] = [];
+  let agentName: string | undefined;
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index]!;
+    if (token === "--") {
+      args.push(...tokens.slice(index + 1));
+      break;
+    }
+    if (token === "--author" || token.startsWith("--author=")) {
+      const value = token === "--author" ? tokens[++index] : token.slice("--author=".length);
+      if (!value?.trim() || value.startsWith("--") || agentName !== undefined) {
+        throw new FlowUserError(
+          "Pass --author once with the agent's name, for example --author Codex.",
+        );
+      }
+      agentName = value.trim();
+    } else {
+      args.push(token);
+    }
+  }
+  return { args, agentName };
+}
+
 /** Pull every positional id from `flow comments resolve` and reject the rest. */
 function parseResolveIds(args: string[]): number[] {
   const ids: number[] = [];
@@ -632,25 +658,30 @@ async function parseCommentsCommand(tokens: string[]): Promise<HelpCommandInput>
   }
 
   if (subcommand === "add") {
-    const [filePath, rawRange, ...words] = rest;
+    const { args, agentName } = parseCommentAuthor(rest);
+    const [filePath, rawRange, ...words] = args;
     const rangeMatch = /^(\d+)(?:-(\d+))?$/.exec(rawRange ?? "");
     if (!filePath || !rangeMatch) {
       throw new FlowUserError("Usage: flow comments add <file> <start-end> <text>");
     }
     const start = Number.parseInt(rangeMatch[1]!, 10);
     const end = rangeMatch[2] ? Number.parseInt(rangeMatch[2], 10) : start;
-    return { kind: "help", text: runCommentsAdd(filePath, [start, end], words.join(" ")) };
+    return {
+      kind: "help",
+      text: runCommentsAdd(filePath, [start, end], words.join(" "), { agentName }),
+    };
   }
 
   if (subcommand === "reply") {
-    const [rawId, ...words] = rest;
+    const { args, agentName } = parseCommentAuthor(rest);
+    const [rawId, ...words] = args;
     const id = Number.parseInt(rawId ?? "", 10);
     if (!Number.isInteger(id) || id <= 0 || String(id) !== rawId) {
       throw new FlowUserError(
         "`flow comments reply` expects a positive integer id, then the text.",
       );
     }
-    return { kind: "help", text: runCommentsReply(id, words.join(" ")) };
+    return { kind: "help", text: runCommentsReply(id, words.join(" "), { agentName }) };
   }
 
   throw new FlowUserError(`Unknown \`flow comments\` subcommand: \`${subcommand}\`.`, [
@@ -775,7 +806,7 @@ async function parseSkillCommand(tokens: string[]): Promise<HelpCommandInput> {
 /** Build the `flow setup` help text. */
 function renderSetupHelp() {
   return [
-    "Usage: flow setup [--dry-run] [--uninstall]",
+    "Usage: flow setup [claude|codex|chatgpt] [--dry-run] [--uninstall]",
     "",
     "Set flow up, or refresh it after a `git pull`; it only touches what is missing or changed:",
     "  - flow's own dependencies (`bun install` in this checkout)",
@@ -788,6 +819,7 @@ function renderSetupHelp() {
     "  --uninstall   remove flow's skills and hook",
     "",
     "Uses $CLAUDE_CONFIG_DIR instead of ~/.claude when set.",
+    "Use `flow setup codex` (or `flow setup chatgpt`) for ChatGPT/Codex skills and lifecycle hooks.",
     "",
   ].join("\n");
 }
@@ -1017,6 +1049,8 @@ function installFlowDependencies() {
 
 /** Parse and run `flow setup`. */
 async function parseSetupCommand(flags: string[]): Promise<HelpCommandInput> {
+  if (flags[0] === "codex" || flags[0] === "chatgpt") return parseCodexSetupCommand(flags.slice(1));
+  if (flags[0] === "claude") flags = flags.slice(1);
   if (flags.includes("--help") || flags.includes("-h")) {
     return { kind: "help", text: renderSetupHelp() };
   }
@@ -1105,6 +1139,61 @@ async function parseSetupCommand(flags: string[]): Promise<HelpCommandInput> {
     lines.push("", "Open a new Claude Code session to pick up the changes.");
   }
   return { kind: "help", text: `${lines.join("\n")}\n` };
+}
+
+/** Set up ChatGPT/Codex without requiring integrations unrelated to local file review. */
+async function parseCodexSetupCommand(flags: string[]): Promise<HelpCommandInput> {
+  if (flags.includes("--help") || flags.includes("-h")) {
+    return {
+      kind: "help",
+      text: [
+        "Usage: flow setup codex [--dry-run] [--uninstall]",
+        "",
+        "Install Flow skill stubs in ~/.agents/skills and lifecycle hooks in ~/.codex/hooks.json.",
+        "Uses $CODEX_HOME for the hooks directory when set. `chatgpt` is an alias for `codex`.",
+        "Hooks deliver file-based Flow events at session start, user turns, tool completion, and stop.",
+        "They do not start a new turn while the conversation is idle.",
+        "",
+        "--dry-run    preview without writing files",
+        "--uninstall  remove only Flow's skill stubs and lifecycle hooks",
+        "",
+      ].join("\n"),
+    };
+  }
+  const unknown = flags.filter((flag) => flag !== "--dry-run" && flag !== "--uninstall");
+  if (unknown.length > 0)
+    throw new FlowUserError(`Unknown option \`${unknown[0]}\` for \`flow setup codex\`.`);
+  const { applyCodexSetup, resolveCodexSetupPaths } = await import("./codexSetup");
+  const paths = resolveCodexSetupPaths();
+  const dryRun = flags.includes("--dry-run");
+  const uninstall = flags.includes("--uninstall");
+  const changes = applyCodexSetup({
+    ...paths,
+    flowBin: uninstall ? "flow" : resolveInstalledFlowBin(),
+    skills: BUNDLED_SKILLS.map((name) => ({
+      name,
+      markdown: readFileSync(resolveBundledSkillPath(name), "utf8"),
+    })),
+    dryRun,
+    uninstall,
+  });
+  return {
+    kind: "help",
+    text: [
+      `${dryRun ? "Would update" : "Updated"} ChatGPT/Codex integration`,
+      ...changes.map(({ action, target }) => `  ${action.padEnd(10)} ${target}`),
+      `Skills: ${displayPath(paths.skillsDir)}`,
+      `Hooks: ${displayPath(join(paths.codexDir, "hooks.json"))}`,
+      ...(uninstall
+        ? []
+        : [
+            "",
+            "Open a new session and review Flow's hooks in Settings > Hooks (or /hooks in Codex CLI).",
+            "Flow events are checked during active work and on new turns; idle chats are not woken automatically.",
+          ]),
+      "",
+    ].join("\n"),
+  };
 }
 
 /** Parse and run `flow init`, asking in the terminal for what the repository's config lacks. */
@@ -1205,6 +1294,19 @@ async function parseInitCommand(tokens: string[]): Promise<HelpCommandInput> {
 /** Parse and run `flow hook session-start --bin <flow>`, the SessionStart hook setup installs. */
 async function parseHookCommand(tokens: string[]): Promise<HelpCommandInput> {
   const [event, ...rest] = tokens;
+  if (event === "codex") {
+    const binIndex = rest.indexOf("--bin");
+    const flowBin = binIndex >= 0 ? rest[binIndex + 1] : undefined;
+    if (!flowBin) throw new FlowUserError("`flow hook codex` needs `--bin <path to flow>`.");
+    const { runCodexHook } = await import("./codexWatch");
+    let input: unknown;
+    try {
+      input = JSON.parse(await Bun.stdin.text());
+    } catch {
+      throw new FlowUserError("`flow hook codex` expects the lifecycle event as JSON on stdin.");
+    }
+    return { kind: "help", text: runCodexHook(input, flowBin) };
+  }
   if (event !== "session-start") {
     throw new FlowUserError("Only `flow hook session-start` exists; `flow setup` installs it.");
   }
@@ -1307,6 +1409,8 @@ export async function parseCli(argv: string[]): Promise<ParsedCliInput> {
       return parseSkillCommand(rest);
     case "comments":
       return parseCommentsCommand(rest);
+    case "commits":
+      return { kind: "help", text: await (await import("./cliCommits")).runCommitsCommand(rest) };
     case "focus":
       return parseFocusCommand(rest);
     case "overview":

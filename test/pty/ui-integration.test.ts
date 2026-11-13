@@ -2,6 +2,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { hasSplitDiffRowTest } from "../helpers/diff-frame";
 import { createPtyHarness, ptyTimeouts } from "./harness";
+import { runCommentsAdd, runCommentsReply } from "../../src/core/cliComments";
 
 const harness = createPtyHarness();
 const ptyDescribe = process.env.FLOW_RUN_PTY_TESTS === "1" ? describe : describe.skip;
@@ -18,6 +19,26 @@ afterEach(() => {
 });
 
 ptyDescribe("live UI integration", () => {
+  test("a review thread keeps each agent's identity visible", async () => {
+    const fixture = harness.createTwoFileRepoFixture();
+    runCommentsAdd("alpha.ts", [1, 1], "check this", { cwd: fixture.dir, agentName: "Codex" });
+    runCommentsReply(1, "checked", { cwd: fixture.dir, agentName: "Claude" });
+    runCommentsReply(1, "confirmed", { cwd: fixture.dir, agentName: "Other agent" });
+    const session = await harness.launchFlow({
+      args: ["diff", "--mode", "stack"],
+      cwd: fixture.dir,
+      cols: 160,
+      rows: 35,
+    });
+    try {
+      const text = await session.waitForText(/Other agent: confirmed/);
+      expect(text).toContain("Codex: check this");
+      expect(text).toContain("Claude: checked");
+    } finally {
+      session.close();
+    }
+  });
+
   test("the borderless pane edge keeps resizing available in a real PTY", async () => {
     const fixture = harness.createTwoFileRepoFixture();
     const session = await harness.launchFlow({

@@ -41,7 +41,10 @@ interface InlineNoteLine {
 
 // Chat-style speaker labels: the user's comment, then the agent's replies.
 const USER_LABEL = "You: ";
-const AGENT_LABEL = "Claude: ";
+/** Label named agents without guessing the identity of older messages. */
+function agentLabel(name?: string) {
+  return `${name ?? "Agent"}: `;
+}
 
 /** Wrap one chat message under its speaker label, continuation lines aligned with the text. */
 function wrapChatMessage(label: string, text: string, width: number) {
@@ -56,7 +59,7 @@ function buildBodyLines(annotation: Annotation, width: number) {
   const lines: InlineNoteLine[] = [
     // An agent's own comment opens with its label and reads like its replies.
     ...wrapChatMessage(
-      annotation.author === "agent" ? AGENT_LABEL : USER_LABEL,
+      annotation.author === "agent" ? agentLabel(annotation.agentName) : USER_LABEL,
       annotation.summary ?? "",
       bodyWidth,
     ).map((text) => ({ kind: annotation.author === "agent" ? "reply" : "summary", text }) as const),
@@ -66,7 +69,7 @@ function buildBodyLines(annotation: Annotation, width: number) {
         )
       : []),
     ...(annotation.replies ?? []).flatMap((reply) =>
-      wrapChatMessage(AGENT_LABEL, reply, bodyWidth).map(
+      wrapChatMessage(agentLabel(reply.agentName), reply.body, bodyWidth).map(
         (text) => ({ kind: "reply", text }) as const,
       ),
     ),
