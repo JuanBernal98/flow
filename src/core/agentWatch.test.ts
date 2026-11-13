@@ -82,7 +82,7 @@ describe("nextAgentWatchEvents", () => {
       comments: [],
       request: { id: "r1", type: "ticket-context", ticket: "PROJ-1" },
     });
-    expect(first.lines).toEqual(["flow request: ticket-context PROJ-1"]);
+    expect(first.lines).toEqual(["flow request: ticket-context PROJ-1 --request r1"]);
     expect(first.state.handledRequestId).toBe("r1");
 
     const again = nextAgentWatchEvents(first.state, {
@@ -97,12 +97,12 @@ describe("nextAgentWatchEvents", () => {
       comments: [],
       request: { id: "r1", type: "commit" },
     });
-    expect(commit.lines).toEqual(["flow request: commit"]);
+    expect(commit.lines).toEqual(["flow request: commit --request r1"]);
     const mergeRequest = nextAgentWatchEvents(commit.state, {
       comments: [],
       request: { id: "r2", type: "mr-open", ticket: "PROJ-3" },
     });
-    expect(mergeRequest.lines).toEqual(["flow request: mr-open PROJ-3"]);
+    expect(mergeRequest.lines).toEqual(["flow request: mr-open PROJ-3 --request r2"]);
   });
 
   test("announces a review with its merge request when it has one", () => {
@@ -110,20 +110,20 @@ describe("nextAgentWatchEvents", () => {
       comments: [],
       request: { id: "r1", type: "review", ticket: "PROJ-1", mergeRequest: 4100 },
     });
-    expect(withMergeRequest.lines).toEqual(["flow request: review PROJ-1 !4100"]);
+    expect(withMergeRequest.lines).toEqual(["flow request: review PROJ-1 !4100 --request r1"]);
 
     const branchOnly = nextAgentWatchEvents(withMergeRequest.state, {
       comments: [],
       request: { id: "r2", type: "review", ticket: "PROJ-2" },
     });
-    expect(branchOnly.lines).toEqual(["flow request: review PROJ-2"]);
+    expect(branchOnly.lines).toEqual(["flow request: review PROJ-2 --request r2"]);
   });
 });
 
 describe("readAgentWatchSnapshot", () => {
   test("reads comments and the newest request, treating bad files as empty", () => {
     const root = createTestRepoRoot();
-    expect(readAgentWatchSnapshot(root)).toEqual({ comments: [], request: null });
+    expect(readAgentWatchSnapshot(root)).toEqual({ comments: [], request: null, requests: [] });
 
     writeTestComments(root, [{ id: 3, body: "rename this" }]);
     const request = writeTicketContextRequest(root, "PROJ-9");
@@ -155,20 +155,26 @@ describe("runAgentWatch", () => {
   test("streams events, survives a re-arm without replaying requests, and yields to a newer watcher", async () => {
     const root = createTestRepoRoot();
     writeTestComments(root, [{ id: 1, body: "first" }]);
-    writeTicketContextRequest(root, "PROJ-1");
+    const firstRequest = writeTicketContextRequest(root, "PROJ-1");
 
     const firstLines: string[] = [];
     const first = runAgentWatch(root, (line) => firstLines.push(line));
     await Bun.sleep(300);
-    expect(firstLines).toEqual(["new flow comments: 1", "flow request: ticket-context PROJ-1"]);
+    expect(firstLines).toEqual([
+      "new flow comments: 1",
+      `flow request: ticket-context PROJ-1 --request ${firstRequest.id}`,
+    ]);
 
     // A newer watcher takes over: the first one stops, and the delivered request is not replayed.
     const secondLines: string[] = [];
     const second = runAgentWatch(root, (line) => secondLines.push(line));
     await first;
-    writeTicketContextRequest(root, "PROJ-2");
+    const secondRequest = writeTicketContextRequest(root, "PROJ-2");
     await Bun.sleep(1_300);
-    expect(secondLines).toEqual(["new flow comments: 1", "flow request: ticket-context PROJ-2"]);
+    expect(secondLines).toEqual([
+      "new flow comments: 1",
+      `flow request: ticket-context PROJ-2 --request ${secondRequest.id}`,
+    ]);
 
     // Stop the second watcher by handing ownership away.
     writeFileSync(resolveWatchFiles(root, "stream").ownerFile, "someone-else");

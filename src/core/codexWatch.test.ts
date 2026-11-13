@@ -35,9 +35,9 @@ test("a running stream and Codex hooks deliver independently without stealing re
   const lines: string[] = [];
   const stream = runAgentWatch(root, (line) => lines.push(line));
   try {
-    writeCommitRequest(root, undefined);
+    const request = writeCommitRequest(root, undefined);
     await Bun.sleep(1200);
-    expect(lines).toContain("flow request: commit");
+    expect(lines).toContain(`flow request: commit --request ${request.id}`);
     expect(runCodexHook(createTestHookInput(root, "PostToolUse"), "flow")).toContain(
       "flow request: commit",
     );

@@ -176,6 +176,8 @@ function renderCliHelp() {
     "  flow difftool <left> <right> [path]     review Git difftool file pairs",
     "  flow comments [list|show|resolve]       inspect or resolve review comments without the TUI",
     "  flow commits                            exchange and execute desktop commit proposals",
+    "  flow requests                           inspect and acknowledge queued agent work",
+    "  flow doctor                             diagnose agent hooks and pending delivery",
     "  flow skill <path|show>                  print the bundled agent review skill (path or text)",
     "  flow watch                              stream review events for a coding agent's terminal",
     "  flow focus <file>[:line]                ask the open review to show a file and line",
@@ -808,7 +810,7 @@ async function parseSkillCommand(tokens: string[]): Promise<HelpCommandInput> {
     kind: "help",
     text:
       subcommand === "show"
-        ? await renderBundledSkill(skill)
+        ? `${(await renderBundledSkill(skill)).trimEnd()}\n\n${(await import("./agentRequestStore")).agentRequestInstructions()}\n`
         : `${resolveBundledSkillPath(skill)}\n`,
   };
 }
@@ -1419,6 +1421,16 @@ export async function parseCli(argv: string[]): Promise<ParsedCliInput> {
       return parseSkillCommand(rest);
     case "comments":
       return parseCommentsCommand(rest);
+    case "requests":
+      return {
+        kind: "help",
+        text: (await import("./cliAgentRequests")).runAgentRequestsCommand(rest),
+      };
+    case "doctor":
+      return {
+        kind: "help",
+        text: (await import("./cliAgentRequests")).runAgentDoctorCommand(rest),
+      };
     case "commits":
       return { kind: "help", text: await (await import("./cliCommits")).runCommitsCommand(rest) };
     case "focus":

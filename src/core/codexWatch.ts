@@ -2,6 +2,8 @@
 import { closeSync, openSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { z } from "zod";
 import { findRepoRoot } from "./config";
+import { recordAgentCheckpoint } from "./agentSession";
+import { agentRequestInstructions } from "./agentRequestStore";
 import {
   nextAgentWatchEvents,
   readAgentWatchSnapshot,
@@ -16,7 +18,11 @@ const HookInputSchema = z.object({
   agent_id: z.string().nullish(),
   source: z.string().optional(),
 });
-const SavedStateSchema = z.object({ owner: z.string(), seenCommentKeys: z.array(z.string()) });
+const SavedStateSchema = z.object({
+  owner: z.string(),
+  seenCommentKeys: z.array(z.string()),
+  notifications: z.array(z.tuple([z.string(), z.number()])).optional(),
+});
 
 /** Concurrent tool completions must not consume the same event twice. */
 function lockWatchState(path: string): number | null {
@@ -56,11 +62,12 @@ function eventInstructions(flowBin: string) {
     "For commit events with --proposal and --phase, follow the desktop mode in flow-commit-create; approval happens in flow open.",
     "Do not open the interactive TUI, switch branches, or stash in response to these events.",
     "Native lifecycle hooks check for new events; do not start an endless polling command.",
+    agentRequestInstructions(),
   ].join(" ");
 }
 
 /** Check one lifecycle event without starting a daemon or repeatedly delivering the same request. */
-export function runCodexHook(input: unknown, flowBin: string): string {
+export function runCodexHook(input: unknown, flowBin: string, now = new Date()): string {
   const parsed = HookInputSchema.safeParse(input);
   if (!parsed.success || parsed.data.agent_id) return "";
   const event = parsed.data;
@@ -92,6 +99,7 @@ export function runCodexHook(input: unknown, flowBin: string): string {
       : "";
   try {
     if (readWatchText(ownerFile) !== owner) return "";
+    recordAgentCheckpoint(repoRoot, owner, "Codex", event.hook_event_name, now);
     const saved = (() => {
       try {
         return SavedStateSchema.safeParse(JSON.parse(readWatchText(statePath)));
@@ -106,12 +114,21 @@ export function runCodexHook(input: unknown, flowBin: string): string {
           : [],
       ),
       handledRequestId: readWatchText(handledRequestFile) || null,
+      notifications: new Map(
+        saved?.success && saved.data.owner === owner && (!starting || event.source === "compact")
+          ? saved.data.notifications
+          : [],
+      ),
     };
-    const next = nextAgentWatchEvents(state, readAgentWatchSnapshot(repoRoot));
+    const next = nextAgentWatchEvents(state, readAgentWatchSnapshot(repoRoot), now.getTime());
     if (readWatchText(ownerFile) !== owner) return "";
     writeFileSync(
       statePath,
-      JSON.stringify({ owner, seenCommentKeys: [...next.state.seenCommentKeys] }),
+      JSON.stringify({
+        owner,
+        seenCommentKeys: [...next.state.seenCommentKeys],
+        notifications: [...(next.state.notifications ?? [])],
+      }),
     );
     if (next.state.handledRequestId && next.state.handledRequestId !== state.handledRequestId)
       writeFileSync(handledRequestFile, next.state.handledRequestId);

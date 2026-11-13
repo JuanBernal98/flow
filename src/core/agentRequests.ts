@@ -2,32 +2,15 @@
  * Requests flow leaves for the coding agent in the user's own Claude terminal. The agent's
  * watcher picks them up from `.flow/requests.json`; flow never talks to the agent directly.
  *
- * Only the newest request is kept: when tickets change quickly, context for a ticket you already
- * left is useless, so each write replaces the previous one.
+ * Independent requests remain queued until the agent explicitly acknowledges them.
  */
-import { mkdirSync, renameSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { FLOW_DIR, FLOW_REQUESTS_FILENAME } from "./flowPaths";
+import { enqueueAgentRequest, type AgentRequest } from "./agentRequestStore";
+export type { AgentRequest, AgentRequestType } from "./agentRequestStore";
 
 /**
  * What flow asks the agent for: a ticket's context, a review of its code against the ticket,
  * commits for the uncommitted work, or the branch's merge request.
  */
-export type AgentRequestType = "ticket-context" | "review" | "commit" | "mr-open";
-
-export interface AgentRequest {
-  /** Unique per write, so the watcher can tell a repeat switch from one it already handled. */
-  id: string;
-  type: AgentRequestType;
-  /** The ticket it is about; commits and MRs on a branch without a ticket carry none. */
-  ticket?: string;
-  /** Merge request a review reads; absent for context, or for a branch that has no MR yet. */
-  mergeRequest?: number;
-  /** Desktop commit flow: correlate the proposal and its explicit approval. */
-  proposalId?: string;
-  phase?: "propose" | "execute";
-  createdAt: string;
-}
 
 /** Ask the agent to load a ticket's context, replacing any earlier request. */
 export function writeTicketContextRequest(repoRoot: string, ticketId: string, now = new Date()) {
@@ -82,16 +65,5 @@ function writeAgentRequest(
   body: Pick<AgentRequest, "type" | "ticket" | "mergeRequest" | "proposalId" | "phase">,
   now: Date,
 ) {
-  const dir = join(repoRoot, FLOW_DIR);
-  mkdirSync(dir, { recursive: true });
-  const request: AgentRequest = {
-    id: `${now.getTime().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-    ...body,
-    createdAt: now.toISOString(),
-  };
-  // Same-directory temp file plus rename, so the watcher never reads a half-written request.
-  const tempPath = join(dir, `.${FLOW_REQUESTS_FILENAME}.${process.pid}.${request.id}.tmp`);
-  writeFileSync(tempPath, `${JSON.stringify({ schema: 1, request }, null, 2)}\n`, "utf8");
-  renameSync(tempPath, join(dir, FLOW_REQUESTS_FILENAME));
-  return request;
+  return enqueueAgentRequest(repoRoot, body, now);
 }

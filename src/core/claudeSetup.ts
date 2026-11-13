@@ -13,6 +13,7 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { agentRequestInstructions } from "./agentRequestStore";
 
 /** One bundled skill: its name and the full Markdown the repo ships. */
 export interface BundledSkillSource {
@@ -114,6 +115,7 @@ export function renderSessionStartContext(repoRoot: string, flowBin: string) {
     "On each 'flow request: mr-open [<ID>]' event, the user pressed P: once you are not mid-task, run",
     "the flow-mr-open skill; it asks for approval before every outside action.",
     "Do not switch branches, stash, or run /flow-ticket-switch for these events.",
+    agentRequestInstructions(),
     "Don't mention the watcher to the user unless asked.",
   ].join(" ");
 }

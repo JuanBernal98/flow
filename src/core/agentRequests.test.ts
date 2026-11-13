@@ -3,6 +3,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { writeCommitRequest, writeTicketContextRequest } from "./agentRequests";
+import { readAgentRequests } from "./agentRequestStore";
 
 const roots: string[] = [];
 
@@ -20,7 +21,11 @@ test("each ticket switch replaces the request with a fresh id and leaves no temp
   const second = writeTicketContextRequest(root, "PROJ-2", new Date("2026-11-11T10:00:01Z"));
 
   const saved = JSON.parse(readFileSync(join(root, ".flow", "requests.json"), "utf8"));
-  expect(saved).toEqual({ schema: 1, request: second });
+  expect(saved.request).toEqual(second);
+  expect(readAgentRequests(root).map((request) => request.status)).toEqual([
+    "superseded",
+    "queued",
+  ]);
   expect(saved.request).toMatchObject({ type: "ticket-context", ticket: "PROJ-2" });
   expect(second.id).not.toBe(first.id);
   expect(readdirSync(join(root, ".flow"))).toEqual(["requests.json"]);

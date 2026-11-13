@@ -14,24 +14,18 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { z } from "zod";
 import { isAgentComment, readCommentsFile } from "./comments";
-import { FLOW_DIR, FLOW_REQUESTS_FILENAME } from "./flowPaths";
+import { pendingAgentRequests, type AgentRequest } from "./agentRequestStore";
+import { commentThreadState } from "./commentThread";
+import { recordAgentCheckpoint } from "./agentSession";
 
 const POLL_INTERVAL_MS = 1_000;
 
-const RequestsFileSchema = z.object({
-  request: z.object({
-    id: z.string(),
-    type: z.enum(["ticket-context", "review", "commit", "mr-open"]),
-    ticket: z.string().optional(),
-    mergeRequest: z.number().int().positive().optional(),
-    proposalId: z.string().uuid().optional(),
-    phase: z.enum(["propose", "execute"]).optional(),
-  }),
-});
-
-type WatchedRequest = z.infer<typeof RequestsFileSchema>["request"];
+type WatchedRequest = Pick<
+  AgentRequest,
+  "id" | "type" | "ticket" | "mergeRequest" | "proposalId" | "phase"
+>;
+export const AGENT_REMINDER_INTERVAL_MS = 60_000;
 
 /** What the watcher has already announced, so each event is printed once. */
 export interface AgentWatchState {
@@ -39,12 +33,15 @@ export interface AgentWatchState {
   seenCommentKeys: ReadonlySet<string>;
   /** Id of the newest request already announced, persisted across re-arms. */
   handledRequestId: string | null;
+  /** Last announcement time, independent from durable acknowledgement by the agent. */
+  notifications?: ReadonlyMap<string, number>;
 }
 
 /** One poll's view of `.flow/`. */
 export interface AgentWatchSnapshot {
   comments: { id: number; key: string }[];
   request: WatchedRequest | null;
+  requests?: WatchedRequest[];
 }
 
 /** The event line for one request; a review names its MR when it has one. */
@@ -55,6 +52,7 @@ function describeRequest(request: WatchedRequest) {
     request.mergeRequest && `!${request.mergeRequest}`,
     request.proposalId && `--proposal ${request.proposalId}`,
     request.phase && `--phase ${request.phase}`,
+    `--request ${request.id}`,
   ]
     .filter(Boolean)
     .join(" ");
@@ -65,19 +63,42 @@ function describeRequest(request: WatchedRequest) {
  * not id, because ids are reused after a resolve; line and range are left out because they move
  * whenever the commented code does.
  */
-export function nextAgentWatchEvents(state: AgentWatchState, snapshot: AgentWatchSnapshot) {
+export function nextAgentWatchEvents(
+  state: AgentWatchState,
+  snapshot: AgentWatchSnapshot,
+  now = Date.now(),
+) {
   const lines: string[] = [];
+  const notifications = new Map(state.notifications);
+  const activeKeys = new Set([
+    ...snapshot.comments.map((comment) => `comment:${comment.key}`),
+    ...(snapshot.requests ?? (snapshot.request ? [snapshot.request] : [])).map(
+      (request) => `request:${request.id}`,
+    ),
+  ]);
+  for (const key of notifications.keys()) if (!activeKeys.has(key)) notifications.delete(key);
+  const announce = (key: string, seen: boolean) => {
+    const last = notifications.get(key);
+    if (last === undefined && seen) {
+      notifications.set(key, now);
+      return false;
+    }
+    if (last !== undefined && now - last < AGENT_REMINDER_INTERVAL_MS) return false;
+    notifications.set(key, now);
+    return true;
+  };
   const newIds = snapshot.comments
-    .filter((comment) => !state.seenCommentKeys.has(comment.key))
+    .filter((comment) => announce(`comment:${comment.key}`, state.seenCommentKeys.has(comment.key)))
     .map((comment) => comment.id);
   if (newIds.length > 0) {
     lines.push(`new flow comments: ${newIds.join(" ")}`);
   }
 
   let handledRequestId = state.handledRequestId;
-  if (snapshot.request && snapshot.request.id !== handledRequestId) {
-    handledRequestId = snapshot.request.id;
-    lines.push(describeRequest(snapshot.request));
+  for (const request of snapshot.requests ?? (snapshot.request ? [snapshot.request] : [])) {
+    if (!announce(`request:${request.id}`, request.id === handledRequestId)) continue;
+    handledRequestId = request.id;
+    lines.push(describeRequest(request));
   }
 
   return {
@@ -85,6 +106,7 @@ export function nextAgentWatchEvents(state: AgentWatchState, snapshot: AgentWatc
     state: {
       seenCommentKeys: new Set(snapshot.comments.map((comment) => comment.key)),
       handledRequestId,
+      notifications,
     },
   };
 }
@@ -97,7 +119,8 @@ export function readAgentWatchSnapshot(repoRoot: string): AgentWatchSnapshot {
     comments = readCommentsFile(repoRoot)
       .comments.filter(
         (comment) =>
-          !isAgentComment(comment) || comment.replies?.some((reply) => reply.author === "user"),
+          (!isAgentComment(comment) || comment.replies?.some((reply) => reply.author === "user")) &&
+          commentThreadState(comment) === "pending",
       )
       .map((comment) => ({
         id: comment.id,
@@ -114,18 +137,22 @@ export function readAgentWatchSnapshot(repoRoot: string): AgentWatchSnapshot {
     // A half-written or invalid file is retried on the next poll.
   }
 
-  let request: AgentWatchSnapshot["request"] = null;
-  const requestsPath = join(repoRoot, FLOW_DIR, FLOW_REQUESTS_FILENAME);
-  if (existsSync(requestsPath)) {
-    try {
-      const parsed = RequestsFileSchema.safeParse(JSON.parse(readFileSync(requestsPath, "utf8")));
-      request = parsed.success ? parsed.data.request : null;
-    } catch {
-      // Same: try again on the next poll.
-    }
+  let requests: WatchedRequest[] = [];
+  try {
+    requests = pendingAgentRequests(repoRoot).map(
+      ({ id, type, ticket, mergeRequest, proposalId, phase }) => ({
+        id,
+        type,
+        ...(ticket ? { ticket } : {}),
+        ...(mergeRequest ? { mergeRequest } : {}),
+        ...(proposalId ? { proposalId } : {}),
+        ...(phase ? { phase } : {}),
+      }),
+    );
+  } catch {
+    /* Leave invalid queue data intact for diagnosis and retry at a later checkpoint. */
   }
-
-  return { comments, request };
+  return { comments, request: requests.at(-1) ?? null, requests };
 }
 
 /** Per-repo files in the temp dir: who owns the watch, and the last request it announced. */
@@ -146,6 +173,7 @@ export async function runAgentWatch(
   const { ownerFile, handledRequestFile } = resolveWatchFiles(repoRoot, "stream");
   const ownerId = `${process.pid}-${Date.now()}`;
   writeFileSync(ownerFile, ownerId);
+  recordAgentCheckpoint(repoRoot, `stream:${ownerId}`, "External agent", "watch-start");
   const ownsWatch = () => {
     try {
       return readFileSync(ownerFile, "utf8") === ownerId;
@@ -168,6 +196,8 @@ export async function runAgentWatch(
       writeFileSync(handledRequestFile, next.state.handledRequestId);
     }
     state = next.state;
+    if (next.lines.length)
+      recordAgentCheckpoint(repoRoot, `stream:${ownerId}`, "External agent", "watch-delivery");
     for (const line of next.lines) {
       write(line);
     }

@@ -15,6 +15,7 @@ import {
 import { join, posix } from "node:path";
 import { z } from "zod";
 import { writeCommitProposalRequest } from "./agentRequests";
+import { updateProposalRequest, supersedeProposalRequest } from "./agentRequestStore";
 import { FLOW_DIR } from "./flowPaths";
 import { FlowUserError } from "./errors";
 import { readRepoIntegrations } from "./repoIntegrations";
@@ -334,12 +335,15 @@ export function readCurrentCommitProposal(repoRoot: string, proposal: CommitProp
 
 /** Acknowledge that an agent picked up the request, without approving or changing its scope. */
 export function claimCommitProposal(repoRoot: string, id: string, agentName: string) {
-  return locked(repoRoot, () =>
-    save(repoRoot, {
-      ...requireProposal(repoRoot, id, ["preparing"]),
+  return locked(repoRoot, () => {
+    const current = requireProposal(repoRoot, id, ["preparing"]);
+    updateProposalRequest(repoRoot, id, "claimed", agentName);
+    const proposal = save(repoRoot, {
+      ...current,
       claimedBy: Text.parse(agentName),
-    }),
-  );
+    });
+    return proposal;
+  });
 }
 
 /** Validate the agent's plan and ensure every changed path belongs to exactly one commit. */
@@ -360,7 +364,10 @@ export function publishCommitProposal(repoRoot: string, id: string, input: unkno
       if (/^Co-Authored-By:/im.test(commit.message))
         throw new FlowUserError("Commit messages must not include Co-Authored-By trailers.");
     }
-    return save(repoRoot, { ...proposal, status: "ready", plan });
+    updateProposalRequest(repoRoot, id, "claimed", plan.agentName);
+    const ready = save(repoRoot, { ...proposal, status: "ready", plan });
+    updateProposalRequest(repoRoot, id, "completed", plan.agentName);
+    return ready;
   });
 }
 
@@ -390,23 +397,27 @@ export function approveCommitProposal(
 
 /** Cancel pending work; once execution starts its real result must remain visible. */
 export function cancelCommitProposal(repoRoot: string, id: string) {
-  return locked(repoRoot, () =>
-    save(repoRoot, {
+  return locked(repoRoot, () => {
+    const proposal = save(repoRoot, {
       ...requireProposal(repoRoot, id, ["preparing", "ready", "approved"]),
       status: "cancelled",
-    }),
-  );
+    });
+    supersedeProposalRequest(repoRoot, id);
+    return proposal;
+  });
 }
 
 /** Let an agent surface a planning failure in the same dialog instead of leaving it waiting. */
 export function failCommitProposal(repoRoot: string, id: string, error: string) {
-  return locked(repoRoot, () =>
-    save(repoRoot, {
+  return locked(repoRoot, () => {
+    const proposal = save(repoRoot, {
       ...requireProposal(repoRoot, id, ["preparing"]),
       status: "failed",
       error: Text.parse(error),
-    }),
-  );
+    });
+    updateProposalRequest(repoRoot, id, "failed");
+    return proposal;
+  });
 }
 
 /** Execute only an approved, unchanged plan. Hooks run normally; failures stop without rollback. */
