@@ -6,6 +6,13 @@ import { CommitProposalPanel } from "../../src/window/CommitProposalPanel";
 import type { CommitProposal } from "../../src/core/commitProposal";
 import { FilesPane } from "../../src/window/FilesPane";
 import { useCommitProposal } from "../../src/window/useCommitProposal";
+import { TestInlineComments } from "./window-comments-browser";
+import { TestSidebarSwitching } from "./window-sidebar-browser";
+import { TestReviewNavigation } from "./window-navigation-browser";
+import {
+  TestCommentNotifications,
+  TestSharedProposalActivity,
+} from "./window-notifications-browser";
 
 let testApprovedCommits: readonly number[] = [];
 let testPollCalls = 0;
@@ -56,7 +63,7 @@ const cases = [
 function renderTestWindowDiffs() {
   const diffs = cases.map((scenario) => {
     const suffix = scenario.long ? "x".repeat(300) : "short";
-    const patch = `diff --git a/test.ts b/test.ts\n--- a/test.ts\n+++ b/test.ts\n@@ -1,2 +1,2 @@\n-export const value = '${suffix}';\n+export const value = 'new';\n export const kept = true;\n`;
+    const patch = `diff --git a/test.ts b/test.ts\n--- a/test.ts\n+++ b/test.ts\n@@ -1,2 +1,2 @@\n-export const value = '${suffix}';\n+export const value = 'new';\n export const kept = true;\n@@ -20,2 +20,2 @@\n-export const later = 1;\n+export const later = 2;\n export const last = true;\n`;
     return (
       <section id={scenario.id} key={scenario.id} style={{ width: scenario.width }}>
         <PatchDiff
@@ -130,6 +137,11 @@ function renderTestWindowDiffs() {
       ))}
       <TestProposalPolling />
       <TestEmptyProposalPolling />
+      <TestInlineComments />
+      <TestSidebarSwitching />
+      <TestReviewNavigation />
+      <TestCommentNotifications />
+      <TestSharedProposalActivity />
     </>
   );
 }
@@ -155,6 +167,13 @@ function measureTestColumns() {
       id: scenario.id,
       display: getComputedStyle(pre).display,
       width: bounds.width,
+      separatorMarker: getComputedStyle(
+        pre.querySelector('[data-gutter] [data-separator="simple"]')!,
+        "::after",
+      ).content,
+      separatorLine: getComputedStyle(
+        pre.querySelector('[data-content] [data-separator="simple"]')!,
+      ).backgroundImage,
       additionAccent: getComputedStyle(
         pre.querySelector<HTMLElement>('[data-line][data-line-type="change-addition"]')!,
       ).boxShadow,
@@ -179,28 +198,25 @@ function measureTestColumns() {
     const panel = document.querySelector<HTMLElement>(`#panel-${status} .commit-panel`)!;
     const body = panel.querySelector<HTMLElement>(".commit-panel-body")!;
     const footer = panel.querySelector<HTMLElement>(".commit-panel-footer")!;
-    const details = [...panel.querySelectorAll<HTMLDetailsElement>("details")];
-    const allOpen = details.every((detail) => detail.open);
-    const summary = details[0]?.querySelector("summary");
-    summary?.click();
-    const toggles = status !== "ready" || details[0]?.open === false;
-    summary?.click();
+    const groups = [...panel.querySelectorAll<HTMLElement>(".commit-group")];
     return {
       status,
       width: panel.getBoundingClientRect().width,
+      sidebarBorder: getComputedStyle(panel.closest(".files")!).borderLeftWidth,
       scrollWidth: body.scrollWidth,
       clientWidth: body.clientWidth,
       footerBottom: footer.getBoundingClientRect().bottom - panel.getBoundingClientRect().top,
       height: panel.getBoundingClientRect().height,
-      allOpen,
-      toggles,
-      groups: details.length,
+
+      groups: groups.length,
       modal: document.querySelector("dialog") !== null,
     };
   });
   document.getElementById("panel-result")!.textContent = JSON.stringify(panels);
   const checkboxes = [
-    ...document.querySelectorAll<HTMLInputElement>('#panel-ready summary input[type="checkbox"]'),
+    ...document.querySelectorAll<HTMLInputElement>(
+      '#panel-ready .commit-group-heading input[type="checkbox"]',
+    ),
   ];
   const allChecked = checkboxes.every((checkbox) => checkbox.checked);
   checkboxes[1]?.click();

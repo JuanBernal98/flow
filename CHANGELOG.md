@@ -10,6 +10,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- Review discussions belong to their Git branch and return when switching back, including replies and read receipts. Existing discussions are assigned to the current branch on first read.
+
+- The desktop file list shows quiet discussion counts and a dot for unread agent messages. Open a badge to jump to the first new reply; read acknowledgements persist when its thread enters view.
+
+- Desktop discussions support user follow-ups in the same anchored thread, stable thread identities, and pending, in-progress, and answered states. Agents can mark work with `flow comments claim <id> --author <name>`.
+
 - The desktop Commit button requests a grouped proposal from your coding agent, shows exact messages and files in the live Changes sidebar, and creates only the approved commits. Stale proposals are rejected; progress, local fixups, cancellations, and hook failures are shown in the window.
 
 - Agent comments and replies accept `--author <name>` and display that identity in the terminal and desktop window. Unnamed messages display as Agent.
@@ -67,6 +73,30 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The `ticket`, `ticket-context`, and `mr` agent skills now ship in `skills/` next to `flow-review`; `flow skill show <name>` and `flow skill path <name>` print any of them.
 
 ### Changed
+
+- Desktop file line totals use the same font size as filenames, with discussion notifications beside them.
+
+- Desktop comment boxes show messages and the editor without extra status or reply labels. Drifted discussions stay saved but are hidden from the desktop review and its file badges.
+
+- Changes and Commit share a mouse-resizable sidebar with a saved width. Proposal messages use the same section headings as Tracked/Untracked, without accordions or file counters.
+
+- Propose uses Flow's logo purple and a sparkle icon. Commit groups use compact history-style rows with file counts beneath each message.
+
+- Desktop proposals create new commits only, with no fixups or history rewriting. Commit groups show their message, included files and file count without descriptions or tags.
+
+- Desktop commit proposal instructions reuse the current session's context and prioritize publishing groups without repeating implementation checks.
+
+- Omitted diff lines show an ellipsis in the number gutter and a horizontal separator across the code.
+
+- Desktop code blocks use a borderless surface that blends into the review.
+
+- Inline discussions use bubbles with subtle matching borders and message separators, author names, relative creation times and consistent backgrounds. Comment text matches the diff font size, above smaller author metadata. A persistent comment placeholder opens and focuses the editor. Updating a discussion no longer redraws unrelated file diffs.
+
+- The Commit tab clears completed proposal messages and files after successful commits, including when reopening the window.
+
+- Approving a desktop commit proposal runs Git locally without another agent request, keeping the review server responsive while hooks run.
+
+- Commit proposal accordions blend into the sidebar with matching backgrounds, no borders, and checkboxes aligned on the right like Changes.
 
 - The Changes/Commit sidebar keeps one full-width footer action: Propose requests groups for selected files, Commit executes only checked proposals. Repeated response polling no longer redraws the diff and stops once a response arrives.
 - Added and deleted desktop diff rows have a thin green or red accent at the code's left edge.
@@ -179,6 +209,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The workspace lists real YouTrack tickets: unresolved tickets assigned to you under **To do**, and those in the `Review` state under **Needs approval**. With the workspace focused, press `h` to open the selected ticket in the browser or `r` to reload. `Enter` switches to the ticket's branch (creating it from `origin/main` if needed). Uncommitted changes are stashed per branch on the way out and restored automatically when you return to that ticket. Set the instance under `[youtrack] url` and the token in the Keychain item `flow-youtrack`; see the README.
 
 ### Fixed
+
+- Clicking a file, including the current file or a collapsed file, issues a fresh navigation request instead of competing with hunk scrolling.
+
+- Stale desktop commit proposals refresh automatically, preserving selected files and requiring fresh approval. Changes and Commit share their in-flight state, including proposal progress when switching tabs.
+
+- Desktop sidebar resizing keeps offscreen diffs out of repeated layout work and isolates its width styles, preserving live feedback and review geometry while dragging.
+
+- Clearing an agent session reannounces review comments even when the session ID stays the same. User follow-ups notify the agent; its own replies do not.
+
+- Switching between Changes and Commit preserves both panels and their state without rebuilding them. Proposal reads use asynchronous disk access to keep the desktop server responsive.
+
+- The desktop sidebar keeps one continuous left border across its tabs, Changes and Commit views, and footer.
 
 - A terminal watcher no longer consumes requests intended for Codex lifecycle hooks. Proposal loading distinguishes waiting for an agent from preparing groups.
 

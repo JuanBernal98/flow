@@ -21,21 +21,33 @@ import {
   loadWindowWorkspace,
   loadWindowLocalWorkspace,
   removeWindowComment,
+  replyToWindowComment,
+  markWindowCommentRead,
 } from "./data";
 import page from "./index.html";
 import { readWindowPreferences, saveWindowPreferences } from "./preferenceStore";
-import { MIN_DIFF_FONT_SIZE, MAX_DIFF_FONT_SIZE } from "./preferences";
+import {
+  MIN_DIFF_FONT_SIZE,
+  MAX_DIFF_FONT_SIZE,
+  MIN_SIDEBAR_WIDTH,
+  MAX_SIDEBAR_WIDTH,
+} from "./preferences";
 import { launchWindowHost } from "./windowLauncher";
 import {
   approveCommitProposal,
   cancelCommitProposal,
   readCommitProposal,
+  readCommitProposalAsync,
   requestCommitProposal,
+  readCurrentCommitProposal,
+  refreshCommitProposal,
+  StaleCommitProposalError,
 } from "../core/commitProposal";
 import type { WindowBootstrap } from "./windowBootstrap";
 
 const WindowPreferencesSchema = z.object({
   diffFontSize: z.number().min(MIN_DIFF_FONT_SIZE).max(MAX_DIFF_FONT_SIZE).multipleOf(0.5),
+  sidebarWidth: z.number().int().min(MIN_SIDEBAR_WIDTH).max(MAX_SIDEBAR_WIDTH).optional(),
 });
 
 /** What the window sends to add a comment. */
@@ -80,10 +92,12 @@ export function startWindowServer(repoRoot: string) {
       "/api/me": (request) =>
         authorized(request) ? Response.json({ name: loadWindowUserName(repoRoot) }) : forbidden(),
       "/api/commits": {
-        GET: (request) => {
+        GET: async (request) => {
           if (!authorized(request)) return forbidden();
           try {
-            return Response.json(readCommitProposal(repoRoot));
+            return Response.json(
+              readCurrentCommitProposal(repoRoot, await readCommitProposalAsync(repoRoot)),
+            );
           } catch (error) {
             return new Response(error instanceof Error ? error.message : String(error), {
               status: 400,
@@ -115,14 +129,38 @@ export function startWindowServer(repoRoot: string) {
                 .object({ commits: z.array(z.number().int().nonnegative()).optional() })
                 .strict()
                 .parse(body ? JSON.parse(body) : {});
-              return Response.json(
-                approveCommitProposal(repoRoot, request.params.id, input.commits),
+              const approved = approveCommitProposal(repoRoot, request.params.id, input.commits);
+              // Git hooks run in a child process so the server can still serve the review UI.
+              const execution = Bun.spawn(
+                [
+                  process.execPath,
+                  "run",
+                  join(import.meta.dir, "commitExecution.ts"),
+                  repoRoot,
+                  approved.id,
+                ],
+                {
+                  cwd: repoRoot,
+                  windowsHide: true,
+                  stdin: "ignore",
+                  stdout: "ignore",
+                  stderr: "pipe",
+                },
               );
+              const [errors, exitCode] = await Promise.all([
+                new Response(execution.stderr).text(),
+                execution.exited,
+              ]);
+              if (exitCode !== 0)
+                throw new Error(errors.trim() || "Local commit execution failed.");
+              return Response.json(readCommitProposal(repoRoot));
             }
             if (request.params.action === "cancel")
               return Response.json(cancelCommitProposal(repoRoot, request.params.id));
             return new Response("Unknown commit action.", { status: 404 });
           } catch (error) {
+            if (error instanceof StaleCommitProposalError)
+              return Response.json(refreshCommitProposal(repoRoot, error.proposalId));
             return new Response(error instanceof Error ? error.message : String(error), {
               status: 400,
             });
@@ -146,10 +184,44 @@ export function startWindowServer(repoRoot: string) {
         },
       },
       "/api/comments/:id": {
+        POST: async (request) => {
+          if (!authorized(request)) return forbidden();
+          try {
+            const id = z.coerce.number().int().positive().parse(request.params.id);
+            const { body } = z
+              .object({ body: z.string().trim().min(1) })
+              .strict()
+              .parse(await request.json());
+            replyToWindowComment(repoRoot, id, body);
+            return Response.json(loadWindowComments(repoRoot));
+          } catch (error) {
+            return new Response(error instanceof Error ? error.message : String(error), {
+              status: 400,
+            });
+          }
+        },
         DELETE: (request) => {
           if (!authorized(request)) return forbidden();
           removeWindowComment(repoRoot, Number(request.params.id));
           return new Response(null, { status: 204 });
+        },
+      },
+      "/api/comments/:id/read": {
+        POST: async (request) => {
+          if (!authorized(request)) return forbidden();
+          try {
+            const id = z.coerce.number().int().positive().parse(request.params.id);
+            const { replyCount } = z
+              .object({ replyCount: z.number().int().nonnegative() })
+              .strict()
+              .parse(await request.json());
+            markWindowCommentRead(repoRoot, id, replyCount);
+            return Response.json(loadWindowComments(repoRoot));
+          } catch (error) {
+            return new Response(error instanceof Error ? error.message : String(error), {
+              status: 400,
+            });
+          }
         },
       },
       "/api/diff": (request) => {

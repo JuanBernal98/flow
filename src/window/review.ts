@@ -46,3 +46,8 @@ export function stepFile(hunks: readonly WindowHunk[], current: number, directio
 export function hunkHoldsLine(hunk: WindowHunk, path: string, line: number) {
   return hunk.path === path && line >= hunk.newRange[0] && line <= hunk.newRange[1];
 }
+
+/** Stable DOM target shared by diff rendering and sidebar navigation. */
+export function fileAnchor(path: string) {
+  return `file-${path}`;
+}

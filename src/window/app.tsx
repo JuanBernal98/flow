@@ -3,7 +3,7 @@
  * The flow window: workspace sidebar, ticket overview, and the branch's diff rendered by Pierre's
  * web components. Everything works from the keyboard with the terminal UI's keys; `?` lists them.
  */
-import { PatchDiff, type DiffLineAnnotation, type PatchDiffProps } from "@pierre/diffs/react";
+import { type DiffLineAnnotation } from "@pierre/diffs/react";
 import type React from "react";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -25,12 +25,19 @@ import { DESKTOP_KEYS, HELP_SECTIONS } from "./shortcuts";
 import { applyIndentGuides } from "./indentGuides";
 import { observeStickyFileHeaders } from "./stickyFileHeaders";
 import { FilesPane } from "./FilesPane";
-import { FileAccordion, revealFileAccordion, toggleFileAccordions } from "./FileAccordion";
+import { toggleFileAccordions } from "./FileAccordion";
 import { DiffToolbar } from "./DiffToolbar";
 import { windowThemeStyles } from "./windowTheme";
 import { SettingsPanel, SettingsIcon } from "./SettingsPanel";
 import { CommitProposalPanel } from "./CommitProposalPanel";
+import { activateVisibleCommitAction } from "./CommitActionButton";
 import { useCommitProposal } from "./useCommitProposal";
+import { CommentThread } from "./CommentThread";
+import { CommentEditor } from "./CommentEditor";
+import { DiffFile, type DiffNote } from "./DiffFile";
+import { EMPTY_FILE_COMMENTS, groupFileComments } from "./fileComments";
+import { hasUnreadCommentReply } from "../core/commentThread";
+import { navigateReview, type ReviewNavigation } from "./reviewNavigation";
 import { normalizeWindowPreferences, type WindowPreferences } from "./preferences";
 import type { WindowBootstrap } from "./windowBootstrap";
 
@@ -102,14 +109,20 @@ function App() {
   const [timing, setTiming] = useState<string>("");
   const [zone, setZone] = useState<FocusZone>("review");
   const [hunkIndex, setHunkIndex] = useState(0);
+  const [reviewNavigation, setReviewNavigation] = useState<ReviewNavigation | null>(null);
   const [editing, setEditing] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<number | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [preferences, setPreferences] = useState(() =>
     normalizeWindowPreferences(initialBootstrap?.preferences),
   );
   const [preferencesLoaded, setPreferencesLoaded] = useState(Boolean(initialBootstrap));
-  const lastSavedFont = useRef(initialBootstrap?.preferences.diffFontSize);
+  const lastSavedPreferences = useRef(
+    initialBootstrap
+      ? JSON.stringify(normalizeWindowPreferences(initialBootstrap.preferences))
+      : null,
+  );
   const preferenceSave = useRef(Promise.resolve());
   const [comments, setComments] = useState<PersistedComment[]>(initialBootstrap?.comments ?? []);
   const [notice, setNotice] = useState<string | null>(null);
@@ -126,12 +139,13 @@ function App() {
     const style = document.documentElement.style;
     style.setProperty("--diff-font-size", `${preferences.diffFontSize}px`);
     style.setProperty("--diff-line-height", `${Math.round(preferences.diffFontSize * 1.6)}px`);
-    if (!preferencesLoaded || lastSavedFont.current === preferences.diffFontSize) return;
+    const serialized = JSON.stringify(preferences);
+    if (!preferencesLoaded || lastSavedPreferences.current === serialized) return;
     const timer = window.setTimeout(() => {
       preferenceSave.current = preferenceSave.current
         .then(() => api("/api/preferences", { method: "PUT", body: preferences }))
         .then(() => {
-          lastSavedFont.current = preferences.diffFontSize;
+          lastSavedPreferences.current = serialized;
         })
         .catch((error: unknown) =>
           setNotice(error instanceof Error ? error.message : String(error)),
@@ -200,8 +214,33 @@ function App() {
   const focusReviewHunk = useCallback((index: number) => {
     setZone("review");
     setHunkIndex(index);
+    setReviewNavigation({ kind: "hunk", index });
   }, []);
-  const cancelComment = useCallback(() => setEditing(false), []);
+  const cancelComment = useCallback(() => {
+    setEditing(false);
+    setReplyingTo(null);
+  }, []);
+  const startComment = useCallback((index: number) => {
+    setZone("review");
+    setHunkIndex(index);
+    setReplyingTo(null);
+    setEditing(true);
+    setReviewNavigation(null);
+  }, []);
+  const replyToComment = useCallback(
+    (comment: PersistedComment) => {
+      const index = listWindowHunks(diff ?? []).find((hunk) =>
+        hunkHoldsLine(hunk, comment.file, comment.line),
+      )?.index;
+      if (index === undefined) return;
+      setZone("review");
+      setHunkIndex(index);
+      setReplyingTo(comment.id);
+      setEditing(true);
+      setReviewNavigation(null);
+    },
+    [diff],
+  );
   const commitFlow = useCommitProposal(api, reload);
 
   // Comments change on disk when the agent replies or resolves them, so they are re-read often.
@@ -217,38 +256,80 @@ function App() {
   }, [loadComments]);
 
   const hunks = useMemo(() => listWindowHunks(diff ?? []), [diff]);
+  const reviewComments = useMemo(
+    () =>
+      comments.filter((comment) =>
+        hunks.some((hunk) => hunkHoldsLine(hunk, comment.file, comment.line)),
+      ),
+    [comments, hunks],
+  );
+  const readingComments = useRef(new Set<string>());
+  const markCommentRead = useCallback(
+    (comment: PersistedComment) => {
+      const key = `${comment.threadId ?? comment.id}:${comment.replies?.length ?? 0}`;
+      if (readingComments.current.has(key)) return;
+      readingComments.current.add(key);
+      void api(`/api/comments/${comment.id}/read`, {
+        method: "POST",
+        body: { replyCount: comment.replies?.length ?? 0 },
+      })
+        .then(loadComments)
+        .catch((error: unknown) =>
+          setNotice(error instanceof Error ? error.message : String(error)),
+        )
+        .finally(() => readingComments.current.delete(key));
+    },
+    [loadComments],
+  );
+  const openFileComments = useCallback(
+    (path: string) => {
+      const threads = reviewComments.filter((comment) => comment.file === path);
+      const comment = threads.find(hasUnreadCommentReply) ?? threads[0];
+      if (!comment) return;
+      const hunk = hunks.find((candidate) => hunkHoldsLine(candidate, path, comment.line));
+      if (hunk) setHunkIndex(hunk.index);
+      setZone("review");
+      setEditing(false);
+      setReviewNavigation({ kind: "comment", comment });
+    },
+    [reviewComments, hunks],
+  );
   const openReviewFile = useCallback(
     (path: string) => {
-      const element = document.getElementById(fileAnchor(path));
-      revealFileAccordion(element);
       const hunk = hunks.find((candidate) => candidate.path === path);
       if (hunk) setHunkIndex(hunk.index);
-      element?.scrollIntoView({ behavior: "instant", block: "start" });
+      setZone("review");
+      setEditing(false);
+      setReviewNavigation({ kind: "file", path });
     },
     [hunks],
   );
   const focusedHunk = hunks[Math.min(hunkIndex, hunks.length - 1)] ?? null;
   const commentsOn = useCallback(
     (hunk: WindowHunk) =>
-      comments.filter((comment) => hunkHoldsLine(hunk, comment.file, comment.line)),
-    [comments],
+      reviewComments.filter((comment) => hunkHoldsLine(hunk, comment.file, comment.line)),
+    [reviewComments],
   );
 
   const saveComment = useCallback(
     async (body: string) => {
       if (!focusedHunk) return;
       try {
-        await api("/api/comments", {
+        await api(replyingTo === null ? "/api/comments" : `/api/comments/${replyingTo}`, {
           method: "POST",
-          body: { file: focusedHunk.path, range: focusedHunk.newRange, body },
+          body:
+            replyingTo === null
+              ? { file: focusedHunk.path, range: focusedHunk.newRange, body }
+              : { body },
         });
         setEditing(false);
+        setReplyingTo(null);
         loadComments();
       } catch (error) {
         setNotice(error instanceof Error ? error.message : String(error));
       }
     },
-    [focusedHunk, loadComments],
+    [focusedHunk, loadComments, replyingTo],
   );
 
   const [collapsed, setCollapsed] = useState<ReadonlySet<WorkspaceSectionId>>(new Set());
@@ -271,7 +352,9 @@ function App() {
 
   useEffect(() => {
     const moveHunk = (next: number) => {
-      setHunkIndex(Math.max(0, Math.min(next, hunks.length - 1)));
+      const index = Math.max(0, Math.min(next, hunks.length - 1));
+      setHunkIndex(index);
+      setReviewNavigation({ kind: "hunk", index });
       setEditing(false);
     };
     const current = focusedHunk?.index ?? 0;
@@ -307,6 +390,13 @@ function App() {
         return;
       if (event.metaKey || event.ctrlKey || event.altKey) return;
       const key = event.key;
+      if (
+        key === "Tab" ||
+        ((key === "Enter" || key === " ") &&
+          event.target instanceof Element &&
+          event.target.closest('button, input[type="checkbox"]'))
+      )
+        return;
       if (helpOpen) {
         if (key === "Escape" || key === "?") setHelpOpen(false);
         event.preventDefault();
@@ -321,9 +411,8 @@ function App() {
         if (commitFlow.open) commitFlow.close();
         else commitFlow.show();
       } else if (key === DESKTOP_KEYS.commitAction) {
-        const button = document.querySelector<HTMLButtonElement>(".files .commit-button");
-        if (button && !button.disabled) button.click();
-        else if (!filesOpen) setFilesOpen(true);
+        if (!activateVisibleCommitAction(document.querySelector(".files")) && !filesOpen)
+          setFilesOpen(true);
       } else if (key === "Escape") {
         setZone("review");
         setEditing(false);
@@ -368,8 +457,7 @@ function App() {
           }
         }
       } else if (key === "a" && focusedHunk) {
-        setZone("review");
-        setEditing(true);
+        startComment(focusedHunk.index);
       } else if (key === "d" && focusedHunk) {
         const [comment] = commentsOn(focusedHunk);
         if (comment) {
@@ -411,6 +499,7 @@ function App() {
     workspaceOpen,
     ticketsEnabled,
     loadComments,
+    startComment,
     commitFlow.open,
     filesOpen,
   ]);
@@ -431,7 +520,12 @@ function App() {
       </WindowTitleBar>
       <div
         className="panes"
-        style={{ gridTemplateColumns: paneColumns(showWorkspace, showOverview, filesOpen) }}
+        style={
+          {
+            gridTemplateColumns: paneColumns(showWorkspace, showOverview, filesOpen),
+            "--files-sidebar-width": `${preferences.sidebarWidth ?? 320}px`,
+          } as React.CSSProperties
+        }
       >
         {showWorkspace ? (
           <aside className={`sidebar${zone === "workspace" ? " focused" : ""}`}>
@@ -482,6 +576,7 @@ function App() {
         ) : null}
         {showOverview ? <OverviewPane item={selected} /> : null}
         <DiffPane
+          navigation={reviewNavigation}
           files={diff}
           selectedPaths={selectedPaths}
           onSelectFile={selectReviewFile}
@@ -489,16 +584,23 @@ function App() {
           scope={diffScope}
           theme={theme}
           focusedHunk={zone === "review" ? focusedHunk : null}
-          comments={comments}
+          comments={reviewComments}
           editing={editing && zone === "review"}
+          replyingTo={replyingTo}
           onSaveComment={saveComment}
           onCancelComment={cancelComment}
+          onStartComment={startComment}
+          onReplyComment={replyToComment}
+          onReadComment={markCommentRead}
           userName={userName}
           onFocusHunk={focusReviewHunk}
           hunks={hunks}
         />
         {filesOpen ? (
           <FilesPane
+            commitActivity={commitFlow.activity}
+            comments={reviewComments}
+            onOpenComments={openFileComments}
             files={diff}
             activePath={focusedHunk?.path ?? null}
             selectedPaths={selectedPaths}
@@ -507,18 +609,19 @@ function App() {
             onChanges={commitFlow.close}
             onCommitTab={commitFlow.show}
             onOpen={openReviewFile}
+            onResize={(sidebarWidth) => setPreferences((current) => ({ ...current, sidebarWidth }))}
+            proposalOpen={commitFlow.open}
             proposal={
-              commitFlow.open ? (
-                <CommitProposalPanel
-                  proposal={commitFlow.proposal}
-                  files={diff ?? []}
-                  onOpenFile={openReviewFile}
-                  pending={commitFlow.pending}
-                  error={commitFlow.error}
-                  onApprove={(commits) => void commitFlow.approve(commits)}
-                  onPropose={() => void commitFlow.request([...selectedPaths])}
-                />
-              ) : undefined
+              <CommitProposalPanel
+                activity={commitFlow.activity}
+                proposal={commitFlow.proposal}
+                files={diff ?? []}
+                onOpenFile={openReviewFile}
+                pending={commitFlow.pending}
+                error={commitFlow.error}
+                onApprove={(commits) => void commitFlow.approve(commits)}
+                onPropose={() => void commitFlow.request([...selectedPaths])}
+              />
             }
           />
         ) : null}
@@ -529,7 +632,7 @@ function App() {
       {settingsOpen ? (
         <SettingsPanel
           fontSize={preferences.diffFontSize}
-          onFontSize={(diffFontSize) => setPreferences({ diffFontSize })}
+          onFontSize={(diffFontSize) => setPreferences((current) => ({ ...current, diffFontSize }))}
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
@@ -650,7 +753,9 @@ function ChevronIcon() {
 /** Grid columns for the open panes: the overview and the diff split what the sidebars leave. */
 function paneColumns(workspace: boolean, overview: boolean, files: boolean) {
   const body = overview ? "minmax(0, 1fr) minmax(0, 1fr)" : "minmax(0, 1fr)";
-  return [workspace ? "280px" : "", body, files ? "320px" : ""].filter(Boolean).join(" ");
+  return [workspace ? "280px" : "", body, files ? "var(--files-sidebar-width, 320px)" : ""]
+    .filter(Boolean)
+    .join(" ");
 }
 
 /** The bottom bar: panel toggles on the edges, the branch and change totals in between. */
@@ -832,129 +937,6 @@ function BranchIcon() {
   );
 }
 
-/** Two initials from a name: "Juan Bernal" → "JB", "juan" → "J". */
-function initials(name: string) {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  return words
-    .slice(0, 2)
-    .map((word) => word[0]?.toUpperCase() ?? "")
-    .join("");
-}
-
-/** One message in a thread, chat style: avatar, author and action, then the text. */
-function ThreadMessage({
-  author,
-  agentName,
-  userName,
-  action,
-  body,
-}: {
-  author: "user" | "agent";
-  agentName?: string;
-  userName: string;
-  action: string;
-  body: string;
-}) {
-  const agent = author === "agent";
-  return (
-    <div className={`thread-message ${author}`}>
-      <div className="thread-meta">
-        <span className="avatar" aria-hidden="true">
-          {agent ? "✻" : initials(userName)}
-        </span>
-        <span className="thread-author">{agent ? (agentName ?? "Agent") : userName}</span>
-        <span className="thread-action">{action}</span>
-      </div>
-      <div className="thread-body">{body}</div>
-    </div>
-  );
-}
-
-/** Every comment on one line and its replies in a single box, a row per message. */
-function CommentThread({
-  comments,
-  userName,
-  editor,
-}: {
-  comments: PersistedComment[];
-  userName: string;
-  editor: React.ReactNode;
-}) {
-  const first = comments[0];
-  const messages = comments.reduce(
-    (count, comment) => count + 1 + (comment.replies?.length ?? 0),
-    0,
-  );
-  return (
-    <div className={`thread${editor ? " editing" : ""}`}>
-      {first ? (
-        <div className="thread-header">
-          <span>
-            {first.range[0] === first.range[1]
-              ? `Line ${first.range[0]}`
-              : `Lines ${first.range[0]}–${first.range[1]}`}
-          </span>
-          <span>
-            {messages} {messages === 1 ? "message" : "messages"}
-          </span>
-        </div>
-      ) : null}
-      {comments.flatMap((comment) => [
-        <ThreadMessage
-          key={`${comment.id}`}
-          author={comment.author === "agent" ? "agent" : "user"}
-          agentName={comment.agentName}
-          userName={userName}
-          action="commented"
-          body={comment.body}
-        />,
-        ...(comment.replies ?? []).map((reply, index) => (
-          <ThreadMessage
-            key={`${comment.id}-${index}`}
-            author="agent"
-            agentName={reply.agentName}
-            userName={userName}
-            action="replied"
-            body={reply.body}
-          />
-        )),
-      ])}
-      {editor}
-    </div>
-  );
-}
-
-/** The editor `a` opens: Enter saves, Shift+Enter adds a line, Esc cancels. */
-function CommentEditor({
-  onSave,
-  onCancel,
-}: {
-  onSave: (body: string) => void;
-  onCancel: () => void;
-}) {
-  const [body, setBody] = useState("");
-  return (
-    <div className="thread-editor">
-      <textarea
-        autoFocus
-        rows={2}
-        value={body}
-        placeholder="Comment for Claude on this hunk…  Enter saves · Shift+Enter new line · Esc cancels"
-        onChange={(event) => setBody(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault();
-            if (body.trim()) onSave(body);
-          } else if (event.key === "Escape") {
-            event.preventDefault();
-            onCancel();
-          }
-        }}
-      />
-    </div>
-  );
-}
-
 function HelpOverlay({
   ticketsEnabled,
   onClose,
@@ -988,10 +970,6 @@ function HelpOverlay({
       </div>
     </div>
   );
-}
-
-function fileAnchor(path: string) {
-  return `file-${path}`;
 }
 
 const SidebarItem = memo(function SidebarItem({
@@ -1113,17 +1091,9 @@ function Bullets({ title, items, ordered }: { title: string; items: string[]; or
   );
 }
 
-/** What an inline row in the diff holds: a saved comment, or the editor for a new one. */
-/**
- * One discussion under a line, like a GitLab thread: every comment on that line with its replies,
- * plus the editor when `a` opens there.
- */
-interface DiffNote {
-  comments: PersistedComment[];
-  editing: boolean;
-}
-
+/** Coordinate the review stream while each file owns its diff rendering and inline discussions. */
 const DiffPane = memo(function DiffPane({
+  navigation,
   files,
   selectedPaths,
   onSelectFile,
@@ -1134,11 +1104,16 @@ const DiffPane = memo(function DiffPane({
   focusedHunk,
   comments,
   editing,
+  replyingTo,
   onSaveComment,
   onCancelComment,
+  onStartComment,
+  onReplyComment,
+  onReadComment,
   onFocusHunk,
   userName,
 }: {
+  navigation: ReviewNavigation | null;
   files: WindowDiffFile[] | null;
   selectedPaths: ReadonlySet<string>;
   onSelectFile: (path: string, checked: boolean) => void;
@@ -1149,12 +1124,22 @@ const DiffPane = memo(function DiffPane({
   focusedHunk: WindowHunk | null;
   comments: PersistedComment[];
   editing: boolean;
+  replyingTo: number | null;
   onSaveComment: (body: string) => void;
   onCancelComment: () => void;
+  onStartComment: (index: number) => void;
+  onReplyComment: (comment: PersistedComment) => void;
+  onReadComment: (comment: PersistedComment) => void;
   onFocusHunk: (index: number) => void;
   userName: string;
 }) {
   const codeTheme = theme?.codeTheme;
+  const previousComments = useRef(new Map<string, PersistedComment[]>());
+  const fileComments = useMemo(() => {
+    const grouped = groupFileComments(comments, previousComments.current);
+    previousComments.current = grouped;
+    return grouped;
+  }, [comments]);
   const appearance = theme?.appearance;
   useEffect(
     () => observeStickyFileHeaders(document.querySelector<HTMLElement>(".diff")),
@@ -1180,43 +1165,50 @@ const DiffPane = memo(function DiffPane({
     [diffStyle, codeTheme, appearance],
   );
 
-  // Keep the focused hunk on screen, once Pierre has drawn its highlighted rows.
-  useEffect(() => {
-    if (!focusedHunk) return;
-    revealFileAccordion(document.getElementById(fileAnchor(focusedHunk.path)));
-    let frames = 0;
-    let handle = 0;
-    const reveal = () => {
-      const host = document
-        .getElementById(fileAnchor(focusedHunk.path))
-        ?.querySelector("diffs-container");
-      const row = host?.shadowRoot?.querySelector("[data-selected-line]");
-      if (row) {
-        row.scrollIntoView({ block: "nearest", behavior: "instant" });
-      } else if (frames++ < 30) {
-        handle = requestAnimationFrame(reveal);
-      }
-    };
-    handle = requestAnimationFrame(reveal);
-    return () => cancelAnimationFrame(handle);
-  }, [focusedHunk]);
+  useLayoutEffect(
+    () => navigateReview(document.querySelector<HTMLElement>(".diff"), navigation, hunks),
+    [navigation, hunks],
+  );
 
   const renderNote = useCallback(
     (annotation: DiffLineAnnotation<DiffNote>) => {
       const note = annotation.metadata;
+      const path = note.comments[0]?.file;
       return (
         <CommentThread
           comments={note.comments}
           userName={userName}
+          onRead={onReadComment}
           editor={
-            note.editing ? (
-              <CommentEditor onSave={onSaveComment} onCancel={onCancelComment} />
-            ) : null
+            <CommentEditor
+              active={note.editing}
+              onSave={onSaveComment}
+              onCancel={onCancelComment}
+              onActivate={() => {
+                const comment = note.comments.at(-1);
+                if (comment) {
+                  onReplyComment(comment);
+                  return;
+                }
+                const hunk = hunks.find((candidate) =>
+                  hunkHoldsLine(candidate, path ?? "", annotation.lineNumber),
+                );
+                if (hunk) onStartComment(hunk.index);
+              }}
+            />
           }
         />
       );
     },
-    [onSaveComment, onCancelComment, userName],
+    [
+      onSaveComment,
+      onCancelComment,
+      onStartComment,
+      onReplyComment,
+      onReadComment,
+      hunks,
+      userName,
+    ],
   );
 
   // Wait for the theme so code is not highlighted twice on launch.
@@ -1237,112 +1229,19 @@ const DiffPane = memo(function DiffPane({
             key={file.path}
             file={file}
             selected={selectedPaths.has(file.path)}
-            onSelectionChange={(checked) => onSelectFile(file.path, checked)}
+            onSelectFile={onSelectFile}
             options={options}
             focused={focused}
-            comments={comments}
+            comments={fileComments.get(file.path) ?? EMPTY_FILE_COMMENTS}
             editing={editing && focused !== null}
+            replyingTo={editing && focused !== null ? replyingTo : null}
             renderNote={renderNote}
-            onClickHunk={(line) => {
-              const hunk = hunks.find((candidate) => hunkHoldsLine(candidate, file.path, line));
-              if (hunk) onFocusHunk(hunk.index);
-            }}
+            hunks={hunks}
+            onFocusHunk={onFocusHunk}
           />
         );
       })}
     </main>
-  );
-});
-
-const DiffFile = memo(function DiffFile({
-  file,
-  selected,
-  onSelectionChange,
-  options,
-  focused,
-  comments,
-  editing,
-  renderNote,
-  onClickHunk,
-}: {
-  file: WindowDiffFile;
-  selected: boolean;
-  onSelectionChange: (checked: boolean) => void;
-  options: PatchDiffProps<DiffNote, undefined>["options"];
-  focused: WindowHunk | null;
-  comments: PersistedComment[];
-  editing: boolean;
-  renderNote: (annotation: DiffLineAnnotation<DiffNote>) => React.ReactNode;
-  onClickHunk: (line: number) => void;
-}) {
-  // The focused hunk shows as Pierre's line selection, on the new side like the terminal.
-  const selectedLines = useMemo(
-    () =>
-      focused
-        ? { start: focused.newRange[0], end: focused.newRange[1], side: "additions" as const }
-        : null,
-    [focused],
-  );
-  // One thread per commented line; the editor joins the thread on the focused hunk's last line.
-  const notes = useMemo(() => {
-    const threads = new Map<number, DiffNote>();
-    for (const comment of comments) {
-      if (comment.file !== file.path) continue;
-      const thread = threads.get(comment.line) ?? { comments: [], editing: false };
-      thread.comments.push(comment);
-      threads.set(comment.line, thread);
-    }
-    if (editing && focused) {
-      const line = focused.newRange[1];
-      threads.set(line, { comments: threads.get(line)?.comments ?? [], editing: true });
-    }
-    return [...threads].map(([lineNumber, metadata]): DiffLineAnnotation<DiffNote> => ({
-      side: "additions",
-      lineNumber,
-      metadata,
-    }));
-  }, [comments, file.path, editing, focused]);
-  return (
-    <FileAccordion
-      id={fileAnchor(file.path)}
-      path={file.path}
-      selected={selected}
-      selectionDisabled={file.pending === false}
-      onSelectionChange={onSelectionChange}
-      expandable={/^@@ /m.test(file.patch)}
-      emptyLabel={
-        file.status === "added" || file.status === "deleted" ? "Empty file" : "No text changes"
-      }
-      header={
-        <>
-          <span className="file-header-label">
-            <span className={`file-header-name ${file.status}`}>
-              {file.path.slice(file.path.lastIndexOf("/") + 1)}
-            </span>
-            <span className="file-header-dir">
-              {file.path.slice(0, file.path.lastIndexOf("/") + 1)}
-            </span>
-          </span>
-          <span className="stat">
-            <span className="add">+{file.additions}</span>{" "}
-            <span className="del">-{file.deletions}</span>
-          </span>
-        </>
-      }
-    >
-      <div className="code-block">
-        <PatchDiff<DiffNote>
-          patch={file.patch}
-          options={{
-            ...options,
-            onLineClick: (props: { lineNumber: number }) => onClickHunk(props.lineNumber),
-          }}
-          selectedLines={selectedLines}
-          lineAnnotations={notes}
-          renderAnnotation={renderNote}
-        />
-      </div>
-    </FileAccordion>
   );
 });
 

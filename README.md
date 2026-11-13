@@ -106,12 +106,13 @@ Reviewing a teammate's MR works the same: pick it under **Reviews**, <kbd>Enter<
 
 ### ChatGPT / Codex integration
 
-In `flow open`, **Commit** asks your coding agent to propose groups for all uncommitted
-files. The Changes sidebar updates automatically and shows the exact messages, files, and local
-fixups for approval. **Create commits** approves that plan and asks the agent to execute
-it; no push is performed. Changed files or a different checkout invalidate the proposal.
+In `flow open`, **Propose** asks your coding agent to group the selected files, or all uncommitted
+files when none are selected. The Commit sidebar shows the messages, files, and file counts
+for approval. Each checked group creates a new commit, without rewriting history. **Commit** executes the checked groups locally with Git, without waiting
+for the agent; no push is performed. Changes to the selected files automatically refresh the proposal
+and require fresh approval. Proposal progress stays visible when switching between Changes and Commit.
 Keep your agent session available: lifecycle hooks deliver the request during active work
-or on its next turn. Cancel a pending proposal to request a new grouping.
+or on its next turn. Choose **Propose** again from Changes to request a new grouping.
 
 Run `flow setup codex` (or `flow setup chatgpt`) to install the bundled skills in
 `~/.agents/skills` and Flow's lifecycle hooks in `~/.codex/hooks.json`. `CODEX_HOME`

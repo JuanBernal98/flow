@@ -9,6 +9,8 @@ const GeometrySchema = z.array(
     id: z.string(),
     display: z.string(),
     width: z.number(),
+    separatorMarker: z.string(),
+    separatorLine: z.string(),
     additionAccent: z.string(),
     deletionAccent: z.string(),
     contextAccent: z.string(),
@@ -20,12 +22,11 @@ const PanelGeometrySchema = z.array(
   z.object({
     status: z.string(),
     width: z.number(),
+    sidebarBorder: z.string(),
     scrollWidth: z.number(),
     clientWidth: z.number(),
     footerBottom: z.number(),
     height: z.number(),
-    allOpen: z.boolean(),
-    toggles: z.boolean(),
     groups: z.number(),
     modal: z.boolean(),
   }),
@@ -78,6 +79,8 @@ test.skipIf(!browser)(
       expect(result, output.slice(-1500)).toBeDefined();
       const measurements = GeometrySchema.parse(JSON.parse(result!));
       for (const geometry of measurements) {
+        expect(geometry.separatorMarker).toBe('"…"');
+        expect(geometry.separatorLine).toContain("linear-gradient");
         expect(geometry.additionAccent).toContain("inset");
         expect(geometry.deletionAccent).toContain("inset");
         expect(geometry.additionAccent).toContain("3px 0px");
@@ -101,11 +104,10 @@ test.skipIf(!browser)(
       const panelResult = /<pre id="panel-result">([^<]+)<\/pre>/.exec(output)?.[1];
       expect(panelResult).toBeDefined();
       for (const panel of PanelGeometrySchema.parse(JSON.parse(panelResult!))) {
-        expect(panel.width).toBe(320);
+        expect(panel.width).toBe(319);
+        expect(panel.sidebarBorder).toBe("1px");
         expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth);
         expect(Math.abs(panel.footerBottom - panel.height)).toBeLessThan(1);
-        expect(panel.allOpen).toBe(true);
-        expect(panel.toggles).toBe(true);
         expect(panel.modal).toBe(false);
         if (panel.status === "ready") expect(panel.groups).toBe(2);
       }
@@ -139,6 +141,163 @@ test.skipIf(!browser)(
       expect(polling.emptyCalls).toBe(1);
       expect(polling.renders).toBeLessThanOrEqual(4);
       expect(polling.status).toBe("ready");
+      const comments = z
+        .object({
+          focused: z.boolean(),
+          visible: z.boolean(),
+          sameField: z.boolean(),
+          unrelatedRenders: z.number(),
+          margin: z.string(),
+          border: z.string(),
+          gutterMatches: z.boolean(),
+          codeMatches: z.boolean(),
+          bodySize: z.string(),
+          metaSize: z.string(),
+          separator: z.string(),
+          matchingBorders: z.boolean(),
+          placeholder: z.boolean(),
+          noAvatars: z.boolean(),
+          sameBackground: z.boolean(),
+          radius: z.string(),
+          dates: z.number(),
+          insideCode: z.boolean(),
+        })
+        .parse(JSON.parse(/<pre id="comment-result">([^<]+)<\/pre>/.exec(output)?.[1] ?? "null"));
+      expect(comments).toMatchObject({
+        focused: true,
+        visible: true,
+        sameField: true,
+        unrelatedRenders: 0,
+        border: "1px",
+        matchingBorders: true,
+        placeholder: true,
+        gutterMatches: true,
+        codeMatches: true,
+        bodySize: "16px",
+        metaSize: "13px",
+        separator: "1px",
+        radius: "10px",
+        noAvatars: true,
+        sameBackground: true,
+        dates: 2,
+        insideCode: true,
+      });
+      expect(comments.margin).not.toBe("0px");
+      const conversation = z
+        .object({
+          replyId: z.number(),
+          users: z.number(),
+          agents: z.number(),
+          pending: z.boolean(),
+          sameField: z.boolean(),
+        })
+        .parse(
+          JSON.parse(/<pre id="conversation-result">([^<]+)<\/pre>/.exec(output)?.[1] ?? "null"),
+        );
+      expect(conversation).toEqual({
+        replyId: 1,
+        users: 2,
+        agents: 1,
+        pending: false,
+        sameField: true,
+      });
+      const sidebar = z
+        .object({
+          calls: z.number(),
+          changesVisible: z.boolean(),
+          sameNode: z.boolean(),
+          stillUnchecked: z.boolean(),
+          sameScroll: z.boolean(),
+          action: z.string(),
+          width: z.number(),
+          savedWidth: z.number(),
+          resizeCalls: z.number(),
+        })
+        .parse(JSON.parse(/<pre id="sidebar-result">([^<]+)<\/pre>/.exec(output)?.[1] ?? "null"));
+      expect(sidebar).toEqual({
+        calls: 1,
+        changesVisible: true,
+        sameNode: true,
+        stillUnchecked: true,
+        sameScroll: true,
+        action: "commit",
+        width: 390,
+        savedWidth: 390,
+        resizeCalls: 1,
+      });
+      const notifications = z
+        .object({
+          firstUnread: z.boolean(),
+          readAfterOpening: z.boolean(),
+          unreadAgain: z.boolean(),
+          count: z.string(),
+          label: z.string(),
+          sameCountSize: z.boolean(),
+        })
+        .parse(
+          JSON.parse(/<pre id="notification-result">([^<]+)<\/pre>/.exec(output)?.[1] ?? "null"),
+        );
+      expect(notifications).toMatchObject({
+        firstUnread: true,
+        readAfterOpening: true,
+        unreadAgain: true,
+        count: "1",
+        sameCountSize: true,
+      });
+      expect(notifications.label).toContain("new replies");
+      const navigation = z
+        .object({
+          first: z.boolean(),
+          repeated: z.boolean(),
+          folded: z.boolean(),
+          latest: z.boolean(),
+        })
+        .parse(
+          JSON.parse(/<pre id="navigation-result">([^<]+)<\/pre>/.exec(output)?.[1] ?? "null"),
+        );
+      expect(navigation).toEqual({ first: true, repeated: true, folded: true, latest: true });
+      const activity = z
+        .object({
+          pendingLabel: z.string(),
+          pendingDisabled: z.boolean(),
+          preparingLabel: z.string(),
+          stayedInChanges: z.boolean(),
+          posts: z.number(),
+          finished: z.boolean(),
+        })
+        .parse(
+          JSON.parse(/<pre id="shared-activity-result">([^<]+)<\/pre>/.exec(output)?.[1] ?? "null"),
+        );
+      expect(activity).toEqual({
+        pendingLabel: "Proposing…",
+        pendingDisabled: true,
+        preparingLabel: "Proposing…",
+        stayedInChanges: true,
+        posts: 1,
+        finished: true,
+      });
+      const resize = z
+        .object({
+          stableHeight: z.boolean(),
+          duringVisibility: z.string(),
+          inheritedWidth: z.string(),
+          persistedDuringDrag: z.number(),
+          savesAfterCancel: z.number(),
+          widthAfterCancel: z.number(),
+          restored: z.boolean(),
+          visibilityAfterCancel: z.string(),
+        })
+        .parse(JSON.parse(/<pre id="resize-result">([^<]+)<\/pre>/.exec(output)?.[1] ?? "null"));
+      expect(resize).toEqual({
+        stableHeight: true,
+        duringVisibility: "auto",
+        inheritedWidth: "320px",
+        persistedDuringDrag: 1,
+        savesAfterCancel: 1,
+        widthAfterCancel: 390,
+        restored: true,
+        visibilityAfterCancel: "visible",
+      });
     } finally {
       await server.stop(true);
       rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

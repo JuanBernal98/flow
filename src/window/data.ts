@@ -17,7 +17,11 @@ import {
   computeAnchorForFile,
   mutateCommentsFile,
   readCommentsFile,
+  readPostImagesForComments,
+  resolveComments,
   withAddedComment,
+  withCommentReply,
+  withCommentRead,
   withRemovedComment,
   type PersistedComment,
 } from "../core/comments";
@@ -289,7 +293,10 @@ export async function loadWindowThemes(repoRoot: string): Promise<WindowThemes> 
 
 /** The review comments in `.flow/comments.json`, as the terminal UI and the agent read them. */
 export function loadWindowComments(repoRoot: string): PersistedComment[] {
-  return readCommentsFile(repoRoot).comments;
+  const comments = readCommentsFile(repoRoot).comments;
+  return resolveComments(comments, readPostImagesForComments(repoRoot, comments))
+    .filter((comment) => comment.state === "anchored")
+    .map(({ state: _state, ...comment }) => comment);
 }
 
 /**
@@ -331,6 +338,19 @@ export function addWindowComment(
 /** Remove one comment, like resolving it in the terminal. */
 export function removeWindowComment(repoRoot: string, id: number) {
   mutateCommentsFile(repoRoot, (current) => withRemovedComment(current, id));
+}
+
+/** Continue a discussion without creating another anchored comment. */
+export function replyToWindowComment(repoRoot: string, id: number, body: string) {
+  if (!body.trim()) throw new Error("A reply needs some text.");
+  mutateCommentsFile(repoRoot, (current) =>
+    withCommentReply(current, id, body.trim(), undefined, "user"),
+  );
+}
+
+/** Persist which agent messages the reviewer has actually opened. */
+export function markWindowCommentRead(repoRoot: string, id: number, replyCount: number) {
+  mutateCommentsFile(repoRoot, (current) => withCommentRead(current, id, replyCount));
 }
 
 /** The git user's name, for the user's avatar and name in comment threads. */

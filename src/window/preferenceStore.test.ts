@@ -35,3 +35,14 @@ test("invalid settings fall back to the current font size instead of breaking st
   }
   expect(normalizeWindowPreferences({ diffFontSize: 14.7 })).toEqual({ diffFontSize: 14.5 });
 });
+
+test("sidebar width survives reopening and keeps the saved font preference", () => {
+  const path = createTestPreferencesPath();
+  saveWindowPreferences({ diffFontSize: 14.5, sidebarWidth: 410 }, path);
+  expect(readWindowPreferences(path)).toEqual({ diffFontSize: 14.5, sidebarWidth: 410 });
+  for (const sidebarWidth of [0, 1000, "400", NaN]) {
+    expect(normalizeWindowPreferences({ diffFontSize: 14.5, sidebarWidth })).toEqual({
+      diffFontSize: 14.5,
+    });
+  }
+});

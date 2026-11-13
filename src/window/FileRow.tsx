@@ -12,27 +12,24 @@ export function FileRow({
   selected,
   onOpen,
   onSelectionChange,
+  commentCount = 0,
+  unreadComments = false,
+  onOpenComments,
 }: {
   file: FileRowData;
   active?: boolean;
   selected?: boolean;
   onOpen?: () => void;
   onSelectionChange?: (checked: boolean) => void;
+  commentCount?: number;
+  unreadComments?: boolean;
+  onOpenComments?: () => void;
 }) {
   const slash = file.path.lastIndexOf("/");
   const content = (
     <>
       {file.status ? <FileStatusIcon status={file.status} untracked={file.untracked} /> : null}
-      <span className="file-name">
-        {file.path.slice(slash + 1)}
-        {slash > 0 ? <span className="file-dir">{file.path.slice(0, slash)}</span> : null}
-      </span>
-      {!file.untracked && file.additions !== undefined && file.deletions !== undefined ? (
-        <span className="stat">
-          <span className="add">+{file.additions}</span>{" "}
-          <span className="del">−{file.deletions}</span>
-        </span>
-      ) : null}
+      <span className="file-name">{file.path.slice(slash + 1)}</span>
     </>
   );
   return (
@@ -52,6 +49,35 @@ export function FileRow({
           {content}
         </div>
       )}
+      <span className="file-dir">{slash > 0 ? file.path.slice(0, slash) : ""}</span>
+      {commentCount > 0 && onOpenComments ? (
+        <button
+          type="button"
+          className="file-comment-badge"
+          data-unread={unreadComments}
+          onClick={onOpenComments}
+          aria-label={`${commentCount} comment threads in ${file.path}${unreadComments ? ", new replies" : ""}`}
+          title={unreadComments ? "Open new reply" : "Open comments"}
+        >
+          <svg
+            width="12"
+            height="12"
+            viewBox="0 0 16 16"
+            fill="none"
+            stroke="currentColor"
+            aria-hidden="true"
+          >
+            <path d="M3 2.5h10v8H7l-4 3z" />
+          </svg>
+          {commentCount}
+        </button>
+      ) : null}
+      {!file.untracked && file.additions !== undefined && file.deletions !== undefined ? (
+        <span className="stat">
+          <span className="add">+{file.additions}</span>{" "}
+          <span className="del">−{file.deletions}</span>
+        </span>
+      ) : null}
       {onSelectionChange ? (
         <input
           className="file-select"

@@ -7,7 +7,7 @@ import type { CommitProposal } from "../core/commitProposal";
 
 afterEach(cleanupTestTicketRepos);
 
-test("desktop HTTP and agent CLI exchange a proposal, reject stale approval and execute the approved request", async () => {
+test("desktop approval executes Git locally without another agent request and keeps HTTP responsive", async () => {
   const { work } = createTestTicketRepo();
   gitTest(work, ["switch", "-c", "PROJ-42-window"]);
   writeFileSync(join(work, "app.ts"), "export const value = 2;\n");
@@ -60,21 +60,43 @@ test("desktop HTTP and agent CLI exchange a proposal, reject stale approval and 
       method: "POST",
       headers,
     });
-    expect(stale.status).toBe(400);
-    expect(await stale.text()).toContain("repository changed");
-    writeFileSync(join(work, "app.ts"), "export const value = 2;\n");
+    expect(stale.status).toBe(200);
+    const refreshed = (await stale.json()) as CommitProposal;
+    expect(refreshed.id).not.toBe(proposal.id);
+    expect(refreshed.status).toBe("preparing");
+    expect(refreshed.plan).toBeUndefined();
     expect(
-      (
-        await fetch(`${address.origin}/api/commits/${proposal.id}/approve`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ commits: [0] }),
-        })
-      ).status,
-    ).toBe(200);
-    const executed = agent(["execute", proposal.id]);
-    expect(executed.stderr.toString()).toBe("");
-    expect(executed.exitCode).toBe(0);
+      agent(
+        ["propose", refreshed.id],
+        JSON.stringify({
+          agentName: "Codex",
+          commits: [
+            { kind: "commit", message: "fix: retain the corrected value", files: ["app.ts"] },
+          ],
+        }),
+      ).exitCode,
+    ).toBe(0);
+    writeFileSync(join(work, ".git", "hooks", "pre-commit"), "#!/bin/sh\nsleep 2\n", {
+      mode: 0o755,
+    });
+    gitTest(work, ["config", "core.hooksPath", join(work, ".git", "hooks")]);
+    const approval = fetch(`${address.origin}/api/commits/${refreshed.id}/approve`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ commits: [0] }),
+    });
+    let duringExecution: CommitProposal = current;
+    const deadline = Date.now() + 15_000;
+    while (Date.now() < deadline) {
+      duringExecution = (await (
+        await fetch(`${address.origin}/api/commits`, { headers })
+      ).json()) as CommitProposal;
+      if (duringExecution.status === "executing") break;
+      await Bun.sleep(25);
+    }
+    expect(duringExecution.status).toBe("executing");
+    const approvalResponse = await approval;
+    expect(approvalResponse.status, await approvalResponse.text()).toBe(200);
     const completed = (await (
       await fetch(`${address.origin}/api/commits`, { headers })
     ).json()) as CommitProposal;

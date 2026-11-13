@@ -26,6 +26,14 @@ pre,
 [data-code] {
   display: grid;
 }
+[data-line-annotation] {
+  --diffs-annotation-bg: var(--code-bg);
+  background-color: var(--code-bg);
+}
+[data-gutter-buffer="annotation"] {
+  --diffs-annotation-bg: var(--bg);
+  background-color: var(--bg);
+}
 /* A fixed number column, so the file title above can line up with the code box. */
 [data-code] {
   --diffs-code-grid: var(--gutter-width) minmax(0, 1fr);
@@ -36,19 +44,33 @@ pre,
   padding-block: 0;
   --diffs-min-number-column-width: 0;
 }
-/* Like Zed: line numbers on the window background, the code in a framed, slightly darker box. */
+/* Line numbers stay on the window background; code uses a quieter, borderless surface. */
 [data-content] {
   --diffs-bg: var(--code-bg);
   background-color: var(--code-bg);
-  border: 1px solid var(--line);
+  border: 0;
   border-radius: 6px;
   overflow: hidden;
 }
-/* Omitted context is one hairline across code and gutter, without an empty row or ellipsis. */
+/* Omitted lines keep their gutter marker; only code gets the horizontal separator. */
 [data-separator="simple"] {
-  min-height: 1px;
-  height: 1px;
-  background-color: var(--line);
+  min-height: var(--diff-line-height, 26px);
+  height: var(--diff-line-height, 26px);
+  background-color: transparent;
+}
+[data-content] [data-separator="simple"] {
+  background-image: linear-gradient(var(--line), var(--line));
+  background-size: 100% 1px;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+[data-gutter] [data-separator="simple"]::after {
+  content: "…";
+  display: block;
+  padding-right: 1.5ch;
+  text-align: right;
+  color: var(--faint);
+  line-height: var(--diff-line-height, 26px);
 }
 [data-gutter-buffer] {
   padding-inline: 0 1.5ch;
