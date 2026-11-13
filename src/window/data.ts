@@ -9,6 +9,7 @@ import {
   loadSquadReviews,
 } from "../core/gitlab";
 import { resolveConfiguredCliInput } from "../core/config";
+import { parsePatchFiles } from "@pierre/diffs";
 import {
   computeAnchorForFile,
   mutateCommentsFile,
@@ -28,6 +29,8 @@ import {
 } from "../ui/lib/workspace";
 
 export interface WindowWorkspace {
+  /** Ticket panels are available only when this repository configures YouTrack. */
+  ticketsEnabled: boolean;
   items: WorkspaceItem[];
   branch: string | null;
   checkedOutId: string | null;
@@ -69,6 +72,8 @@ export interface WindowThemes {
 export interface WindowDiffFile {
   path: string;
   patch: string;
+  /** New working-tree files remain distinct from additions already tracked by Git. */
+  untracked?: boolean;
   status: "added" | "deleted" | "renamed" | "modified";
   additions: number;
   deletions: number;
@@ -140,6 +145,7 @@ export async function loadWindowWorkspace(repoRoot: string): Promise<WindowWorks
         ? reviews.message
         : undefined);
   return {
+    ticketsEnabled: Boolean(youtrackUrl),
     items: linked,
     branch,
     checkedOutId: checkedOut?.id ?? null,
@@ -156,19 +162,27 @@ export function loadWindowDiff(repoRoot: string): WindowDiffFile[] {
     git(repoRoot, ["merge-base", base, "HEAD"]).trim();
   const tracked = git(repoRoot, ["diff", "--no-color", "--no-ext-diff", mergeBase || "HEAD"]);
   // Like `flow diff`, new files count before they are added.
-  const untracked = git(repoRoot, ["ls-files", "--others", "--exclude-standard"])
-    .split("\n")
-    .filter(Boolean)
+  const untrackedPaths = new Set(
+    git(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z"]).split("\0").filter(Boolean),
+  );
+  const untracked = [...untrackedPaths]
     .map((path) =>
       git(repoRoot, ["diff", "--no-color", "--no-index", "--", "/dev/null", path], [0, 1]),
     )
     .join("");
-  return `${tracked}${untracked}`
+  return parseWindowDiff(`${tracked}${untracked}`, untrackedPaths);
+}
+
+/** Preserve Pierre's filenames even when a patch has no line headers, as with empty files. */
+export function parseWindowDiff(
+  patch: string,
+  untrackedPaths: ReadonlySet<string> = new Set(),
+): WindowDiffFile[] {
+  return patch
     .split(/^(?=diff --git )/m)
     .filter((chunk) => chunk.startsWith("diff --git "))
     .map((chunk) => {
-      const path =
-        /^\+\+\+ b\/(.+)$/m.exec(chunk)?.[1] ?? /^--- a\/(.+)$/m.exec(chunk)?.[1] ?? "file";
+      const path = parsePatchFiles(chunk)[0]?.files[0]?.name ?? "file";
       const lines = chunk.split("\n");
       const status = /^new file mode/m.test(chunk)
         ? "added"
@@ -180,6 +194,7 @@ export function loadWindowDiff(repoRoot: string): WindowDiffFile[] {
       return {
         path,
         patch: chunk,
+        untracked: untrackedPaths.has(path),
         status,
         additions: lines.filter((line) => line.startsWith("+") && !line.startsWith("+++")).length,
         deletions: lines.filter((line) => line.startsWith("-") && !line.startsWith("---")).length,

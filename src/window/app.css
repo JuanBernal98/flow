@@ -67,13 +67,129 @@ body {
 
 .window {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) 26px;
+  grid-template-rows: 36px minmax(0, 1fr) 26px;
   height: 100%;
 }
 
 .panes {
   display: grid;
   min-height: 0;
+}
+
+.window-titlebar {
+  display: flex;
+  align-items: center;
+  background: var(--sidebar);
+  color: var(--muted);
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+}
+
+.window-resize {
+  position: fixed;
+  z-index: 100;
+}
+
+.window-titlebar[data-maximized="true"] .window-resize {
+  display: none;
+}
+
+/* Native WMSZ values: left, right, top, top-left, top-right, bottom, bottom-left, bottom-right. */
+.window-resize[data-edge="1"] {
+  inset: 8px auto 8px 0;
+  width: 4px;
+  cursor: w-resize;
+}
+.window-resize[data-edge="2"] {
+  inset: 8px 0 8px auto;
+  width: 4px;
+  cursor: e-resize;
+}
+.window-resize[data-edge="3"] {
+  inset: 0 8px auto;
+  height: 4px;
+  cursor: n-resize;
+}
+.window-resize[data-edge="4"] {
+  top: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  cursor: nw-resize;
+}
+.window-resize[data-edge="5"] {
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  cursor: ne-resize;
+}
+.window-resize[data-edge="6"] {
+  inset: auto 8px 0;
+  height: 4px;
+  cursor: s-resize;
+}
+.window-resize[data-edge="7"] {
+  bottom: 0;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  cursor: sw-resize;
+}
+.window-resize[data-edge="8"] {
+  bottom: 0;
+  right: 0;
+  width: 8px;
+  height: 8px;
+  cursor: se-resize;
+}
+
+.native-windows .window {
+  grid-template-rows: 36px minmax(0, 1fr) 30px;
+}
+
+.native-windows.fullscreen .window-controls,
+.native-windows.fullscreen .window-resize {
+  display: none;
+}
+
+.native-windows .window-controls {
+  display: flex;
+}
+
+.window-title {
+  padding-left: 20px;
+  font-size: 12px;
+}
+
+.window-controls {
+  display: none;
+  flex-shrink: 0;
+  height: 100%;
+}
+
+.window-controls button {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+}
+
+.window-controls button:hover {
+  background: var(--hover);
+}
+
+.window-controls .window-close:hover {
+  background: #c42b1c;
+  color: white;
+}
+
+.window-controls button:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
 }
 
 /* Sidebar */
@@ -85,10 +201,9 @@ body {
   min-height: 0;
 }
 
-/* On macOS the traffic lights sit over the first pane's top (the sidebar, or the overview when it
-   is hidden), so that pane's content starts below them. */
-.native-mac .panes > :first-child {
-  padding-top: 32px;
+/* Leave the native traffic lights clear while review controls use the same top strip. */
+.native-mac .window-titlebar {
+  padding-left: 80px;
 }
 
 .sections {
@@ -271,11 +386,32 @@ body {
 }
 
 /* Diff */
+.diff-toolbar {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 100%;
+  padding: 0 16px;
+}
+
+.diff-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
 .diff {
   overflow-y: auto;
   min-width: 0;
-  /* Equal room on both sides: each file's gutter fits its widest number (app.tsx). */
-  padding: 0 20px 16px;
+  /* Every file inherits the stream's shared line-number gutter. */
+  padding: 0;
+}
+
+.diff > details.file[open]:last-child {
+  margin-bottom: 16px;
 }
 
 .stat {
@@ -296,25 +432,18 @@ body {
   color: var(--del);
 }
 
-.file + .file {
-  margin-top: 18px;
-}
-
-/* The title and the code box share the same horizontal edges: --block-inset on the left, plus the
-   gutter for the code, and --block-end on the right. */
+/* Headers span the pane; code keeps its inset and shared line-number gutter. */
 .code-block {
-  margin: 0 var(--block-end) 0 var(--block-inset);
+  margin: 0 calc(20px + var(--block-end)) 0 calc(20px + var(--block-inset));
+  padding-block: 8px;
+  /* Pierre's gutter has its own z-index; contain it below the sticky filename. */
+  position: relative;
+  z-index: 0;
 }
 
 .code-block > * {
   display: block;
   width: 100%;
-}
-
-.gutter-spacer {
-  display: inline-block;
-  width: var(--gutter-width);
-  font: var(--code-font);
 }
 
 .file-header-name {
@@ -328,15 +457,67 @@ body {
 
 .file-header {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  padding: 12px var(--block-end) 5px var(--block-inset);
+  align-items: center;
+  gap: 12px;
+  min-height: 36px;
+  margin: 0;
+  padding: 8px 16px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+  border-radius: 0;
   line-height: 1.2;
   background: var(--bg);
   font-size: 12.5px;
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
+  cursor: pointer;
+  list-style: none;
+}
+
+.file-header::-webkit-details-marker {
+  display: none;
+}
+
+details.file[open] {
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+}
+
+.file-header-static {
+  cursor: default;
+}
+
+.file-empty-label {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.file-header:hover {
+  background: color-mix(in srgb, var(--bg) 97%, var(--text));
+}
+
+.file-header:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.file-header-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-chevron {
+  flex-shrink: 0;
+  width: 12px;
+  color: var(--muted);
+}
+
+.file[open] > .file-header .file-chevron {
+  transform: rotate(90deg);
 }
 
 kbd {
@@ -353,15 +534,21 @@ kbd {
 
 /* Files */
 .files {
-  background: var(--bg);
-  border-left: 1px solid var(--line);
-  overflow-y: auto;
-  padding: 6px 8px 16px;
+  display: flex;
+  flex-direction: column;
+  background: var(--sidebar);
+  overflow: hidden;
   min-height: 0;
+  min-width: 0;
 }
 
-.pane-title {
-  padding: 12px 8px 6px;
+.files-title {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  height: 36px;
+  margin: 0;
+  padding: 0 12px;
   color: var(--muted);
   font-size: 11px;
   font-weight: 600;
@@ -369,35 +556,171 @@ kbd {
   letter-spacing: 0.04em;
 }
 
+.files-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px 0 16px;
+  border-left: 1px solid var(--line);
+}
+
+.file-group + .file-group {
+  margin-top: 4px;
+}
+
+.file-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 28px;
+  padding: 0 8px 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .file-row {
   display: flex;
-  justify-content: space-between;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   width: 100%;
-  padding: 5px 8px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--text);
-  font: inherit;
-  text-align: left;
+  height: 28px;
+  padding: 0 8px 0 12px;
 }
 
 .file-row:hover {
   background: var(--hover);
 }
 
+.file-row[data-selected="true"] {
+  background: var(--selected);
+}
+
+.file-row[data-active="true"] {
+  background: var(--selected);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+.file-open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+
+.file-open:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
 .file-name {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .file-dir {
-  color: var(--faint);
-  margin-left: 6px;
-  font-size: 11.5px;
+  color: var(--muted);
+  margin-left: 4px;
+  font-size: inherit;
+}
+
+.file-row .stat {
+  font-size: 11px;
+}
+
+.file-status {
+  flex-shrink: 0;
+}
+
+.file-status.modified,
+.file-row.modified .file-name,
+.file-header-name.modified {
+  color: #bf8700;
+}
+
+@media (prefers-color-scheme: dark) {
+  .file-status.modified,
+  .file-row.modified .file-name,
+  .file-header-name.modified {
+    color: #e5b85c;
+  }
+}
+
+.file-status.added,
+.file-row.added .file-name,
+.file-header-name.added {
+  color: var(--add);
+}
+
+.file-status.deleted,
+.file-row.deleted .file-name,
+.file-header-name.deleted {
+  color: var(--del);
+}
+
+.file-status.renamed,
+.file-row.renamed .file-name,
+.file-header-name.renamed {
+  color: var(--accent);
+}
+
+.file-select {
+  flex-shrink: 0;
+  appearance: none;
+  display: grid;
+  place-content: center;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--muted) 50%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  color: var(--bg);
+  cursor: pointer;
+}
+
+.file-select:checked,
+.file-select:indeterminate {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.file-select:checked::after {
+  content: "";
+  width: 7px;
+  height: 4px;
+  border-left: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: translateY(-1px) rotate(-45deg);
+}
+
+.file-select:indeterminate::after {
+  content: "";
+  width: 7px;
+  height: 2px;
+  background: currentColor;
+}
+
+.file-select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.files-empty {
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 12px;
 }
 
 /* Status bar */
@@ -440,8 +763,7 @@ kbd {
   max-width: 420px;
 }
 
-.icon-button,
-.segmented button {
+.icon-button {
   display: inline-grid;
   place-items: center;
   width: 26px;
@@ -455,33 +777,13 @@ kbd {
     color 120ms;
 }
 
-.icon-button:hover,
-.segmented button:hover {
+.icon-button:hover {
   background: var(--hover);
   color: var(--text);
 }
 
 .icon-button.on {
   color: var(--accent);
-}
-
-.segmented {
-  display: inline-flex;
-  padding: 2px;
-  margin: 0 4px;
-  border-radius: 7px;
-  background: var(--chip);
-}
-
-.segmented button {
-  width: 24px;
-  height: 18px;
-}
-
-.segmented button.on {
-  background: var(--bg);
-  color: var(--text);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
 }
 
 .theme-picker {
@@ -524,29 +826,9 @@ kbd {
   transition-duration: 80ms;
 }
 
-/* File icons stay muted; only a deleted file is marked, struck through. */
-.file-icon {
-  flex-shrink: 0;
-}
-
-.file-row {
-  justify-content: flex-start;
-  align-items: center;
-}
-
-.file-row .file-name {
-  flex: 1;
-}
-
 .file-row.deleted .file-name,
 .file-header-name.deleted {
-  color: var(--faint);
   text-decoration: line-through;
-}
-
-.file-header .file-icon {
-  margin-right: 6px;
-  vertical-align: -2px;
 }
 
 /* The tickets sidebar shows which pane has the keyboard. */

@@ -10,6 +10,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Added
 
+- `F11` toggles fullscreen in the desktop window and restores its previous placement when leaving fullscreen.
+
+- `flow open` uses a custom Windows title bar without a visible native frame, with edge resizing, dragging, minimize, maximize, and close controls, and more consistent spacing around pane headings and files. Maximizing respects the monitor's work area and keeps the taskbar visible.
+
 - Each squad's workflow is configurable instead of assumed: `[youtrack] review_state` (default `Review`) drives Needs approval, Ready to merge, closing merged tickets, and the state `flow-mr-open` sets; `[youtrack] in_progress_states` lists the states shown as in progress (default: any state reading like active work); `[git] base_branch` (default `main`) is where ticket branches start, what card line totals compare against, and where MRs merge. `flow init` asks for the review state (checked against YouTrack) and the base branch (proposing the remote's default).
 
 - `[youtrack] project_keys` (asked by `flow init`, checked against YouTrack) limits which ids count as a review's ticket, so `UTF-8` in an MR title or another squad's ticket is never taken for yours. Without it any `KEY-123` counts, as before.
@@ -53,6 +57,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 - The `ticket`, `ticket-context`, and `mr` agent skills now ship in `skills/` next to `flow-review`; `flow skill show <name>` and `flow skill path <name>` print any of them.
 
 ### Changed
+
+- Diff layout controls, line totals, and the action to fold or expand all file diffs live in the custom window title bar, keeping the review area clear of an extra toolbar.
+
+- Diff file headers in the desktop window are compact, full-width accordion rows with no gaps between files: click or press Enter/Space to fold a file; file and hunk navigation reveals it again. Header checkboxes share file selection with the Changes sidebar without folding the file.
+
+- Empty files and changes without text hunks appear as selectable rows without an empty accordion body, retain their actual filenames, and share single-line separators with other file rows.
+
+- The window Changes sidebar groups tracked and untracked files in compact rows with colored Git status icons, inline paths, and checkboxes for selecting individual files or a whole group independently of navigation. Filenames in the sidebar and diff headers share the status icon colors. File and hunk navigation scrolls instantly.
+
+- `flow open` hides the ticket sidebar, Overview, and their controls unless the current repository configures YouTrack in `.flow/config.toml`.
+
+- The window review uses one line-number gutter across all files so filenames stay aligned, including files with four or more digit line numbers. Sticky filenames stay above the diff while scrolling, and omitted-line markers align with the numbers.
 
 - Plain `flow` in a repository opens the workspace and review (`flow diff`); elsewhere it still prints help. Comments read `You:` and `Claude:` instead of `Yo:` and `Agente:`. A broken `.flow/config.toml` is reported at launch instead of silently disconnecting the workspace.
 

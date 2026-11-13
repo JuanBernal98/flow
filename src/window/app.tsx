@@ -13,6 +13,10 @@ import type { StoredTicketOverview } from "../core/ticketOverview";
 import type { WorkspaceItem, WorkspaceSectionId } from "../ui/lib/workspace";
 import type { WindowDiffFile, WindowTheme, WindowThemes, WindowWorkspace } from "./data";
 import { hunkHoldsLine, listWindowHunks, stepFile, type WindowHunk } from "./review";
+import { reviewGutterWidth } from "./reviewLayout";
+import { FilesPane } from "./FilesPane";
+import { FileAccordion, revealFileAccordion, toggleFileAccordions } from "./FileAccordion";
+import { DiffToolbar } from "./DiffToolbar";
 
 const SECTIONS: { id: WorkspaceSectionId; title: string }[] = [
   { id: "todo", title: "To do" },
@@ -26,6 +30,10 @@ registerClaudeCodeThemes();
 
 const startedAt = performance.now();
 const secret = location.hash.slice(1);
+// WebView2 injects init scripts before documentElement exists; modules run once the DOM is ready.
+if (window.flowNativePlatform) {
+  document.documentElement.classList.add(`native-${window.flowNativePlatform}`);
+}
 
 /** Call one API route with the launch secret; JSON in and out. */
 async function api<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
@@ -48,7 +56,11 @@ function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [workspaceOpen, setWorkspaceOpen] = useState(true);
   const [overviewOpen, setOverviewOpen] = useState(true);
+  const ticketsEnabled = workspace?.ticketsEnabled === true;
+  const showWorkspace = ticketsEnabled && workspaceOpen;
+  const showOverview = ticketsEnabled && overviewOpen;
   const [filesOpen, setFilesOpen] = useState(true);
+  const [selectedPaths, setSelectedPaths] = useState<ReadonlySet<string>>(new Set());
   const [diffStyle, setDiffStyle] = useState<DiffStyle>("unified");
   const [themes, setThemes] = useState<WindowThemes | null>(null);
   const [themeId, setThemeId] = useState<string | null>(null);
@@ -79,12 +91,17 @@ function App() {
     // The diff is local and fast; the workspace waits on YouTrack and GitLab, so neither blocks the other.
     void api<WindowDiffFile[]>("/api/diff").then((files) => {
       setDiff(files);
+      setSelectedPaths((current) => {
+        const paths = new Set(files.map((file) => file.path));
+        return new Set([...current].filter((path) => paths.has(path)));
+      });
       requestAnimationFrame(() =>
         setTiming((current) => current || `diff ${Math.round(performance.now() - startedAt)} ms`),
       );
     });
     void api<WindowWorkspace>("/api/workspace").then((loaded) => {
       setWorkspace(loaded);
+      if (!loaded.ticketsEnabled) setZone("review");
       setSelectedId((current) => current ?? loaded.checkedOutId);
       setTiming((current) =>
         [current, `workspace ${Math.round(performance.now() - startedAt)} ms`]
@@ -158,6 +175,23 @@ function App() {
     };
     const current = focusedHunk?.index ?? 0;
     const onKey = (event: KeyboardEvent) => {
+      if (event.key === "F11" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        event.preventDefault();
+        if (!event.repeat) {
+          const toggle = window.flowToggleFullscreen
+            ? window.flowToggleFullscreen().then((fullscreen) => {
+                if (typeof fullscreen === "boolean")
+                  document.documentElement.classList.toggle("fullscreen", fullscreen);
+              })
+            : document.fullscreenElement
+              ? document.exitFullscreen()
+              : document.documentElement.requestFullscreen();
+          void toggle.catch((error: unknown) =>
+            setNotice(error instanceof Error ? error.message : String(error)),
+          );
+        }
+        return;
+      }
       // Typing in the comment editor or the theme menu keeps its own keys.
       if (event.target instanceof Element && event.target.closest("textarea, input, select"))
         return;
@@ -174,6 +208,7 @@ function App() {
         setZone("review");
         setEditing(false);
       } else if (key === "S") {
+        if (!ticketsEnabled) return;
         // Like the terminal: S focuses the tickets, and again hides them.
         if (!workspaceOpen) {
           setWorkspaceOpen(true);
@@ -221,6 +256,7 @@ function App() {
           void api(`/api/comments/${comment.id}`, { method: "DELETE" }).then(loadComments);
         }
       } else if (key === "x") {
+        if (!ticketsEnabled) return;
         setOverviewOpen((open) => !open);
       } else if (key === "s") {
         setFilesOpen((open) => !open);
@@ -252,16 +288,25 @@ function App() {
     helpOpen,
     zone,
     workspaceOpen,
+    ticketsEnabled,
     loadComments,
   ]);
 
   return (
     <div className="window">
+      <WindowTitleBar>
+        <DiffToolbar
+          files={diff}
+          diffStyle={diffStyle}
+          onDiffStyle={setDiffStyle}
+          onToggleFold={() => toggleFileAccordions(document.querySelector<HTMLElement>(".diff"))}
+        />
+      </WindowTitleBar>
       <div
         className="panes"
-        style={{ gridTemplateColumns: paneColumns(workspaceOpen, overviewOpen, filesOpen) }}
+        style={{ gridTemplateColumns: paneColumns(showWorkspace, showOverview, filesOpen) }}
       >
-        {workspaceOpen ? (
+        {showWorkspace ? (
           <aside className={`sidebar${zone === "workspace" ? " focused" : ""}`}>
             <div className="sections">
               {workspace === null ? <div className="section-title">Loading…</div> : null}
@@ -308,9 +353,18 @@ function App() {
             </div>
           </aside>
         ) : null}
-        {overviewOpen ? <OverviewPane item={selected} /> : null}
+        {showOverview ? <OverviewPane item={selected} /> : null}
         <DiffPane
           files={diff}
+          selectedPaths={selectedPaths}
+          onSelectFile={(path, checked) =>
+            setSelectedPaths((current) => {
+              const next = new Set(current);
+              if (checked) next.add(path);
+              else next.delete(path);
+              return next;
+            })
+          }
           diffStyle={diffStyle}
           theme={theme}
           focusedHunk={zone === "review" ? focusedHunk : null}
@@ -325,21 +379,35 @@ function App() {
           }}
           hunks={hunks}
         />
-        {filesOpen ? <FilesPane files={diff} /> : null}
+        {filesOpen ? (
+          <FilesPane
+            files={diff}
+            activePath={focusedHunk?.path ?? null}
+            selectedPaths={selectedPaths}
+            onSelectionChange={setSelectedPaths}
+            onOpen={(path) => {
+              const element = document.getElementById(fileAnchor(path));
+              revealFileAccordion(element);
+              const hunk = hunks.find((candidate) => candidate.path === path);
+              if (hunk) setHunkIndex(hunk.index);
+              element?.scrollIntoView({ behavior: "instant", block: "start" });
+            }}
+          />
+        ) : null}
       </div>
-      {helpOpen ? <HelpOverlay onClose={() => setHelpOpen(false)} /> : null}
+      {helpOpen ? (
+        <HelpOverlay ticketsEnabled={ticketsEnabled} onClose={() => setHelpOpen(false)} />
+      ) : null}
       <StatusBar
         zone={zone}
         notice={notice}
         workspace={workspace}
         files={diff}
         timing={timing}
-        panels={{ workspace: workspaceOpen, overview: overviewOpen, files: filesOpen }}
-        diffStyle={diffStyle}
+        panels={{ workspace: showWorkspace, overview: showOverview, files: filesOpen }}
         onToggleWorkspace={() => setWorkspaceOpen((open) => !open)}
         onToggleOverview={() => setOverviewOpen((open) => !open)}
         onToggleFiles={() => setFilesOpen((open) => !open)}
-        onDiffStyle={setDiffStyle}
         themes={themes?.themes ?? []}
         themeId={theme?.id ?? null}
         onTheme={setThemeId}
@@ -352,10 +420,84 @@ type DiffStyle = "split" | "unified";
 
 declare global {
   interface Window {
-    /** Bound by the native window on macOS: drag or zoom it from the title bar strip. */
+    flowNativePlatform?: "mac" | "windows";
+    flowSetFrameTheme?: (dark: boolean) => Promise<void>;
+    /** Bound by the native window: drag or zoom it from the title bar strip. */
     flowDragWindow?: () => Promise<void>;
-    flowZoomWindow?: () => Promise<void>;
+    flowZoomWindow?: () => Promise<void | boolean>;
+    flowToggleFullscreen?: () => Promise<void | boolean>;
+    flowMinimizeWindow?: () => Promise<void>;
+    flowCloseWindow?: () => Promise<void>;
+    flowIsWindowMaximized?: () => Promise<boolean>;
+    flowResizeWindow?: (edge: number) => Promise<void>;
   }
+}
+
+/** Review controls share the window's drag strip with the native caption buttons. */
+function WindowTitleBar({ children }: { children: React.ReactNode }) {
+  const [maximized, setMaximized] = useState(false);
+  useEffect(() => {
+    const update = () => void window.flowIsWindowMaximized?.().then(setMaximized);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return (
+    <header className="window-titlebar" data-maximized={maximized}>
+      {window.flowNativePlatform === "windows"
+        ? Array.from({ length: 8 }, (_, index) => (
+            <div
+              key={index}
+              className="window-resize"
+              data-edge={index + 1}
+              aria-hidden="true"
+              onMouseDown={(event) => {
+                if (event.button !== 0 || maximized) return;
+                event.preventDefault();
+                event.stopPropagation();
+                void window.flowResizeWindow?.(index + 1);
+              }}
+            />
+          ))
+        : null}
+      <span className="window-title">flow</span>
+      {children}
+      <div className="window-controls">
+        <button
+          type="button"
+          aria-label="Minimize"
+          onClick={() => void window.flowMinimizeWindow?.()}
+        >
+          <svg {...ICON}>
+            <path d="M3 8h10" />
+          </svg>
+        </button>
+        <button
+          type="button"
+          aria-label={maximized ? "Restore" : "Maximize"}
+          onClick={() => void window.flowZoomWindow?.()}
+        >
+          <svg {...ICON}>
+            {maximized ? (
+              <path d="M5 3h8v8M3 5h8v8H3z" />
+            ) : (
+              <rect x="3.5" y="3.5" width="9" height="9" />
+            )}
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="window-close"
+          aria-label="Close"
+          onClick={() => void window.flowCloseWindow?.()}
+        >
+          <svg {...ICON}>
+            <path d="m3.5 3.5 9 9m0-9-9 9" />
+          </svg>
+        </button>
+      </div>
+    </header>
+  );
 }
 
 function ChevronIcon() {
@@ -369,7 +511,7 @@ function ChevronIcon() {
 /** Grid columns for the open panes: the overview and the diff split what the sidebars leave. */
 function paneColumns(workspace: boolean, overview: boolean, files: boolean) {
   const body = overview ? "minmax(0, 1fr) minmax(0, 1fr)" : "minmax(0, 1fr)";
-  return [workspace ? "280px" : "", body, files ? "240px" : ""].filter(Boolean).join(" ");
+  return [workspace ? "280px" : "", body, files ? "320px" : ""].filter(Boolean).join(" ");
 }
 
 /** The bottom bar: panel toggles on the edges, the branch and change totals in between. */
@@ -380,11 +522,9 @@ function StatusBar({
   files,
   timing,
   panels,
-  diffStyle,
   onToggleWorkspace,
   onToggleOverview,
   onToggleFiles,
-  onDiffStyle,
   themes,
   themeId,
   onTheme,
@@ -395,36 +535,36 @@ function StatusBar({
   files: WindowDiffFile[] | null;
   timing: string;
   panels: { workspace: boolean; overview: boolean; files: boolean };
-  diffStyle: DiffStyle;
   onToggleWorkspace: () => void;
   onToggleOverview: () => void;
   onToggleFiles: () => void;
-  onDiffStyle: (style: DiffStyle) => void;
   themes: WindowTheme[];
   themeId: string | null;
   onTheme: (id: string) => void;
 }) {
-  const additions = files?.reduce((sum, file) => sum + file.additions, 0) ?? 0;
-  const deletions = files?.reduce((sum, file) => sum + file.deletions, 0) ?? 0;
   return (
     <footer className="statusbar">
       <div className="statusbar-group">
-        <IconButton
-          label="Workspace"
-          shortcut="S"
-          active={panels.workspace}
-          onClick={onToggleWorkspace}
-        >
-          <SidebarLeftIcon />
-        </IconButton>
-        <IconButton
-          label="Overview"
-          shortcut="x"
-          active={panels.overview}
-          onClick={onToggleOverview}
-        >
-          <DocumentIcon />
-        </IconButton>
+        {workspace?.ticketsEnabled ? (
+          <IconButton
+            label="Workspace"
+            shortcut="S"
+            active={panels.workspace}
+            onClick={onToggleWorkspace}
+          >
+            <SidebarLeftIcon />
+          </IconButton>
+        ) : null}
+        {workspace?.ticketsEnabled ? (
+          <IconButton
+            label="Overview"
+            shortcut="x"
+            active={panels.overview}
+            onClick={onToggleOverview}
+          >
+            <DocumentIcon />
+          </IconButton>
+        ) : null}
         {workspace?.branch ? (
           <span className="statusbar-item">
             <BranchIcon />
@@ -442,12 +582,7 @@ function StatusBar({
           {zone === "workspace" ? "Tickets" : "Review"} · ? for keys
         </span>
         {timing ? <span className="statusbar-item faint">{timing}</span> : null}
-        {files ? (
-          <span className="statusbar-item stat">
-            {files.length} files <span className="add">+{additions}</span>{" "}
-            <span className="del">-{deletions}</span>
-          </span>
-        ) : null}
+        {files ? <span className="statusbar-item stat">{files.length} files</span> : null}
         {themes.length > 0 ? (
           <label className="theme-picker" title="Theme (t)">
             <PaletteIcon />
@@ -460,24 +595,6 @@ function StatusBar({
             </select>
           </label>
         ) : null}
-        <div className="segmented" role="group" aria-label="Diff layout">
-          <button
-            type="button"
-            className={diffStyle === "split" ? "on" : ""}
-            title="Split (1)"
-            onClick={() => onDiffStyle("split")}
-          >
-            <SplitIcon />
-          </button>
-          <button
-            type="button"
-            className={diffStyle === "unified" ? "on" : ""}
-            title="Stacked (2)"
-            onClick={() => onDiffStyle("unified")}
-          >
-            <StackIcon />
-          </button>
-        </div>
         <IconButton label="Files" shortcut="s" active={panels.files} onClick={onToggleFiles}>
           <SidebarRightIcon />
         </IconButton>
@@ -558,59 +675,6 @@ function BranchIcon() {
       <circle cx="11.5" cy="5.5" r="1.5" />
       <path d="M4.5 5v6M11.5 7c0 2.5-3 2.5-7 4" />
     </svg>
-  );
-}
-
-function SplitIcon() {
-  return (
-    <svg {...ICON} width={14} height={14}>
-      <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
-      <path d="M8 2.5v11" />
-    </svg>
-  );
-}
-
-function StackIcon() {
-  return (
-    <svg {...ICON} width={14} height={14}>
-      <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
-      <path d="M1.5 8h13" />
-    </svg>
-  );
-}
-
-/** The changed files; clicking one scrolls the diff to it. */
-function FilesPane({ files }: { files: WindowDiffFile[] | null }) {
-  return (
-    <nav className="files">
-      <div className="pane-title">Changes</div>
-      {(files ?? []).map((file) => {
-        const slash = file.path.lastIndexOf("/");
-        return (
-          <button
-            type="button"
-            key={file.path}
-            className={`file-row ${file.status}`}
-            title={`${file.path} (${file.status})`}
-            onClick={() =>
-              document
-                .getElementById(fileAnchor(file.path))
-                ?.scrollIntoView({ behavior: "smooth", block: "start" })
-            }
-          >
-            <FileIcon />
-            <span className="file-name">
-              {file.path.slice(slash + 1)}
-              <span className="file-dir">{slash > 0 ? file.path.slice(0, slash) : ""}</span>
-            </span>
-            <span className="stat">
-              <span className="add">+{file.additions}</span>{" "}
-              <span className="del">-{file.deletions}</span>
-            </span>
-          </button>
-        );
-      })}
-    </nav>
   );
 }
 
@@ -765,6 +829,7 @@ const HELP_SECTIONS: { title: string; keys: [string, string][] }[] = [
   {
     title: "View",
     keys: [
+      ["F11", "toggle fullscreen"],
       ["x", "show / hide the overview"],
       ["s", "show / hide the changed files"],
       ["1 / 2", "split / stacked diff"],
@@ -774,7 +839,13 @@ const HELP_SECTIONS: { title: string; keys: [string, string][] }[] = [
   },
 ];
 
-function HelpOverlay({ onClose }: { onClose: () => void }) {
+function HelpOverlay({
+  ticketsEnabled,
+  onClose,
+}: {
+  ticketsEnabled: boolean;
+  onClose: () => void;
+}) {
   return (
     <div className="help-backdrop" onClick={onClose}>
       <div
@@ -783,38 +854,23 @@ function HelpOverlay({ onClose }: { onClose: () => void }) {
         aria-label="Keyboard shortcuts"
         onClick={(event) => event.stopPropagation()}
       >
-        {HELP_SECTIONS.map((section) => (
-          <section key={section.title}>
-            <h3>{section.title}</h3>
-            {section.keys.map(([keys, action]) => (
-              <div key={keys + action} className="help-row">
-                <kbd>{keys}</kbd>
-                <span>{action}</span>
-              </div>
-            ))}
-          </section>
-        ))}
+        {HELP_SECTIONS.filter((section) => ticketsEnabled || section.title !== "Workspace").map(
+          (section) => (
+            <section key={section.title}>
+              <h3>{section.title}</h3>
+              {section.keys
+                .filter(([keys]) => ticketsEnabled || keys !== "x")
+                .map(([keys, action]) => (
+                  <div key={keys + action} className="help-row">
+                    <kbd>{keys}</kbd>
+                    <span>{action}</span>
+                  </div>
+                ))}
+            </section>
+          ),
+        )}
       </div>
     </div>
-  );
-}
-
-/** A small document icon in the muted text color. */
-function FileIcon() {
-  const color = "var(--faint)";
-  return (
-    <svg className="file-icon" width={14} height={14} viewBox="0 0 16 16" aria-hidden="true">
-      <path
-        d="M4 1.5h5l3.5 3.5v9a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2a.5.5 0 0 1 .5-.5Z"
-        fill="none"
-        stroke={color}
-        strokeWidth={1.3}
-        strokeLinejoin="round"
-      />
-      <path d="M9 1.5V5h3.5" fill="none" stroke={color} strokeWidth={1.3} strokeLinejoin="round" />
-      <rect x="5.5" y="8" width="5" height="1.4" rx=".7" fill={color} />
-      <rect x="5.5" y="10.8" width="3.5" height="1.4" rx=".7" fill={color} />
-    </svg>
   );
 }
 
@@ -953,6 +1009,8 @@ interface DiffNote {
 
 function DiffPane({
   files,
+  selectedPaths,
+  onSelectFile,
   diffStyle,
   theme,
   hunks,
@@ -965,6 +1023,8 @@ function DiffPane({
   userName,
 }: {
   files: WindowDiffFile[] | null;
+  selectedPaths: ReadonlySet<string>;
+  onSelectFile: (path: string, checked: boolean) => void;
   diffStyle: DiffStyle;
   theme: WindowTheme | null;
   hunks: WindowHunk[];
@@ -978,6 +1038,10 @@ function DiffPane({
 }) {
   const codeTheme = theme?.codeTheme;
   const appearance = theme?.appearance;
+  const gutter = useMemo(
+    () => ({ "--gutter-width": reviewGutterWidth(files ?? []) }) as React.CSSProperties,
+    [files],
+  );
   const options = useMemo(
     () =>
       ({
@@ -996,6 +1060,7 @@ function DiffPane({
   // Keep the focused hunk on screen, once Pierre has drawn its highlighted rows.
   useEffect(() => {
     if (!focusedHunk) return;
+    revealFileAccordion(document.getElementById(fileAnchor(focusedHunk.path)));
     let frames = 0;
     let handle = 0;
     const reveal = () => {
@@ -1004,7 +1069,7 @@ function DiffPane({
         ?.querySelector("diffs-container");
       const row = host?.shadowRoot?.querySelector("[data-selected-line]");
       if (row) {
-        row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        row.scrollIntoView({ block: "nearest", behavior: "instant" });
       } else if (frames++ < 30) {
         handle = requestAnimationFrame(reveal);
       }
@@ -1036,7 +1101,7 @@ function DiffPane({
     return <main className="diff" />;
   }
   return (
-    <main className="diff">
+    <main className="diff" style={gutter}>
       {files.length === 0 ? <p className="empty">No changes on this branch yet.</p> : null}
       {files.map((file) => {
         const focused = focusedHunk?.path === file.path ? focusedHunk : null;
@@ -1044,6 +1109,8 @@ function DiffPane({
           <DiffFile
             key={file.path}
             file={file}
+            selected={selectedPaths.has(file.path)}
+            onSelectionChange={(checked) => onSelectFile(file.path, checked)}
             options={options}
             focused={focused}
             comments={comments}
@@ -1060,22 +1127,10 @@ function DiffPane({
   );
 }
 
-/** Digits in the highest line number a patch shows, on either side. */
-function widestLineNumber(patch: string) {
-  let highest = 1;
-  for (const match of patch.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) {
-    const [, oldStart, oldCount = "1", newStart, newCount = "1"] = match;
-    highest = Math.max(
-      highest,
-      Number(oldStart) + Number(oldCount),
-      Number(newStart) + Number(newCount),
-    );
-  }
-  return String(highest).length;
-}
-
 const DiffFile = memo(function DiffFile({
   file,
+  selected,
+  onSelectionChange,
   options,
   focused,
   comments,
@@ -1084,6 +1139,8 @@ const DiffFile = memo(function DiffFile({
   onClickHunk,
 }: {
   file: WindowDiffFile;
+  selected: boolean;
+  onSelectionChange: (checked: boolean) => void;
   options: PatchDiffProps<DiffNote, undefined>["options"];
   focused: WindowHunk | null;
   comments: PersistedComment[];
@@ -1091,12 +1148,6 @@ const DiffFile = memo(function DiffFile({
   renderNote: (annotation: DiffLineAnnotation<DiffNote>) => React.ReactNode;
   onClickHunk: (line: number) => void;
 }) {
-  // The gutter fits this file's widest line number exactly, so the margin left of the numbers
-  // never depends on how many digits they have.
-  const gutter = useMemo(
-    () => ({ "--gutter-width": `${widestLineNumber(file.patch) + 1.5}ch` }),
-    [file.patch],
-  );
   // The focused hunk shows as Pierre's line selection, on the new side like the terminal.
   const selectedLines = useMemo(
     () =>
@@ -1125,23 +1176,32 @@ const DiffFile = memo(function DiffFile({
     }));
   }, [comments, file.path, editing, focused]);
   return (
-    <div className="file" id={fileAnchor(file.path)} style={gutter as React.CSSProperties}>
-      <div className="file-header">
-        <span>
-          <span className="gutter-spacer" aria-hidden="true" />
-          <FileIcon />
-          <span className={`file-header-name ${file.status}`}>
-            {file.path.slice(file.path.lastIndexOf("/") + 1)}
+    <FileAccordion
+      id={fileAnchor(file.path)}
+      path={file.path}
+      selected={selected}
+      onSelectionChange={onSelectionChange}
+      expandable={/^@@ /m.test(file.patch)}
+      emptyLabel={
+        file.status === "added" || file.status === "deleted" ? "Empty file" : "No text changes"
+      }
+      header={
+        <>
+          <span className="file-header-label">
+            <span className={`file-header-name ${file.status}`}>
+              {file.path.slice(file.path.lastIndexOf("/") + 1)}
+            </span>
+            <span className="file-header-dir">
+              {file.path.slice(0, file.path.lastIndexOf("/") + 1)}
+            </span>
           </span>
-          <span className="file-header-dir">
-            {file.path.slice(0, file.path.lastIndexOf("/") + 1)}
+          <span className="stat">
+            <span className="add">+{file.additions}</span>{" "}
+            <span className="del">-{file.deletions}</span>
           </span>
-        </span>
-        <span className="stat">
-          <span className="add">+{file.additions}</span>{" "}
-          <span className="del">-{file.deletions}</span>
-        </span>
-      </div>
+        </>
+      }
+    >
       <div className="code-block">
         <PatchDiff<DiffNote>
           patch={file.patch}
@@ -1154,7 +1214,7 @@ const DiffFile = memo(function DiffFile({
           renderAnnotation={renderNote}
         />
       </div>
-    </div>
+    </FileAccordion>
   );
 });
 
@@ -1190,6 +1250,7 @@ function nextThemeId(themes: WindowTheme[], current: string | null) {
 function applyTheme(theme: WindowTheme) {
   const { colors } = theme;
   const dark = theme.appearance === "dark";
+  void window.flowSetFrameTheme?.(dark);
   const style = document.documentElement.style;
   style.colorScheme = theme.appearance;
   style.setProperty("--bg", colors.background);
@@ -1261,6 +1322,7 @@ pre,
   --diffs-scrollbar-gutter-override: 0px;
   scrollbar-gutter: auto;
   padding-block: 0;
+  --diffs-min-number-column-width: 0;
 }
 /* Like Zed: line numbers on the window background, the code in a framed, slightly darker box. */
 [data-content] {
@@ -1279,14 +1341,17 @@ pre,
 }
 [data-gutter] [data-separator="simple"] {
   background-color: var(--bg);
-  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  padding-inline: 0 1.5ch;
 }
 [data-gutter] [data-separator="simple"]::after {
   content: "⋯";
-  position: absolute;
-  inset: 0 1ch 0 0;
-  text-align: right;
   color: var(--faint);
+}
+[data-gutter-buffer] {
+  padding-inline: 0 1.5ch;
 }
 /* The focused hunk, like the terminal: no tint of its own, only its line numbers at full strength
    while every other hunk's numbers fade. */
@@ -1379,8 +1444,10 @@ document.addEventListener(
 // pressing its empty space drags the window and a double click zooms it.
 const TITLE_BAR_HEIGHT = 28;
 const isTitleBarPress = (event: MouseEvent) =>
-  event.clientY < TITLE_BAR_HEIGHT &&
   event.target instanceof Element &&
+  (event.target.closest(".window-titlebar") !== null ||
+    (document.documentElement.classList.contains("native-mac") &&
+      event.clientY < TITLE_BAR_HEIGHT)) &&
   event.target.closest("button, a, input, select, label") === null;
 document.addEventListener("mousedown", (event) => {
   if (event.button === 0 && event.detail === 1 && isTitleBarPress(event))

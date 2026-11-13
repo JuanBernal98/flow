@@ -63,3 +63,8 @@ export function dragWindow(window: Pointer) {
 export function zoomWindow(window: Pointer) {
   sendPointer(window, selector("zoom:"), null);
 }
+
+/** Toggle the native macOS fullscreen space, preserving the previous window size. */
+export function toggleFullscreenWindow(window: Pointer) {
+  sendPointer(window, selector("toggleFullScreen:"), null);
+}
