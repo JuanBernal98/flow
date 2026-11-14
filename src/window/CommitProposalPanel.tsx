@@ -63,12 +63,8 @@ export function CommitProposalPanel({
               <circle cx="12" cy="12" r="8" />
               <path d="M12 8v8m-4-4h8" />
             </svg>
-            <h3>
-              {status === "cancelled" || status === "completed"
-                ? "Ready to propose"
-                : "No proposal yet"}
-            </h3>
-            <p>Select files in Changes, then choose Propose.</p>
+            <h3>No commits to review</h3>
+            <p>Propose your changes to review the messages and files before committing.</p>
           </div>
         ) : null}
         {waiting ? (

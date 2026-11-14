@@ -79,7 +79,7 @@ test("the approval panel shares Changes chrome and shows selectable groups witho
 });
 
 test("only a ready proposal exposes approval; waiting and execution announce their real states", () => {
-  expect(renderTestPanel(null)).toContain("Select files in Changes");
+  expect(renderTestPanel(null)).toContain("Propose your changes");
   for (const status of [
     "preparing",
     "approved",
@@ -103,7 +103,7 @@ test("only a ready proposal exposes approval; waiting and execution announce the
 test("completed and cancelled proposals clear old groups and show the centered empty state", () => {
   for (const status of ["completed", "cancelled"] as const) {
     const html = renderTestPanel({ ...proposal, status, result: "old commit result" });
-    expect(html).toContain("Ready to propose");
+    expect(html).toContain("No commits to review");
     expect(html).toContain('class="commit-empty"');
     expect(html).not.toContain("No commits will");
     expect(html).not.toContain('class="commit-plan"');
