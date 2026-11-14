@@ -3,8 +3,41 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { cleanupTestTicketRepos, createTestTicketRepo, gitTest } from "../../test/helpers/git-repo";
 import { loadWindowDiff, parseWindowDiff } from "./data";
+import { startWindowServer } from "./open";
 
 afterEach(cleanupTestTicketRepos);
+
+test("Git failures reach the desktop API instead of becoming an empty review", async () => {
+  const { work } = createTestTicketRepo();
+  const { server, url, closeDiffWatch } = startWindowServer(work);
+  const address = new URL(url);
+  const headers = { "x-flow-secret": address.hash.slice(1) };
+  try {
+    expect(await loadWindowDiff(work)).toEqual([]);
+    writeFileSync(join(work, "app.ts"), "export const value = 2;\n");
+    gitTest(work, ["config", "diff.algorithm", "invalid-flow-test"]);
+    await expect(loadWindowDiff(work)).rejects.toThrow("Git could not load the review (diff)");
+    const failed = await fetch(`${address.origin}/api/diff`, { headers });
+    expect(failed.status).toBe(500);
+    expect(await failed.text()).toContain("invalid-flow-test");
+    gitTest(work, ["config", "--unset", "diff.algorithm"]);
+    const recovered = await fetch(`${address.origin}/api/diff`, { headers });
+    expect(recovered.status).toBe(200);
+    expect(await recovered.json()).toMatchObject([{ path: "app.ts" }]);
+  } finally {
+    closeDiffWatch();
+    await server.stop(true);
+  }
+});
+
+test("branch review falls back from missing remote and local base refs", async () => {
+  const { work } = createTestTicketRepo();
+  gitTest(work, ["update-ref", "-d", "refs/remotes/origin/main"]);
+  writeFileSync(join(work, "app.ts"), "export const value = 2;\n");
+  expect(await loadWindowDiff(work, "branch")).toMatchObject([{ path: "app.ts" }]);
+  gitTest(work, ["branch", "-m", "feature"]);
+  expect(await loadWindowDiff(work, "branch")).toMatchObject([{ path: "app.ts" }]);
+});
 
 test("window patch preserves empty-file names and untracked membership without line headers", () => {
   const files = parseWindowDiff(

@@ -239,9 +239,14 @@ export function startWindowServer(repoRoot: string) {
         const scope = z
           .enum(["pending", "branch"])
           .safeParse(new URL(request.url).searchParams.get("scope") ?? "pending");
-        return scope.success
-          ? Response.json(await loadWindowDiff(repoRoot, scope.data))
-          : new Response("Unknown diff scope.", { status: 400 });
+        if (!scope.success) return new Response("Unknown diff scope.", { status: 400 });
+        try {
+          return Response.json(await loadWindowDiff(repoRoot, scope.data));
+        } catch (error) {
+          return new Response(error instanceof Error ? error.message : String(error), {
+            status: 500,
+          });
+        }
       },
       "/api/overview/:id": (request) =>
         authorized(request)

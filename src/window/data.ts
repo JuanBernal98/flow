@@ -99,7 +99,7 @@ export interface WindowDiffFile {
   deletions: number;
 }
 
-/** Run git in the repository and return stdout, or "" when it fails. */
+/** Read Git output, preserving diagnostics and tolerating only explicitly expected exit codes. */
 async function git(repoRoot: string, args: string[], okExitCodes: readonly number[] = [0]) {
   const result = Bun.spawn(["git", ...args], {
     cwd: repoRoot,
@@ -107,10 +107,35 @@ async function git(repoRoot: string, args: string[], okExitCodes: readonly numbe
     env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
     stdin: "ignore",
     stdout: "pipe",
-    stderr: "ignore",
+    stderr: "pipe",
   });
-  const [output, exitCode] = await Promise.all([new Response(result.stdout).text(), result.exited]);
-  return okExitCodes.includes(exitCode) ? output : "";
+  const [output, errors, exitCode] = await Promise.all([
+    new Response(result.stdout).text(),
+    new Response(result.stderr).text(),
+    result.exited,
+  ]);
+  if (!okExitCodes.includes(exitCode))
+    throw new Error(
+      `Git could not load the review (${args[0]}): ${errors.trim() || `exit ${exitCode}`}`,
+    );
+  return output;
+}
+
+/** Missing base refs and unrelated histories fall back locally; operational Git errors remain errors. */
+async function windowMergeBase(repoRoot: string, base: string) {
+  for (const ref of [`origin/${base}`, base]) {
+    const commit = (
+      await git(
+        repoRoot,
+        ["rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`],
+        [0, 1],
+      )
+    ).trim();
+    if (!commit) continue;
+    const mergeBase = (await git(repoRoot, ["merge-base", commit, "HEAD"], [0, 1])).trim();
+    if (mergeBase) return mergeBase;
+  }
+  return "HEAD";
 }
 
 /** The workspace sections, with each ticket linked to its merge request. */
@@ -188,11 +213,7 @@ export async function loadWindowDiff(
 ): Promise<WindowDiffFile[]> {
   const base = readRepoIntegrations(repoRoot).workflow.baseBranch;
   // The remote base when there is one, else the local branch (a repository without a remote).
-  const mergeBase =
-    scope === "branch"
-      ? (await git(repoRoot, ["merge-base", `origin/${base}`, "HEAD"])).trim() ||
-        (await git(repoRoot, ["merge-base", base, "HEAD"])).trim()
-      : "HEAD";
+  const mergeBase = scope === "branch" ? await windowMergeBase(repoRoot, base) : "HEAD";
   const [tracked, untrackedOutput, pendingOutput] = await Promise.all([
     git(repoRoot, ["diff", "--no-color", "--no-ext-diff", mergeBase || "HEAD"]),
     git(repoRoot, ["ls-files", "--others", "--exclude-standard", "-z"]),
@@ -361,5 +382,5 @@ export function markWindowCommentRead(repoRoot: string, id: number, replyCount: 
 
 /** The git user's name, for the user's avatar and name in comment threads. */
 export async function loadWindowUserName(repoRoot: string) {
-  return (await git(repoRoot, ["config", "user.name"])).trim() || "You";
+  return (await git(repoRoot, ["config", "user.name"], [0, 1])).trim() || "You";
 }
