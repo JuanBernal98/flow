@@ -76,6 +76,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- The empty Changes sidebar shows a quiet centered status matching the diff pane.
+
 - Empty desktop diffs show a centered, theme-aware status integrated into the review pane.
 
 - Desktop diff refreshes use nonblocking Git reads and skip redundant pending-file queries. Hunk data is reused across navigation and rendering, comment reads do not overlap, and scrollbar updates run once per animation frame.

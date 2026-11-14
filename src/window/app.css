@@ -968,6 +968,40 @@ kbd {
   font-size: 12px;
 }
 
+.files-body-is-empty {
+  display: grid;
+  place-items: center;
+  padding: 24px 20px;
+}
+
+.files-empty-state {
+  max-width: 200px;
+  text-align: center;
+}
+
+.files-empty-state svg {
+  display: block;
+  margin: 0 auto 14px;
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+.files-empty-state h3 {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.files-empty-state p {
+  margin: 0;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1.7;
+  text-wrap: balance;
+}
+
 /* Status bar */
 .statusbar {
   display: flex;

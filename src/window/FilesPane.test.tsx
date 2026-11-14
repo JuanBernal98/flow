@@ -71,7 +71,7 @@ describe("window change navigation", () => {
     const empty = renderTestFilesPane(new Set(), []);
     expect(empty).toContain(heading);
     expect(empty).toContain("Changes (0)");
-    expect(empty).toContain("No changes");
+    expect(empty).toContain("All clear");
     expect(empty).not.toContain('class="file-group"');
   });
 

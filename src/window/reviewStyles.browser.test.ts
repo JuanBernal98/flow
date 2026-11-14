@@ -92,6 +92,22 @@ test.skipIf(!browser)(
         { scope: "pending", title: "No pending changes", centered: true, fits: true },
         { scope: "branch", title: "No changes on this branch yet", centered: true, fits: true },
       ]);
+      const emptySidebars = z
+        .array(
+          z.object({
+            width: z.number(),
+            title: z.string(),
+            centered: z.boolean(),
+            fits: z.boolean(),
+          }),
+        )
+        .parse(
+          JSON.parse(/<pre id="empty-sidebar-result">([^<]+)<\/pre>/.exec(output)?.[1] ?? "null"),
+        );
+      expect(emptySidebars).toEqual([
+        { width: 320, title: "All clear", centered: true, fits: true },
+        { width: 240, title: "All clear", centered: true, fits: true },
+      ]);
       for (const geometry of measurements) {
         expect(geometry.separatorMarker).toBe('"…"');
         expect(geometry.separatorLine).toContain("linear-gradient");

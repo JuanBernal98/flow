@@ -183,6 +183,21 @@ function renderTestWindowDiffs() {
         ))}
       </section>
       {diffs}
+      {([320, 240] as const).map((width) => (
+        <div
+          id={`empty-sidebar-${width}`}
+          key={width}
+          style={{ width, height: 500, display: "grid" }}
+        >
+          <FilesPane
+            files={[]}
+            activePath={null}
+            selectedPaths={new Set()}
+            onSelectionChange={onTestProposalCompleted}
+            onOpen={onTestProposalCompleted}
+          />
+        </div>
+      ))}
       {(["ready", "preparing"] as const).map((status) => (
         <div
           key={status}
@@ -285,6 +300,24 @@ function measureTestColumns() {
   emptyResult.id = "empty-result";
   emptyResult.textContent = JSON.stringify(emptyStates);
   document.body.append(emptyResult);
+  const emptySidebars = [320, 240].map((width) => {
+    const pane = document.querySelector<HTMLElement>(`#empty-sidebar-${width} .files-body`)!;
+    const content = pane.querySelector<HTMLElement>(".files-empty-state")!;
+    const bounds = pane.getBoundingClientRect();
+    const status = content.getBoundingClientRect();
+    return {
+      width,
+      title: content.querySelector("h3")?.textContent,
+      centered:
+        Math.abs(status.left + status.width / 2 - bounds.left - bounds.width / 2) < 1 &&
+        Math.abs(status.top + status.height / 2 - bounds.top - bounds.height / 2) < 1,
+      fits: pane.scrollWidth === pane.clientWidth && pane.scrollHeight === pane.clientHeight,
+    };
+  });
+  const sidebarResult = document.createElement("pre");
+  sidebarResult.id = "empty-sidebar-result";
+  sidebarResult.textContent = JSON.stringify(emptySidebars);
+  document.body.append(sidebarResult);
   const panels = (["ready", "preparing"] as const).map((status) => {
     const panel = document.querySelector<HTMLElement>(`#panel-${status} .commit-panel`)!;
     const body = panel.querySelector<HTMLElement>(".commit-panel-body")!;

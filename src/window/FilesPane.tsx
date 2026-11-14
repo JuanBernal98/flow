@@ -89,13 +89,30 @@ export function FilesPane({
       </div>
       <div className="files-view" hidden={proposalOpen}>
         <div
-          className="files-body"
+          className={`files-body${files?.length === 0 ? " files-body-is-empty" : ""}`}
           role="tabpanel"
           id="changes-panel"
           aria-labelledby="changes-tab"
         >
           {files === null ? <p className="files-empty">Loading changes…</p> : null}
-          {files?.length === 0 ? <p className="files-empty">No changes</p> : null}
+          {files?.length === 0 ? (
+            <div className="files-empty-state" role="status">
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.25"
+                aria-hidden="true"
+              >
+                <circle cx="12" cy="12" r="9" />
+                <path d="m8 12 2.5 2.5L16 9" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              <h3>All clear</h3>
+              <p>Changed files will appear here.</p>
+            </div>
+          ) : null}
           {groups
             .filter((group) => group.files.length > 0)
             .map((group) => {
