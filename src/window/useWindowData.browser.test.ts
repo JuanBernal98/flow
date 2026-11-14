@@ -74,6 +74,8 @@ test.skipIf(!browser)(
             reads: z.number(),
             comments: z.number(),
             errors: z.array(z.string()),
+            workspace: z.string(),
+            acceptedWorkspaces: z.array(z.string()),
           })
           .parse(JSON.parse(result!)),
       ).toEqual({
@@ -83,7 +85,15 @@ test.skipIf(!browser)(
         reads: 2,
         comments: 1,
         errors: ["Temporary read failure"],
+        workspace: "fresh",
+        acceptedWorkspaces: ["fresh"],
       });
+      const overview = z
+        .object({ latestWon: z.boolean(), deselected: z.boolean(), errors: z.array(z.string()) })
+        .parse(
+          JSON.parse(/<pre id="overview-race-result">([^<]+)<\/pre>/.exec(output)?.[1] ?? "null"),
+        );
+      expect(overview).toEqual({ latestWon: true, deselected: true, errors: [] });
     } finally {
       await server.stop(true);
       rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });

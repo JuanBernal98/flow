@@ -102,9 +102,12 @@ export function useWindowData({
     };
   }, [reloadDiff]);
 
+  const workspaceLoad = useRef(0);
   const reloadWorkspace = useCallback(() => {
+    const requestId = ++workspaceLoad.current;
     void api<WindowWorkspace>("/api/workspace")
       .then((loaded) => {
+        if (requestId !== workspaceLoad.current) return;
         setWorkspace(loaded);
         onWorkspaceLoaded(loaded);
         setTiming((current) =>
@@ -113,9 +116,16 @@ export function useWindowData({
             .join(" · "),
         );
       })
-      .catch(reportError);
+      .catch((error: unknown) => {
+        if (requestId === workspaceLoad.current) reportError(error);
+      });
   }, [api, onWorkspaceLoaded, reportError]);
-  useEffect(reloadWorkspace, [reloadWorkspace]);
+  useEffect(() => {
+    reloadWorkspace();
+    return () => {
+      workspaceLoad.current++;
+    };
+  }, [reloadWorkspace]);
   useEffect(() => {
     if (!bootstrap)
       void api<{ name: string }>("/api/me")

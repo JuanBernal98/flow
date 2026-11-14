@@ -3,8 +3,11 @@ import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { useWindowData } from "../../src/window/useWindowData";
 import type { WindowBootstrap } from "../../src/window/windowBootstrap";
-import type { WindowDiffScope } from "../../src/window/data";
+import type { WindowDiffScope, WindowWorkspace } from "../../src/window/data";
 import type { PersistedComment } from "../../src/core/comments";
+import { OverviewPane } from "../../src/window/OverviewPane";
+import type { WorkspaceItem } from "../../src/ui/lib/workspace";
+import type { StoredTicketOverview } from "../../src/core/ticketOverview";
 
 const testFiles = ["a.ts", "b.ts"].map((path) => ({
   path,
@@ -28,6 +31,8 @@ let testMaxReads = 0;
 let testCommentReads = 0;
 let testVersion = 0;
 const testErrors: string[] = [];
+let testWorkspaceReads = 0;
+const testWorkspaceAccepted: string[] = [];
 /** Simulate a slow comment read and fresh JSON for both identical and changed diffs. */
 async function callTestWindowAPI<T>(path: string): Promise<T> {
   if (path === "/api/comments") {
@@ -47,7 +52,14 @@ async function callTestWindowAPI<T>(path: string): Promise<T> {
       } satisfies Partial<PersistedComment>,
     ] as T;
   }
-  if (path === "/api/workspace") return testWorkspace as T;
+  if (path === "/api/workspace") {
+    const read = ++testWorkspaceReads;
+    await new Promise<void>((resolve) =>
+      setTimeout(resolve, read === 1 ? 1100 : read === 2 ? 700 : 50),
+    );
+    if (read === 2) throw new Error("Superseded workspace failure");
+    return { ...testWorkspace, branch: read === 1 ? "old" : "fresh" } as T;
+  }
   const files = testFiles.map((file, index) => ({
     ...file,
     patch: index === 0 && testVersion ? "@@ -1 +20 @@\n-old\n+changed\n" : file.patch,
@@ -58,6 +70,10 @@ async function callTestWindowAPI<T>(path: string): Promise<T> {
 function onTestDataLoaded() {}
 function onTestDataError(message: string) {
   testErrors.push(message);
+}
+/** Track accepted workspace responses independently of hook state. */
+function onTestWorkspaceLoaded(workspace: WindowWorkspace) {
+  testWorkspaceAccepted.push(workspace.branch ?? "");
 }
 
 /** Verify serialization, queued post-mutation reads, and per-file identity through actual React effects. */
@@ -70,7 +86,7 @@ function TestWindowData() {
     scope,
     editing: false,
     onDiffLoaded: onTestDataLoaded,
-    onWorkspaceLoaded: onTestDataLoaded,
+    onWorkspaceLoaded: onTestWorkspaceLoaded,
     onError: onTestDataError,
   });
   const latest = useRef(data);
@@ -82,8 +98,12 @@ function TestWindowData() {
     const timers = [
       setTimeout(() => {
         void latest.current.loadComments();
+        latest.current.reload();
       }, 100),
-      setTimeout(() => setScope("branch"), 200),
+      setTimeout(() => {
+        setScope("branch");
+        latest.current.reload();
+      }, 200),
       setTimeout(() => {
         identical = latest.current.diff === initial.diff && latest.current.hunks === initial.hunks;
         testVersion = 1;
@@ -107,6 +127,8 @@ function TestWindowData() {
           reads: testCommentReads,
           comments: latest.current.comments.length,
           errors: testErrors,
+          workspace: latest.current.workspace?.branch,
+          acceptedWorkspaces: testWorkspaceAccepted,
         });
         document.body.append(result);
       }, 2700),
@@ -116,4 +138,83 @@ function TestWindowData() {
   return <p>{data.comments.length} comments</p>;
 }
 
-createRoot(document.getElementById("root")!).render(<TestWindowData />);
+const testOverviewErrors: string[] = [];
+/** Build complete ticket and overview records without reaching any external integrations. */
+function createTestOverviewItem(ticketId: string): WorkspaceItem {
+  return { id: ticketId, ticketId, title: ticketId, section: "todo", status: "pending" };
+}
+/** Deliberately resolve A after B and reject C after it has been deselected. */
+async function callTestOverviewAPI<T>(path: string): Promise<T> {
+  const ticket = path.split("/").at(-1)!;
+  await new Promise<void>((resolve) =>
+    setTimeout(
+      resolve,
+      ticket === "TEST-1" ? 700 : ticket === "TEST-3" || ticket === "TEST-5" ? 300 : 50,
+    ),
+  );
+  if (ticket === "TEST-3" || ticket === "TEST-5") throw new Error("Stale overview failure");
+  return {
+    schema: 1,
+    ticket,
+    writtenAt: "2026-01-01T00:00:00Z",
+    overview: {
+      summary: `Summary for ${ticket}`,
+      why: [],
+      todo: [],
+      acceptance: [],
+      code: [],
+      questions: [],
+      plan: [],
+    },
+  } satisfies StoredTicketOverview as T;
+}
+/** Collect only errors which the actual pane considers current. */
+function onTestOverviewError(message: string) {
+  testOverviewErrors.push(message);
+}
+
+/** Drive the real overview pane through rapid selection changes, deselection and unmount. */
+function TestOverviewRace() {
+  const [item, setItem] = useState<WorkspaceItem | null>(createTestOverviewItem("TEST-1"));
+  const [mounted, setMounted] = useState(true);
+  useEffect(() => {
+    let latestWon = false;
+    let deselected = false;
+    const timers = [
+      setTimeout(() => setItem(createTestOverviewItem("TEST-2")), 100),
+      setTimeout(() => {
+        latestWon =
+          document.querySelector("#overview-race .summary")?.textContent === "Summary for TEST-2";
+      }, 900),
+      setTimeout(() => setItem(createTestOverviewItem("TEST-3")), 1000),
+      setTimeout(() => setItem(createTestOverviewItem("TEST-4")), 1100),
+      setTimeout(() => setItem(null), 1400),
+      setTimeout(() => {
+        deselected = !document.querySelector("#overview-race .summary");
+        setItem(createTestOverviewItem("TEST-5"));
+      }, 1500),
+      setTimeout(() => setMounted(false), 1600),
+      setTimeout(() => {
+        const result = document.createElement("pre");
+        result.id = "overview-race-result";
+        result.textContent = JSON.stringify({ latestWon, deselected, errors: testOverviewErrors });
+        document.body.append(result);
+      }, 2000),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, []);
+  return (
+    <div id="overview-race">
+      {mounted ? (
+        <OverviewPane item={item} api={callTestOverviewAPI} onError={onTestOverviewError} />
+      ) : null}
+    </div>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(
+  <>
+    <TestWindowData />
+    <TestOverviewRace />
+  </>,
+);

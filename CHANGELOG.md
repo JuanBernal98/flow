@@ -218,6 +218,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Fixed
 
+- Desktop ticket overviews and workspace refreshes ignore superseded responses. Git diff failures report an error instead of appearing as an empty review.
+
 - Clicking a file, including the current file or a collapsed file, issues a fresh navigation request instead of competing with hunk scrolling.
 
 - Stale desktop commit proposals refresh automatically, preserving selected files and requiring fresh approval. Changes and Commit share their in-flight state, including proposal progress when switching tabs.

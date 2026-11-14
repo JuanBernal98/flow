@@ -8,7 +8,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { createRoot } from "react-dom/client";
 import { registerClaudeCodeThemes } from "../ui/diff/claudeCodeThemes";
 import type { PersistedComment } from "../core/comments";
-import type { StoredTicketOverview } from "../core/ticketOverview";
+import { OverviewPane } from "./OverviewPane";
 import type { WorkspaceItem, WorkspaceSectionId } from "../ui/lib/workspace";
 import type {
   WindowDiffFile,
@@ -532,7 +532,7 @@ function App() {
             </div>
           </aside>
         ) : null}
-        {showOverview ? <OverviewPane item={selected} /> : null}
+        {showOverview ? <OverviewPane item={selected} api={api} onError={setNotice} /> : null}
         <DiffPane
           navigation={reviewNavigation}
           files={diff}
@@ -967,86 +967,6 @@ const SidebarItem = memo(function SidebarItem({
     </div>
   );
 });
-
-function OverviewPane({ item }: { item: WorkspaceItem | null }) {
-  const [stored, setStored] = useState<StoredTicketOverview | null | undefined>(undefined);
-  const ticketId = item?.ticketId;
-  useEffect(() => {
-    setStored(undefined);
-    if (!ticketId) return;
-    void api<StoredTicketOverview | null>(`/api/overview/${ticketId}`).then(setStored);
-  }, [ticketId]);
-
-  if (!item) {
-    return (
-      <section className="overview">
-        <p className="empty">Pick a ticket with ↑↓ and Enter.</p>
-      </section>
-    );
-  }
-  const overview = stored?.overview;
-  return (
-    <section className="overview">
-      <div className="eyebrow">
-        {item.url ? (
-          <a href={item.url} target="_blank" rel="noreferrer">
-            {item.ticketId}
-          </a>
-        ) : (
-          <span>{item.ticketId}</span>
-        )}
-        {item.state ? <span>{item.state}</span> : null}
-        {item.mergeRequestUrl ? (
-          <a href={item.mergeRequestUrl} target="_blank" rel="noreferrer">
-            !{item.mergeRequestIid}
-          </a>
-        ) : null}
-      </div>
-      <h1>{item.title}</h1>
-      {stored === undefined && ticketId ? <p className="empty">Loading…</p> : null}
-      {stored === null || !ticketId ? (
-        <p className="empty">No overview yet. Switch to the ticket and Claude writes one.</p>
-      ) : null}
-      {overview ? (
-        <>
-          <p className="summary">{overview.summary}</p>
-          <Bullets title="Why" items={overview.why} />
-          <Bullets title="What to do" items={overview.todo} />
-          <Bullets title="Acceptance criteria" items={overview.acceptance} />
-          {overview.code.length > 0 ? (
-            <>
-              <h2>Where in the code</h2>
-              <ul>
-                {overview.code.map((entry) => (
-                  <li key={entry.path}>
-                    <code>{entry.path}</code> {entry.note}
-                  </li>
-                ))}
-              </ul>
-            </>
-          ) : null}
-          <Bullets title="Questions & assumptions" items={overview.questions} />
-          <Bullets title="Plan" items={overview.plan} ordered />
-        </>
-      ) : null}
-    </section>
-  );
-}
-
-function Bullets({ title, items, ordered }: { title: string; items: string[]; ordered?: boolean }) {
-  if (items.length === 0) return null;
-  const List = ordered ? "ol" : "ul";
-  return (
-    <>
-      <h2>{title}</h2>
-      <List>
-        {items.map((text) => (
-          <li key={text}>{text}</li>
-        ))}
-      </List>
-    </>
-  );
-}
 
 /** Follow macOS light and dark mode, for the `claude` theme that tracks it. */
 function useSystemAppearance() {
