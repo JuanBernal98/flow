@@ -150,6 +150,38 @@ function renderTestWindowDiffs() {
   };
   return (
     <>
+      <section style={{ display: "flex", gap: 24 }}>
+        {(["pending", "branch"] as const).map((scope) => (
+          <div
+            key={scope}
+            id={`empty-${scope}`}
+            style={{ width: scope === "pending" ? 760 : 260, height: 320, display: "grid" }}
+          >
+            <DiffPane
+              navigation={null}
+              files={[]}
+              selectedPaths={new Set()}
+              onSelectFile={onTestProposalCompleted}
+              diffStyle="unified"
+              scope={scope}
+              theme={testTheme}
+              hunks={[]}
+              hunksByFile={new Map()}
+              focusedHunk={null}
+              comments={[]}
+              editing={false}
+              replyingTo={null}
+              onSaveComment={onTestProposalCompleted}
+              onCancelComment={onTestProposalCompleted}
+              onStartComment={onTestProposalCompleted}
+              onReplyComment={onTestProposalCompleted}
+              onReadComment={onTestProposalCompleted}
+              onFocusHunk={onTestProposalCompleted}
+              userName="Test"
+            />
+          </div>
+        ))}
+      </section>
       {diffs}
       {(["ready", "preparing"] as const).map((status) => (
         <div
@@ -235,6 +267,24 @@ function measureTestColumns() {
     return;
   }
   document.getElementById("browser-result")!.textContent = JSON.stringify(measurements);
+  const emptyStates = (["pending", "branch"] as const).map((scope) => {
+    const pane = document.querySelector<HTMLElement>(`#empty-${scope} .diff`)!;
+    const content = pane.querySelector<HTMLElement>(".diff-empty")!;
+    const bounds = pane.getBoundingClientRect();
+    const status = content.getBoundingClientRect();
+    return {
+      scope,
+      title: content.querySelector("h2")?.textContent,
+      centered:
+        Math.abs(status.left + status.width / 2 - bounds.left - bounds.width / 2) < 1 &&
+        Math.abs(status.top + status.height / 2 - bounds.top - bounds.height / 2) < 1,
+      fits: pane.scrollWidth === pane.clientWidth && pane.scrollHeight === pane.clientHeight,
+    };
+  });
+  const emptyResult = document.createElement("pre");
+  emptyResult.id = "empty-result";
+  emptyResult.textContent = JSON.stringify(emptyStates);
+  document.body.append(emptyResult);
   const panels = (["ready", "preparing"] as const).map((status) => {
     const panel = document.querySelector<HTMLElement>(`#panel-${status} .commit-panel`)!;
     const body = panel.querySelector<HTMLElement>(".commit-panel-body")!;

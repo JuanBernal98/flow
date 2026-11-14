@@ -165,11 +165,28 @@ export const DiffPane = memo(function DiffPane({
     return <main className="diff" />;
   }
   return (
-    <main className="diff" style={gutter}>
+    <main className={`diff${files.length === 0 ? " diff-is-empty" : ""}`} style={gutter}>
       {files.length === 0 ? (
-        <p className="empty">
-          {scope === "pending" ? "No pending changes." : "No changes on this branch yet."}
-        </p>
+        <div className="diff-empty" role="status">
+          <svg
+            width="32"
+            height="32"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.25"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <path d="m8 12 2.5 2.5L16 9" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <h2>{scope === "pending" ? "No pending changes" : "No changes on this branch yet"}</h2>
+          <p>
+            {scope === "pending"
+              ? "Changes will appear here as you edit files."
+              : "Your branch changes will appear here."}
+          </p>
+        </div>
       ) : null}
       {files.map((file) => {
         const focused = focusedHunk?.path === file.path ? focusedHunk : null;

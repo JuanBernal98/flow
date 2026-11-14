@@ -464,6 +464,40 @@ body {
   margin-bottom: 16px;
 }
 
+.diff-is-empty {
+  display: grid;
+  place-items: center;
+  padding: 32px 24px;
+}
+
+.diff-empty {
+  max-width: 320px;
+  text-align: center;
+}
+
+.diff-empty svg {
+  display: block;
+  margin: 0 auto 16px;
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+.diff-empty h2 {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.diff-empty p {
+  margin: 0;
+  color: var(--faint);
+  font-size: 12px;
+  line-height: 1.7;
+  text-wrap: balance;
+}
+
 .stat {
   font:
     12px ui-monospace,

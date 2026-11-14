@@ -78,6 +78,20 @@ test.skipIf(!browser)(
       const result = /<pre id="browser-result">([^<]+)<\/pre>/.exec(output)?.[1];
       expect(result, output.slice(-1500)).toBeDefined();
       const measurements = GeometrySchema.parse(JSON.parse(result!));
+      const emptyStates = z
+        .array(
+          z.object({
+            scope: z.string(),
+            title: z.string(),
+            centered: z.boolean(),
+            fits: z.boolean(),
+          }),
+        )
+        .parse(JSON.parse(/<pre id="empty-result">([^<]+)<\/pre>/.exec(output)?.[1] ?? "null"));
+      expect(emptyStates).toEqual([
+        { scope: "pending", title: "No pending changes", centered: true, fits: true },
+        { scope: "branch", title: "No changes on this branch yet", centered: true, fits: true },
+      ]);
       for (const geometry of measurements) {
         expect(geometry.separatorMarker).toBe('"…"');
         expect(geometry.separatorLine).toContain("linear-gradient");
