@@ -31,7 +31,10 @@ export function useCommitProposal(api: CommitApi, onCompleted: () => void) {
           ["preparing", "ready", "approved", "executing"].includes(next.status)
         )
           setOpen(true);
-        if (next.status === "completed") onCompleted();
+        if (next.status === "completed") {
+          setOpen(false);
+          onCompleted();
+        }
       }
     },
     [onCompleted],

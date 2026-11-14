@@ -1,5 +1,5 @@
 /** @jsxImportSource react */
-import { useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { FilesPane } from "../../src/window/FilesPane";
 import { CommitProposalPanel } from "../../src/window/CommitProposalPanel";
 import { activateVisibleCommitAction } from "../../src/window/CommitActionButton";
@@ -52,6 +52,83 @@ async function callTestSidebarAPI<T>(): Promise<T> {
 }
 /** Stable callbacks avoid unrelated fixture updates. */
 function onTestSidebarAction() {}
+
+/** Exercise both completion response paths and preserve the visible error when execution fails. */
+export function TestCommitReturn({ mode }: { mode: "completed" | "poll" | "failed" }) {
+  const calls = useRef(0);
+  const reloads = useRef(0);
+  const submitted = useRef(false);
+  const api = useCallback(
+    async <T,>(_path: string, init?: { method?: string }): Promise<T> => {
+      calls.current++;
+      if (init?.method === "POST") submitted.current = true;
+      const status = !submitted.current
+        ? "ready"
+        : mode === "failed"
+          ? "failed"
+          : mode === "poll" && init?.method === "POST"
+            ? "approved"
+            : "completed";
+      return {
+        ...structuredClone(testProposal),
+        status,
+        ...(status === "failed" ? { error: "Commit hook failed" } : {}),
+      } as T;
+    },
+    [mode],
+  );
+  const onCompleted = useCallback(() => {
+    reloads.current++;
+  }, []);
+  const flow = useCommitProposal(api, onCompleted);
+  useEffect(() => {
+    const root = () => document.getElementById(`commit-return-${mode}`)!;
+    const timers = [
+      setTimeout(
+        () => root().querySelector<HTMLButtonElement>(".commit-panel-footer button")!.click(),
+        500,
+      ),
+      setTimeout(() => {
+        const result = document.createElement("pre");
+        result.id = `commit-return-result-${mode}`;
+        result.textContent = JSON.stringify({
+          changesVisible:
+            root().querySelector("#changes-tab")!.getAttribute("aria-selected") === "true",
+          commitVisible:
+            root().querySelector("#commit-tab")!.getAttribute("aria-selected") === "true",
+          errorVisible: !!root().querySelector<HTMLElement>('[role="alert"]')?.getClientRects()
+            .length,
+          reloads: reloads.current,
+        });
+        document.body.append(result);
+      }, 2400),
+    ];
+    return () => timers.forEach(clearTimeout);
+  }, [mode]);
+  return (
+    <div id={`commit-return-${mode}`} style={{ width: 320, height: 400, display: "grid" }}>
+      <FilesPane
+        files={testFiles}
+        activePath={null}
+        selectedPaths={testSelection}
+        onSelectionChange={onTestSidebarAction}
+        onOpen={onTestSidebarAction}
+        proposalOpen={flow.open}
+        onChanges={flow.close}
+        onCommitTab={flow.show}
+        commitActivity={flow.activity}
+        proposal={
+          <CommitProposalPanel
+            proposal={flow.proposal}
+            pending={flow.pending}
+            error={flow.error}
+            onApprove={(commits) => void flow.approve(commits)}
+          />
+        }
+      />
+    </div>
+  );
+}
 
 /** Switch the real sidebar and verify that its state and action routing survive. */
 export function TestSidebarSwitching() {

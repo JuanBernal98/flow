@@ -76,6 +76,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ### Changed
 
+- Successful desktop commits return the sidebar to Changes automatically; failures keep the commit details visible.
+
 - The empty Changes sidebar shows a quiet centered status matching the diff pane.
 
 - Empty desktop diffs show a centered, theme-aware status integrated into the review pane.

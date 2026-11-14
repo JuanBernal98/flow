@@ -306,6 +306,26 @@ test.skipIf(!browser)(
         posts: 1,
         finished: true,
       });
+      for (const mode of ["completed", "poll", "failed"]) {
+        const result = new RegExp(`<pre id="commit-return-result-${mode}">([^<]+)</pre>`).exec(
+          output,
+        )?.[1];
+        expect(
+          z
+            .object({
+              changesVisible: z.boolean(),
+              commitVisible: z.boolean(),
+              errorVisible: z.boolean(),
+              reloads: z.number(),
+            })
+            .parse(JSON.parse(result ?? "null")),
+        ).toEqual({
+          changesVisible: mode !== "failed",
+          commitVisible: mode === "failed",
+          errorVisible: mode === "failed",
+          reloads: mode === "failed" ? 0 : 1,
+        });
+      }
       const resize = z
         .object({
           stableHeight: z.boolean(),

@@ -8,7 +8,7 @@ import type { CommitProposal } from "../../src/core/commitProposal";
 import { FilesPane } from "../../src/window/FilesPane";
 import { useCommitProposal } from "../../src/window/useCommitProposal";
 import { TestInlineComments } from "./window-comments-browser";
-import { TestSidebarSwitching } from "./window-sidebar-browser";
+import { TestSidebarSwitching, TestCommitReturn } from "./window-sidebar-browser";
 import { TestReviewNavigation } from "./window-navigation-browser";
 import {
   TestCommentNotifications,
@@ -227,6 +227,9 @@ function renderTestWindowDiffs() {
       <TestEmptyProposalPolling />
       <TestInlineComments />
       <TestSidebarSwitching />
+      <TestCommitReturn mode="completed" />
+      <TestCommitReturn mode="poll" />
+      <TestCommitReturn mode="failed" />
       <TestReviewNavigation />
       <TestCommentNotifications />
       <TestSharedProposalActivity />
